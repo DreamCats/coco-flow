@@ -1,0 +1,21 @@
+[project]
+name = "coco-flow"
+version = "0.1.0"
+description = "Workflow product layer for PRD tasks, worktrees, and local API."
+readme = "README.md"
+authors = [
+    { name = "maifeng", email = "maifeng@bytedance.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.135.3",
+    "typer>=0.24.1",
+    "uvicorn[standard]>=0.44.0",
+]
+
+[project.scripts]
+coco-flow = "coco_flow:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
