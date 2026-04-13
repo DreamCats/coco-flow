@@ -490,14 +490,14 @@ export function TaskDetailPage() {
   const hasGeneratedPlan = hasActionableArtifact(task.artifacts['design.md']) && hasActionableArtifact(task.artifacts['plan.md'])
   const deletableStatuses = new Set<TaskStatus>(['initialized', 'refined', 'planned', 'failed'])
   const canDelete = deletableStatuses.has(task.status)
-  const canStartPlan = task.status === 'refined' || task.status === 'planned'
+  const canStartPlan = task.status === 'refined' || task.status === 'planned' || task.status === 'failed'
   const singleRepo = task.repos.length === 1 ? task.repos[0] : null
   const canStartCode = singleRepo ? canStartCodeForRepo(singleRepo, hasGeneratedPlan) : false
   const canResetCode = singleRepo ? canResetCodeForRepo(singleRepo) : false
   const canArchiveCode = singleRepo ? canArchiveCodeForRepo(singleRepo) : false
   const remainingRepos = task.repos.filter((repo) => canStartCodeForRepo(repo, hasGeneratedPlan))
   const canStartRemainingCode = task.repos.length > 1 && remainingRepos.length > 0 && task.status !== 'coding'
-  const planActionLabel = task.status === 'planned' ? '重新 Plan' : '开始 Plan'
+  const planActionLabel = task.status === 'planned' || task.status === 'failed' ? '重新 Plan' : '开始 Plan'
   const codeActionLabel = singleRepo?.status === 'failed' ? '重试实现' : '开始实现'
   const actionBusy = Boolean(planStarting || codeStartingRepo || batchCodeStarting || resettingRepo || archivingRepo)
   const polling = shouldContinuePolling(task, batchCodeStarting)

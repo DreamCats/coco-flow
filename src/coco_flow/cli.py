@@ -9,6 +9,9 @@ import typer
 import uvicorn
 
 from coco_flow.api import create_app
+from coco_flow.config import load_settings
+from coco_flow.daemon_client import shutdown as shutdown_daemon, start_daemon, status as daemon_status, wait_for_daemon
+from coco_flow.daemon_server import run_daemon_server
 from coco_flow.services import TaskStore
 from coco_flow.services.task_code import code_task
 from coco_flow.services.task_lifecycle import archive_task, reset_task
@@ -22,9 +25,11 @@ app = typer.Typer(
 api_app = typer.Typer(help="Run the local FastAPI service.")
 tasks_app = typer.Typer(help="Inspect task roots and task summaries.")
 ui_app = typer.Typer(help="Serve the built web UI together with the local API.")
+daemon_app = typer.Typer(help="Manage the local coco-flow ACP daemon.")
 app.add_typer(api_app, name="api")
 app.add_typer(tasks_app, name="tasks")
 app.add_typer(ui_app, name="ui")
+app.add_typer(daemon_app, name="daemon")
 
 
 @app.command("version")
@@ -153,6 +158,31 @@ def serve_ui(
         host=host,
         port=port,
     )
+
+
+@daemon_app.command("serve")
+def serve_daemon() -> None:
+    run_daemon_server(load_settings())
+
+
+@daemon_app.command("start")
+def start_daemon_cmd() -> None:
+    settings = load_settings()
+    start_daemon(settings)
+    wait_for_daemon(settings)
+    typer.echo("coco-flow daemon started")
+
+
+@daemon_app.command("status")
+def daemon_status_cmd() -> None:
+    info = daemon_status(load_settings())
+    typer.echo(json.dumps(info, ensure_ascii=False, indent=2))
+
+
+@daemon_app.command("stop")
+def stop_daemon_cmd() -> None:
+    shutdown_daemon(load_settings())
+    typer.echo("coco-flow daemon stopped")
 
 
 def package_version() -> str:

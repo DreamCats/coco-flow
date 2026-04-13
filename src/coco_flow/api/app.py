@@ -19,12 +19,13 @@ from coco_flow.models import (
     UpdateArtifactResponse,
 )
 from coco_flow.services import TaskStore
+from coco_flow.services.task_background import start_background_plan, start_background_refine
 from coco_flow.services.task_code import code_task
 from coco_flow.services.task_create import create_task
 from coco_flow.services.task_edit import update_artifact
 from coco_flow.services.fs_tools import list_fs_entries, list_fs_roots
 from coco_flow.services.task_lifecycle import archive_task, reset_task
-from coco_flow.services.task_plan import plan_task
+from coco_flow.services.task_plan import start_planning_task
 from coco_flow.services.repo_tools import list_recent_repos, validate_repo_path
 from coco_flow.services.task_refine import refine_task
 from coco_flow.services.view_compat import task_detail_item, task_list_item
@@ -86,6 +87,7 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
                 repos=payload.repos,
                 settings=store.settings,
             )
+            start_background_refine(task_id, store.settings)
             return CreateTaskResponse(task_id=task_id, status=status)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -151,10 +153,11 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
                 raise HTTPException(status_code=404, detail=message) from error
             raise HTTPException(status_code=409, detail=message) from error
 
-    @app.post("/api/tasks/{task_id}/plan", response_model=TaskActionResponse)
+    @app.post("/api/tasks/{task_id}/plan", response_model=TaskActionResponse, status_code=202)
     def plan_task_handler(task_id: str) -> TaskActionResponse:
         try:
-            status = plan_task(task_id, settings=store.settings)
+            status = start_planning_task(task_id, settings=store.settings)
+            start_background_plan(task_id, store.settings)
             return TaskActionResponse(task_id=task_id, status=status)
         except ValueError as error:
             message = str(error)

@@ -15,6 +15,8 @@ class Settings:
     coco_bin: str
     native_query_timeout: str
     native_code_timeout: str
+    acp_idle_timeout_seconds: float
+    daemon_idle_timeout_seconds: float
 
 
 def load_settings() -> Settings:
@@ -31,6 +33,8 @@ def load_settings() -> Settings:
     coco_bin = os.getenv("COCO_FLOW_COCO_BIN", "coco").strip() or "coco"
     native_query_timeout = os.getenv("COCO_FLOW_NATIVE_QUERY_TIMEOUT", "90s").strip() or "90s"
     native_code_timeout = os.getenv("COCO_FLOW_NATIVE_CODE_TIMEOUT", "10m").strip() or "10m"
+    acp_idle_timeout_seconds = float(os.getenv("COCO_FLOW_ACP_IDLE_TIMEOUT_SECONDS", "600").strip() or "600")
+    daemon_idle_timeout_seconds = float(os.getenv("COCO_FLOW_DAEMON_IDLE_TIMEOUT_SECONDS", "3600").strip() or "3600")
     return Settings(
         config_root=config_root,
         task_root=task_root,
@@ -40,4 +44,6 @@ def load_settings() -> Settings:
         coco_bin=coco_bin,
         native_query_timeout=native_query_timeout,
         native_code_timeout=native_code_timeout,
+        acp_idle_timeout_seconds=acp_idle_timeout_seconds,
+        daemon_idle_timeout_seconds=daemon_idle_timeout_seconds,
     )

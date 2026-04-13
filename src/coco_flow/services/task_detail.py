@@ -43,7 +43,7 @@ def build_task_detail(
         source_label=source_label,
         next_action=build_next_action(task_id, status, task_dir, repos),
         repos=repos,
-        timeline=build_timeline(status),
+        timeline=build_timeline(status, task_dir),
         artifacts=build_artifacts(task_dir),
     )
 
@@ -121,6 +121,8 @@ def build_next_action(
         return f"coco-flow tasks refine {task_id}"
     if status == "planning":
         return "plan 正在执行，请稍候刷新任务详情。"
+    if status == "failed" and (not has_design or not has_plan):
+        return f"coco-flow tasks plan {task_id}"
     if not has_design or not has_plan:
         return f"coco-flow prd plan --task {task_id}"
     if status == "coding":
@@ -153,7 +155,7 @@ def suggest_next_repo(repos: list[RepoBinding]) -> str | None:
     return None
 
 
-def build_timeline(status: str) -> list[TimelineItem]:
+def build_timeline(status: str, task_dir: Path) -> list[TimelineItem]:
     refine_state, plan_state, code_state, archive_state = (
         "pending",
         "pending",
@@ -211,10 +213,17 @@ def build_timeline(status: str) -> list[TimelineItem]:
         code_detail = "已完成 code"
         archive_detail = "已归档"
     elif status == "failed":
-        refine_state, plan_state, code_state = "done", "done", "current"
-        refine_detail = "已生成 refined PRD"
-        plan_detail = "已完成 plan"
-        code_detail = "存在失败的 repo，需继续处理"
+        has_design = (task_dir / "design.md").exists()
+        has_plan = (task_dir / "plan.md").exists()
+        if not has_design or not has_plan:
+            refine_state, plan_state = "done", "current"
+            refine_detail = "已生成 refined PRD"
+            plan_detail = "plan 执行失败，请查看 plan.log"
+        else:
+            refine_state, plan_state, code_state = "done", "done", "current"
+            refine_detail = "已生成 refined PRD"
+            plan_detail = "已完成 plan"
+            code_detail = "存在失败的 repo，需继续处理"
 
     return [
         TimelineItem(label="Refine", state=refine_state, detail=refine_detail),

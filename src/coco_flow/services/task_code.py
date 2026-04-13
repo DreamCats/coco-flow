@@ -8,7 +8,7 @@ import os
 import shutil
 import subprocess
 
-from coco_flow.clients import CocoCliClient
+from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings, load_settings
 from coco_flow.services.task_detail import read_json_file
 from coco_flow.services.task_refine import locate_task_dir
@@ -142,7 +142,11 @@ def code_task_native(
         repo["branch"] = branch
         repo["worktree"] = worktree
 
-        client = CocoCliClient(settings.coco_bin)
+        client = CocoACPClient(
+            settings.coco_bin,
+            idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+            settings=settings,
+        )
         agent_reply = client.run_agent(
             build_native_code_prompt(task_id, repo_id),
             settings.native_code_timeout,

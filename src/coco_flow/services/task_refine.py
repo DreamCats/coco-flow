@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 import re
 
-from coco_flow.clients import CocoCliClient
+from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings, load_settings
 from coco_flow.services.task_detail import read_json_file
 
@@ -60,9 +60,18 @@ def refine_task_native(task_dir: Path, task_meta: dict[str, object], settings: S
     source_markdown = (task_dir / "prd.source.md").read_text() if (task_dir / "prd.source.md").exists() else ""
     source_content = extract_source_content(source_markdown).strip()
     title = str(task_meta.get("title") or task_dir.name)
+    repos_meta = read_json_file(task_dir / "repos.json")
 
-    client = CocoCliClient(settings.coco_bin)
-    raw = client.run_prompt_only(build_refine_prompt(title, source_content), settings.native_query_timeout)
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    raw = client.run_prompt_only(
+        build_refine_prompt(title, source_content),
+        settings.native_query_timeout,
+        cwd=resolve_primary_repo_root(repos_meta),
+    )
     refined = extract_refined_content(raw)
     if not refined:
         raise ValueError("native refine returned empty content")
@@ -86,6 +95,17 @@ def extract_source_content(markdown: str) -> str:
     if separator in markdown:
         return markdown.split(separator, 1)[1].strip()
     return markdown.strip()
+
+
+def resolve_primary_repo_root(repos_meta: dict[str, object]) -> str | None:
+    repos = repos_meta.get("repos")
+    if not isinstance(repos, list) or not repos:
+        return None
+    first = repos[0]
+    if not isinstance(first, dict):
+        return None
+    path = str(first.get("path") or "").strip()
+    return path or None
 
 
 def build_fallback_refined_content(title: str, source_content: str) -> str:
@@ -118,9 +138,10 @@ def build_refine_prompt(title: str, source_content: str) -> str:
 
 要求：
 1. 输出使用中文 Markdown。
-2. 不要提及仓库、代码、工具调用或任何执行过程。
-3. 输出必须直接从 # PRD Refined 开始。
-4. 必须包含以下一级/二级标题：
+2. 你只能基于下面提供的 PRD 原文工作，不要查看仓库、代码、已有实现，也不要提及这些动作。
+3. 不要解释你在做什么，不要输出任何思考过程、前言、说明、分析或“让我先看看”之类的话。
+4. 输出必须直接从 # PRD Refined 开始，前面不能有任何额外文字。
+5. 结构必须包含以下一级/二级标题：
    - # PRD Refined
    - ## 需求概述
    - ## 功能点
@@ -129,7 +150,8 @@ def build_refine_prompt(title: str, source_content: str) -> str:
    - ## 验收标准
    - ## 业务规则
    - ## 待确认问题
-5. 如果信息缺失，请在“待确认问题”中列出，不要编造。
+6. 如果信息缺失，请在“待确认问题”中列出，不要编造。
+7. 保持内容紧凑，尽量把原文信息结构化整理出来。
 
 PRD 标题：{title}
 
@@ -154,4 +176,5 @@ def extract_refined_content(raw: str) -> str:
 def append_refine_log(task_dir: Path, message: str) -> None:
     log_path = task_dir / "refine.log"
     with log_path.open("a", encoding="utf-8") as file:
-        file.write(message + "\n")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        file.write(f"{timestamp} {message}\n")
