@@ -22,6 +22,51 @@ STATUS_FAILED = "failed"
 EXECUTOR_NATIVE = "native"
 EXECUTOR_LOCAL = "local"
 
+PLAN_ASCII_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
+SECTION_MARKERS = {
+    "summary": "=== IMPLEMENTATION SUMMARY ===",
+    "candidate_files": "=== CANDIDATE FILES ===",
+    "steps": "=== IMPLEMENTATION STEPS ===",
+    "risks": "=== RISK NOTES ===",
+    "validation_extra": "=== VALIDATION EXTRA ===",
+}
+DEFAULT_STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "that",
+    "this",
+    "from",
+    "prd",
+    "refined",
+    "md",
+    "ok",
+    "no",
+    "yes",
+    "na",
+}
+SEARCH_FILE_GLOBS = (
+    "*.go",
+    "*.py",
+    "*.ts",
+    "*.tsx",
+    "*.js",
+    "*.jsx",
+    "*.proto",
+    "*.thrift",
+    "*.sql",
+)
+SEARCH_EXCLUDED_PREFIXES = (
+    ".git/",
+    ".livecoding/",
+    "node_modules/",
+    "dist/",
+    ".coco-flow/",
+)
+MAX_SEARCH_FILES = 8
+MAX_UNMATCHED_TERMS = 10
+
 LogHandler = Callable[[str], None]
 
 
@@ -35,20 +80,83 @@ class PlanAISections:
 
 
 @dataclass
+class GlossaryEntry:
+    business: str
+    identifier: str
+    module: str
+
+
+@dataclass
+class RefinedSections:
+    summary: str
+    features: list[str]
+    boundaries: list[str]
+    business_rules: list[str]
+    open_questions: list[str]
+    raw: str
+
+
+@dataclass
 class ContextSnapshot:
     available: bool
     glossary_excerpt: str = ""
     architecture_excerpt: str = ""
     patterns_excerpt: str = ""
     gotchas_excerpt: str = ""
+    glossary_entries: list[GlossaryEntry] | None = None
     missing_files: list[str] | None = None
 
 
 @dataclass
 class ResearchFinding:
+    matched_terms: list[GlossaryEntry]
+    unmatched_terms: list[str]
     candidate_files: list[str]
     candidate_dirs: list[str]
     notes: list[str]
+
+
+@dataclass
+class ComplexityDimension:
+    name: str
+    score: int
+    reason: str
+
+
+@dataclass
+class ComplexityAssessment:
+    dimensions: list[ComplexityDimension]
+    total: int
+    level: str
+    conclusion: str
+
+
+@dataclass
+class PlanTask:
+    id: str
+    title: str
+    goal: str
+    depends_on: list[str]
+    files: list[str]
+    input: list[str]
+    output: list[str]
+    actions: list[str]
+    done: list[str]
+
+
+@dataclass
+class PlanBuild:
+    task_id: str
+    title: str
+    source_value: str
+    source_markdown: str
+    refined_markdown: str
+    repo_lines: list[str]
+    repo_root: str | None
+    context: ContextSnapshot
+    sections: RefinedSections
+    finding: ResearchFinding
+    assessment: ComplexityAssessment
 
 
 def plan_task(task_id: str, settings: Settings | None = None, on_log: LogHandler | None = None) -> str:
@@ -65,12 +173,41 @@ def plan_task(task_id: str, settings: Settings | None = None, on_log: LogHandler
     if status not in {STATUS_REFINED, STATUS_PLANNED, STATUS_PLANNING, STATUS_FAILED}:
         raise ValueError(f"task status {status} does not allow plan")
 
-    executor = cfg.plan_executor.strip().lower()
+    logger = on_log or (lambda line: append_plan_log(task_dir, line))
+    owns_log_lifecycle = on_log is None
+    started_at = datetime.now().astimezone()
+    if owns_log_lifecycle:
+        logger("=== PLAN START ===")
+        logger(f"task_id: {task_id}")
+        logger(f"task_dir: {task_dir}")
+        logger(f"executor: {cfg.plan_executor}")
+
+    try:
+        return _plan_task_impl(task_dir, task_meta, cfg, logger)
+    except Exception as error:
+        if owns_log_lifecycle:
+            logger(f"error: {error}")
+            logger(f"status: {STATUS_FAILED}")
+        raise
+    finally:
+        if owns_log_lifecycle:
+            duration = datetime.now().astimezone() - started_at
+            logger(f"duration: {round(duration.total_seconds(), 3)}s")
+            logger("=== PLAN END ===")
+
+
+def _plan_task_impl(
+    task_dir: Path,
+    task_meta: dict[str, object],
+    settings: Settings,
+    on_log: LogHandler,
+) -> str:
+    executor = settings.plan_executor.strip().lower()
     if executor == EXECUTOR_NATIVE:
-        return plan_task_native(task_dir, task_meta, cfg, on_log=on_log)
+        return plan_task_native(task_dir, task_meta, settings, on_log=on_log)
     if executor == EXECUTOR_LOCAL:
         return plan_task_local(task_dir, task_meta, on_log=on_log)
-    raise ValueError(f"unknown plan executor: {cfg.plan_executor}")
+    raise ValueError(f"unknown plan executor: {settings.plan_executor}")
 
 
 def start_planning_task(task_id: str, settings: Settings | None = None) -> str:
@@ -102,37 +239,16 @@ def mark_task_failed(task_id: str, settings: Settings | None = None) -> str:
     return STATUS_FAILED
 
 
-def plan_task_local(task_dir: Path, task_meta: dict[str, object], on_log: LogHandler | None = None) -> str:
-    title = str(task_meta.get("title") or task_dir.name)
-    source_value = str(task_meta.get("source_value") or "")
-    source_markdown = (task_dir / "prd.source.md").read_text() if (task_dir / "prd.source.md").exists() else ""
-    refined_markdown = (task_dir / "prd-refined.md").read_text() if (task_dir / "prd-refined.md").exists() else ""
-    repos_meta = read_json_file(task_dir / "repos.json")
-    repo_lines = describe_repos(repos_meta)
-    repo_root = resolve_primary_repo_root(repos_meta)
-    context = load_optional_context_snapshot(repo_root)
-    finding = research_codebase(repo_root, title, refined_markdown)
-
-    if on_log is not None:
-        on_log("fallback_local_plan: true")
-        if context.missing_files:
-            on_log(f"context_missing: {', '.join(context.missing_files)}")
-
-    design = build_design(
-        title,
-        source_value,
-        source_markdown,
-        refined_markdown,
-        repo_lines,
-        context=context,
-        finding=finding,
-        ai=None,
-    )
-    plan = build_plan(title, source_value, repo_lines, context=context, finding=finding, ai=None)
+def plan_task_local(task_dir: Path, task_meta: dict[str, object], on_log: LogHandler) -> str:
+    build = prepare_plan_build(task_dir, task_meta)
+    log_plan_research(build, on_log)
+    on_log("fallback_local_plan: true")
+    design = build_design(build, ai=None)
+    plan = build_plan(build, ai=None)
 
     (task_dir / "design.md").write_text(design)
     (task_dir / "plan.md").write_text(plan)
-    append_plan_log(task_dir, f"planned locally at {datetime.now().astimezone().isoformat()}")
+    on_log(f"status: {STATUS_PLANNED}")
 
     _update_task_status(task_dir, task_meta, STATUS_PLANNED)
     sync_repo_statuses(task_dir, STATUS_PLANNED)
@@ -143,71 +259,101 @@ def plan_task_native(
     task_dir: Path,
     task_meta: dict[str, object],
     settings: Settings,
-    on_log: LogHandler | None = None,
+    on_log: LogHandler,
 ) -> str:
-    title = str(task_meta.get("title") or task_dir.name)
-    source_value = str(task_meta.get("source_value") or "")
-    source_markdown = (task_dir / "prd.source.md").read_text() if (task_dir / "prd.source.md").exists() else ""
-    refined_markdown = (task_dir / "prd-refined.md").read_text() if (task_dir / "prd-refined.md").exists() else ""
-    repos_meta = read_json_file(task_dir / "repos.json")
-    repo_lines = describe_repos(repos_meta)
+    build = prepare_plan_build(task_dir, task_meta)
+    log_plan_research(build, on_log)
+    on_log("generator_mode: explorer(readonly)")
+    on_log(f"prompt_start: timeout={settings.native_query_timeout}")
 
     client = CocoACPClient(
         settings.coco_bin,
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
-    repo_root = resolve_primary_repo_root(repos_meta)
-    context = load_optional_context_snapshot(repo_root)
-    finding = research_codebase(repo_root, title, refined_markdown)
-
-    if on_log is not None:
-        on_log("generator_mode: explorer(readonly)")
-        if context.missing_files:
-            on_log(f"context_missing: {', '.join(context.missing_files)}")
-        if finding.candidate_files:
-            on_log(f"candidate_files_count: {len(finding.candidate_files)}")
-        on_log(f"prompt_start: timeout={settings.native_query_timeout}")
-
     try:
         raw = client.run_readonly_agent(
-            build_plan_prompt(title, source_markdown, refined_markdown, repo_lines, context, finding),
+            build_plan_prompt(build),
             settings.native_query_timeout,
-            repo_root or os.getcwd(),
+            build.repo_root or os.getcwd(),
         )
     except ValueError as error:
-        if on_log is not None:
-            on_log(f"generate_plan_with_native_error: {error}")
+        on_log(f"generate_plan_with_native_error: {error}")
         return plan_task_local(task_dir, task_meta, on_log=on_log)
 
-    if on_log is not None:
-        on_log(f"prompt_ok: {len(raw)} bytes")
-
+    on_log(f"prompt_ok: {len(raw)} bytes")
     ai_sections, ok = extract_plan_outputs(raw)
     if not ok:
-        if on_log is not None:
-            on_log("parse_plan_output_error: missing required marker sections")
+        on_log("parse_plan_output_error: missing required marker sections")
         return plan_task_local(task_dir, task_meta, on_log=on_log)
+    validate_plan_outputs(build, ai_sections)
 
-    design = build_design(
-        title,
-        source_value,
-        source_markdown,
-        refined_markdown,
-        repo_lines,
-        context=context,
-        finding=finding,
-        ai=ai_sections,
-    )
-    plan = build_plan(title, source_value, repo_lines, context=context, finding=finding, ai=ai_sections)
+    ai_files = parse_ai_candidate_files(ai_sections.candidate_files)
+    if ai_files:
+        build.finding.candidate_files = ai_files
+        build.finding.candidate_dirs = summarize_dirs(ai_files)
+        build.assessment = score_complexity(build.sections, build.finding)
+        on_log(f"candidate_files_override: {len(ai_files)}")
+        on_log(f"complexity_after_ai: {build.assessment.level} ({build.assessment.total})")
+
+    design = build_design(build, ai=ai_sections)
+    plan = build_plan(build, ai=ai_sections)
 
     (task_dir / "design.md").write_text(design)
     (task_dir / "plan.md").write_text(plan)
-    append_plan_log(task_dir, f"planned by native coco at {datetime.now().astimezone().isoformat()}")
+    on_log(f"status: {STATUS_PLANNED}")
 
     _update_task_status(task_dir, task_meta, STATUS_PLANNED)
     sync_repo_statuses(task_dir, STATUS_PLANNED)
     return STATUS_PLANNED
+
+
+def prepare_plan_build(task_dir: Path, task_meta: dict[str, object]) -> PlanBuild:
+    task_id = task_dir.name
+    title = str(task_meta.get("title") or task_id)
+    source_value = str(task_meta.get("source_value") or "")
+    source_markdown = read_text_if_exists(task_dir / "prd.source.md")
+    refined_markdown = read_text_if_exists(task_dir / "prd-refined.md")
+    repos_meta = read_json_file(task_dir / "repos.json")
+    repo_lines = describe_repos(repos_meta)
+    repo_root = resolve_primary_repo_root(repos_meta)
+    context = load_optional_context_snapshot(repo_root)
+    sections = parse_refined_sections(refined_markdown)
+    finding = research_codebase(repo_root, title, sections, context)
+    assessment = score_complexity(sections, finding)
+    return PlanBuild(
+        task_id=task_id,
+        title=title,
+        source_value=source_value,
+        source_markdown=source_markdown,
+        refined_markdown=refined_markdown,
+        repo_lines=repo_lines,
+        repo_root=repo_root,
+        context=context,
+        sections=sections,
+        finding=finding,
+        assessment=assessment,
+    )
+
+
+def log_plan_research(build: PlanBuild, on_log: LogHandler) -> None:
+    if build.context.missing_files:
+        on_log(f"context_missing: {', '.join(build.context.missing_files)}")
+    on_log(f"context_available: {build.context.available}")
+    on_log(f"glossary_matched_terms: {len(build.finding.matched_terms)}")
+    if build.finding.matched_terms:
+        matched = ", ".join(f"{item.business}->{item.identifier}" for item in build.finding.matched_terms[:6])
+        on_log(f"glossary_hits: {matched}")
+    on_log(f"unmatched_terms_count: {len(build.finding.unmatched_terms)}")
+    if build.finding.unmatched_terms:
+        on_log(f"unmatched_terms: {', '.join(build.finding.unmatched_terms[:6])}")
+    on_log(f"candidate_files_count: {len(build.finding.candidate_files)}")
+    if build.finding.candidate_files:
+        on_log(f"candidate_files: {', '.join(build.finding.candidate_files[:6])}")
+    on_log(f"candidate_dirs_count: {len(build.finding.candidate_dirs)}")
+    if build.finding.notes:
+        on_log(f"research_notes: {' | '.join(build.finding.notes)}")
+    on_log(f"complexity: {build.assessment.level} ({build.assessment.total})")
 
 
 def sync_repo_statuses(task_dir: Path, status: str) -> None:
@@ -255,141 +401,141 @@ def resolve_primary_repo_root(repos_meta: dict[str, object]) -> str | None:
     return path or None
 
 
-def build_design(
-    title: str,
-    source_value: str,
-    source_markdown: str,
-    refined_markdown: str,
-    repo_lines: list[str],
-    context: ContextSnapshot,
-    finding: ResearchFinding,
-    ai: PlanAISections | None,
-) -> str:
-    repo_section = "\n".join(repo_lines) if repo_lines else "- current-repo"
-    source_excerpt = extract_excerpt(source_markdown)
-    refined_excerpt = extract_excerpt(refined_markdown)
-
+def build_design(build: PlanBuild, ai: PlanAISections | None) -> str:
+    repo_section = "\n".join(build.repo_lines) if build.repo_lines else "- current-repo"
     parts = [
         "# Design\n\n",
         "## 背景与目标\n\n",
-        f"- 任务标题：{title}\n",
-        f"- 原始输入：{source_value or '未记录'}\n",
-        "- 基于 refined PRD 和当前仓库上下文整理方案，目标是形成可执行设计草稿。\n\n",
+        f"- task_id: {build.task_id}\n",
+        f"- 任务标题：{build.title}\n",
+        f"- 原始输入：{build.source_value or '未记录'}\n",
+        "- 基于 refined PRD、context 和本地调研结果收敛实现边界。\n\n",
         "## 涉及仓库\n\n",
         f"{repo_section}\n\n",
         "## 需求理解\n\n",
-        f"{refined_excerpt or source_excerpt or '- 当前尚未提取到有效需求内容。'}\n\n",
+        render_requirement_summary(build.sections, build.source_markdown),
+        "\n\n",
+        "## Context 摘要\n\n",
+        render_context_snapshot(build.context),
+        "\n\n",
+        "## 本地调研结果\n\n",
+        render_research_summary(build.finding),
+        "\n\n",
+        "## 复杂度评估\n\n",
+        render_complexity_summary(build.assessment),
+        "\n\n",
+        "## 实施摘要\n\n",
+        render_implementation_summary(ai, build.assessment),
+        "\n\n",
+        "## 候选文件\n\n",
+        render_candidate_files(ai, build.finding.candidate_files),
+        "\n\n",
+        "## 风险与约束\n\n",
+        render_risk_section(ai, build.finding.notes),
+        "\n",
     ]
-
-    if context.available:
-        parts.extend(["## Context 摘要\n\n", render_context_snapshot(context), "\n\n"])
-    if finding.candidate_files:
-        parts.extend(["## 本地候选文件\n\n", ensure_markdown_list("\n".join(finding.candidate_files)), "\n\n"])
-
-    if ai and ai.summary:
-        parts.extend(["## 实施摘要\n\n", ensure_markdown_list(ai.summary), "\n\n"])
-    else:
-        parts.extend(
-            [
-                "## 实施摘要\n\n",
-                "- 先限定本次改动范围，避免在需求尚未明确前扩散实现面。\n",
-                "- 优先保持现有行为不变，只补充本次需求直接相关的实现。\n",
-                "- 先完成最小验证路径，再决定是否继续扩展。\n\n",
-            ]
-        )
-
-    parts.extend(["## 候选文件\n\n", ensure_markdown_list(ai.candidate_files if ai else ""), "\n\n"])
-    parts.extend(["## 风险与约束\n\n", ensure_markdown_list(ai.risks if ai else ""), "\n"])
     return "".join(parts)
 
 
-def build_plan(
-    title: str,
-    source_value: str,
-    repo_lines: list[str],
-    context: ContextSnapshot,
-    finding: ResearchFinding,
-    ai: PlanAISections | None,
-) -> str:
-    repo_section = "\n".join(repo_lines) if repo_lines else "- current-repo"
-
+def build_plan(build: PlanBuild, ai: PlanAISections | None) -> str:
+    tasks = build_plan_tasks(build.sections, build.finding, ai)
+    repo_groups = build_plan_repo_groups(build.finding.candidate_files)
     parts = [
         "# Plan\n\n",
+        f"- task_id: {build.task_id}\n",
+        f"- title: {build.title}\n\n",
         "## 复杂度评估\n\n",
-        "- complexity: 中等 (2)\n",
-        "- 当前按可拆解、可回滚、可验证的方式推进。\n\n",
-        "## 实现目标\n\n",
-        f"- 围绕任务“{title}”形成可执行的最小实现计划。\n",
-        f"- 保持对原始输入“{source_value or '未记录'}”的直接响应。\n\n",
-        "## 涉及仓库\n\n",
-        f"{repo_section}\n\n",
-        "## 任务列表\n\n",
-        ensure_numbered_list(ai.steps if ai else ""),
+        f"- complexity: {build.assessment.level} ({build.assessment.total})\n",
+        f"- 结论: {build.assessment.conclusion}\n\n",
+        "## 实现概要\n\n",
+        render_implementation_summary(ai, build.assessment),
         "\n\n",
-        "## 待确认项\n\n",
-        "- 无额外待确认项。\n\n",
-        "## 验证建议\n\n",
-        "- 仅编译涉及的 package，不执行全仓 build/test。\n",
-        "- 完成实现后建议进行最小范围 review。\n",
     ]
-    if finding.notes:
-        parts.append("\n".join(f"- {note}" for note in finding.notes) + "\n")
-    if ai and ai.validation_extra:
-        parts.append(ensure_markdown_list(ai.validation_extra))
+
+    if build.assessment.total > 6:
+        parts.extend(
+            [
+                "## 结论\n\n",
+                "- 当前需求被判定为复杂，暂不建议直接进入自动 code 阶段。\n",
+                "- 建议先人工拆分需求、补充上下文或补全 PRD 后再重新执行 plan。\n\n",
+            ]
+        )
+    else:
+        parts.extend(["## 实现目标\n\n", render_goal_list(build.sections), "\n\n"])
+
+    if repo_groups:
+        parts.extend(["## 涉及仓库\n\n"])
+        for repo_id, files in repo_groups:
+            parts.append(f"- {repo_id}：{len(files)} 个候选文件\n")
+        parts.append("\n")
+
+    parts.extend(["## 拟改文件\n\n", render_plan_candidate_groups(repo_groups, ai), "\n\n"])
+    parts.extend(["## 任务列表\n\n", render_plan_tasks(tasks), "\n\n"])
+    parts.extend(["## 实施步骤\n\n", render_implementation_steps(tasks, ai), "\n\n"])
+    parts.extend(["## 风险补充\n\n", render_risk_section(ai, build.finding.notes), "\n\n"])
+    parts.extend(["## 待确认项\n\n", render_open_questions(build.sections.open_questions), "\n\n"])
+    parts.extend(["## 验证建议\n\n", render_validation_section(build.finding.notes, ai), "\n"])
     return "".join(parts)
 
 
-def build_plan_prompt(
-    title: str,
-    source_markdown: str,
-    refined_markdown: str,
-    repo_lines: list[str],
-    context: ContextSnapshot,
-    finding: ResearchFinding,
-) -> str:
-    repo_section = "\n".join(repo_lines) if repo_lines else "- current-repo"
-    return f"""你是一名资深技术方案与研发计划助手。基于提供的 PRD refined 内容和任务关联仓库，输出结构化的方案内容。
+def build_plan_prompt(build: PlanBuild) -> str:
+    repo_section = "\n".join(build.repo_lines) if build.repo_lines else "- current-repo"
+    matched_terms = render_glossary_hits(build.finding.matched_terms)
+    unmatched_terms = render_list_block(build.finding.unmatched_terms, default="  - 无")
+    candidate_files = render_list_block(build.finding.candidate_files, default="  - 无")
+    candidate_dirs = render_list_block(build.finding.candidate_dirs, default="  - 无")
+    local_notes = render_list_block(build.finding.notes, default="  - 无")
+    dimension_lines = "\n".join(
+        f"  - {dimension.name}: {dimension.score} | {dimension.reason}" for dimension in build.assessment.dimensions
+    )
+    return f"""你是一名资深技术方案与研发计划助手。基于提供的 PRD refined 内容、本地 context 事实和代码调研结果，输出结构化的方案内容。
 
 要求:
 1. 只能基于提供的信息工作，不要编造未出现的模块、文件或接口。
 2. 不要输出 task_id、title、复杂度总分、待确认项这些固定字段。
 3. 如果需求复杂，仍然要在总结或风险里明确写出“不建议自动实现”。
 4. 输出必须严格使用下面的标记格式:
-=== IMPLEMENTATION SUMMARY ===
+{SECTION_MARKERS["summary"]}
 - ...
-=== CANDIDATE FILES ===
-(每行一个文件路径，只输出你认为真正需要改动的文件。)
+{SECTION_MARKERS["candidate_files"]}
+(每行一个文件路径，只输出你认为真正需要改动的文件，不要盲目照搬本地调研结果。)
 - path/to/file1.go
 - path/to/file2.go
-=== IMPLEMENTATION STEPS ===
+{SECTION_MARKERS["steps"]}
 - ...
-=== RISK NOTES ===
+{SECTION_MARKERS["risks"]}
 - ...
-=== VALIDATION EXTRA ===
+{SECTION_MARKERS["validation_extra"]}
 - ...
 5. 不要输出其它前言或解释。
 
-## PRD Source
-{source_markdown}
-
 ## PRD Refined
-{refined_markdown}
+{build.sections.raw or build.refined_markdown}
 
 ## 任务关联仓库
 {repo_section}
 
 ## Context 摘要
-{render_context_snapshot(context)}
+{render_context_snapshot(build.context)}
+
+## glossary 命中术语
+{matched_terms}
+
+## glossary 未命中术语
+{unmatched_terms}
 
 ## 本地调研结果
-- candidate_files_count: {len(finding.candidate_files)}
-{render_list_block(finding.candidate_files)}
-- candidate_dirs_count: {len(finding.candidate_dirs)}
-{render_list_block(finding.candidate_dirs)}
+- candidate_files_count: {len(build.finding.candidate_files)}
+{candidate_files}
+- candidate_dirs_count: {len(build.finding.candidate_dirs)}
+{candidate_dirs}
 - 本地风险备注：
-{render_list_block(finding.notes)}
+{local_notes}
 
-任务标题：{title}
+## 本地基线复杂度评分
+- total: {build.assessment.total}
+- level: {build.assessment.level}
+{dimension_lines}
 """
 
 
@@ -397,24 +543,23 @@ def extract_plan_outputs(raw: str) -> tuple[PlanAISections, bool]:
     normalized = raw.replace("\r\n", "\n")
     sections = PlanAISections()
     markers = [
-        ("=== IMPLEMENTATION SUMMARY ===", "summary"),
-        ("=== CANDIDATE FILES ===", "candidate_files"),
-        ("=== IMPLEMENTATION STEPS ===", "steps"),
-        ("=== RISK NOTES ===", "risks"),
-        ("=== VALIDATION EXTRA ===", "validation_extra"),
+        (SECTION_MARKERS["summary"], "summary"),
+        (SECTION_MARKERS["candidate_files"], "candidate_files"),
+        (SECTION_MARKERS["steps"], "steps"),
+        (SECTION_MARKERS["risks"], "risks"),
+        (SECTION_MARKERS["validation_extra"], "validation_extra"),
     ]
-
     indexes = [normalized.find(marker) for marker, _ in markers]
     if indexes[0] == -1:
         return PlanAISections(), False
 
-    for i, (marker, field_name) in enumerate(markers):
-        start = indexes[i]
+    for index, (marker, field_name) in enumerate(markers):
+        start = indexes[index]
         if start == -1:
             continue
         content_start = start + len(marker)
         end = len(normalized)
-        for next_index in indexes[i + 1 :]:
+        for next_index in indexes[index + 1 :]:
             if next_index != -1 and next_index > start:
                 end = next_index
                 break
@@ -422,15 +567,714 @@ def extract_plan_outputs(raw: str) -> tuple[PlanAISections, bool]:
     return sections, True
 
 
+def validate_plan_outputs(build: PlanBuild, ai: PlanAISections) -> None:
+    combined = "\n".join([ai.summary, ai.steps, ai.risks, ai.validation_extra])
+    for marker in ("(待生成)", "(待确认)", "未初始化"):
+        if marker in combined:
+            raise ValueError(f"AI 输出包含无效占位符: {marker}")
+    if not ai.summary.strip():
+        raise ValueError("AI plan 缺少实现概要")
+    if build.assessment.total <= 6 and not ai.steps.strip():
+        raise ValueError("AI plan 缺少实施步骤")
+    for bad in ("/livecoding:prd-refine", "/livecoding:prd-plan"):
+        if bad in combined:
+            raise ValueError(f"AI plan 包含错误命令示例: {bad}")
+
+
+def parse_ai_candidate_files(raw: str) -> list[str]:
+    files: list[str] = []
+    for line in raw.splitlines():
+        current = line.strip().removeprefix("- ").removeprefix("* ").strip()
+        if not current:
+            continue
+        if current.startswith(("（", "(")):
+            continue
+        if "." not in current and "/" not in current:
+            continue
+        if " " in current:
+            first = current.split(" ", 1)[0]
+            if "." in first or "/" in first:
+                current = first
+        files.append(current)
+    return dedupe_and_sort(files)[:MAX_SEARCH_FILES]
+
+
 def normalize_ai_section(content: str) -> str:
     cleaned = content.strip()
-    lines = []
+    lines: list[str] = []
     for line in cleaned.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("("):
             continue
         lines.append(stripped)
     return "\n".join(lines).strip()
+
+
+def load_optional_context_snapshot(repo_root: str | None) -> ContextSnapshot:
+    if not repo_root:
+        return ContextSnapshot(
+            available=False,
+            glossary_entries=[],
+            missing_files=["glossary.md", "architecture.md", "patterns.md"],
+        )
+
+    context_dir = Path(repo_root) / ".livecoding" / "context"
+    missing: list[str] = []
+    contents: dict[str, str] = {}
+    for name in ("glossary.md", "architecture.md", "patterns.md", "gotchas.md"):
+        path = context_dir / name
+        if not path.exists():
+            missing.append(name)
+            continue
+        try:
+            contents[name] = path.read_text()
+        except OSError:
+            missing.append(name)
+
+    glossary_content = contents.get("glossary.md", "")
+    return ContextSnapshot(
+        available=bool(contents),
+        glossary_excerpt=excerpt_context(glossary_content),
+        architecture_excerpt=excerpt_context(contents.get("architecture.md", "")),
+        patterns_excerpt=excerpt_context(contents.get("patterns.md", "")),
+        gotchas_excerpt=excerpt_context(contents.get("gotchas.md", "")),
+        glossary_entries=parse_glossary_entries(glossary_content),
+        missing_files=missing,
+    )
+
+
+def parse_glossary_entries(content: str) -> list[GlossaryEntry]:
+    entries: list[GlossaryEntry] = []
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("|"):
+            continue
+        if "---" in line or "业务术语" in line:
+            continue
+        parts = [part.strip() for part in line.strip("|").split("|")]
+        if len(parts) < 4:
+            continue
+        business, identifier, _, module = parts[:4]
+        if not business or not identifier:
+            continue
+        entries.append(GlossaryEntry(business=business, identifier=identifier, module=module))
+    return entries
+
+
+def parse_refined_sections(content: str) -> RefinedSections:
+    sections = split_markdown_sections(content)
+    return RefinedSections(
+        summary=clean_section_lines(sections.get("需求概述", "")),
+        features=extract_bullet_items(sections.get("功能点", "")),
+        boundaries=extract_bullet_items(sections.get("边界条件", "")),
+        business_rules=extract_bullet_items(sections.get("业务规则", "")),
+        open_questions=extract_bullet_items(sections.get("待确认问题", "")),
+        raw=content.strip(),
+    )
+
+
+def split_markdown_sections(content: str) -> dict[str, str]:
+    sections: dict[str, str] = {}
+    current = ""
+    current_lines: list[str] = []
+    for line in content.splitlines():
+        if line.startswith("## "):
+            if current:
+                sections[current] = "\n".join(current_lines).strip()
+            current = line.removeprefix("## ").strip()
+            current_lines = []
+            continue
+        if current:
+            current_lines.append(line)
+    if current:
+        sections[current] = "\n".join(current_lines).strip()
+    return sections
+
+
+def clean_section_lines(section: str) -> str:
+    lines = extract_bullet_items(section)
+    if not lines:
+        return section.strip()
+    return "；".join(lines)
+
+
+def extract_bullet_items(section: str) -> list[str]:
+    items: list[str] = []
+    for line in section.splitlines():
+        current = re.sub(r"^(\d+\.\s*|[-*]\s*)", "", line.strip())
+        if current:
+            items.append(current)
+    return items
+
+
+def research_codebase(
+    repo_root: str | None,
+    title: str,
+    sections: RefinedSections,
+    context: ContextSnapshot,
+) -> ResearchFinding:
+    if not repo_root:
+        return ResearchFinding(
+            matched_terms=[],
+            unmatched_terms=[],
+            candidate_files=[],
+            candidate_dirs=[],
+            notes=["当前未绑定可调研的 repo root。"],
+        )
+
+    search_text = "\n".join(
+        [
+            title,
+            sections.summary,
+            "\n".join(sections.features),
+            "\n".join(sections.business_rules),
+        ]
+    )
+    matched_terms = [
+        entry
+        for entry in context.glossary_entries or []
+        if contains_any(search_text, entry.business, entry.identifier)
+    ]
+    unmatched_terms = infer_unmatched_terms(search_text, matched_terms)
+    search_terms = infer_search_terms(title, sections, matched_terms)
+    candidate_files = find_candidate_files(repo_root, matched_terms, search_terms)
+    if not candidate_files:
+        candidate_files = heuristic_candidate_files(repo_root, search_terms)
+    candidate_dirs = summarize_dirs(candidate_files)
+
+    notes: list[str] = []
+    if not matched_terms:
+        notes.append("未在 glossary 中命中明显术语，调研可信度较低。")
+    if not candidate_files:
+        notes.append("未通过现有术语映射找到候选代码文件。")
+    if sections.open_questions:
+        notes.append(f"存在 {len(sections.open_questions)} 个待确认问题，说明需求仍有不确定性。")
+    if search_terms:
+        notes.append(f"命中检索词: {', '.join(search_terms[:8])}")
+    return ResearchFinding(
+        matched_terms=matched_terms,
+        unmatched_terms=unmatched_terms,
+        candidate_files=candidate_files,
+        candidate_dirs=candidate_dirs,
+        notes=notes,
+    )
+
+
+def infer_unmatched_terms(search_text: str, matched: list[GlossaryEntry]) -> list[str]:
+    terms: list[str] = []
+    for token in PLAN_ASCII_WORD_RE.findall(search_text):
+        lower = token.lower().strip()
+        if len(lower) < 3 or lower in DEFAULT_STOPWORDS:
+            continue
+        if matched_contains_identifier(matched, token):
+            continue
+        terms.append(token)
+    return dedupe_terms(terms)[:MAX_UNMATCHED_TERMS]
+
+
+def infer_search_terms(title: str, sections: RefinedSections, matched: list[GlossaryEntry]) -> list[str]:
+    source_text = "\n".join(
+        [
+            title,
+            sections.summary,
+            "\n".join(sections.features),
+            "\n".join(sections.boundaries),
+            "\n".join(sections.business_rules),
+        ]
+    )
+    terms = [item for entry in matched for item in (entry.business, entry.identifier)]
+    for token in PLAN_ASCII_WORD_RE.findall(source_text):
+        lowered = token.lower().strip()
+        if lowered in DEFAULT_STOPWORDS:
+            continue
+        terms.append(lowered)
+    return dedupe_and_sort(terms)
+
+
+def matched_contains_identifier(entries: list[GlossaryEntry], keyword: str) -> bool:
+    lower = keyword.lower()
+    return any(lower in {entry.identifier.lower(), entry.business.lower()} for entry in entries)
+
+
+def contains_any(text: str, *keywords: str) -> bool:
+    return any(keyword and keyword in text for keyword in keywords)
+
+
+def find_candidate_files(repo_root: str, matched: list[GlossaryEntry], terms: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+
+    for entry in matched:
+        for term in (entry.identifier, entry.business):
+            for file_path in search_files(repo_root, term):
+                if file_path in seen:
+                    continue
+                seen.add(file_path)
+                result.append(file_path)
+                if len(result) >= MAX_SEARCH_FILES:
+                    return sorted(result)
+
+    for term in terms:
+        for file_path in search_files(repo_root, term):
+            if file_path in seen:
+                continue
+            seen.add(file_path)
+            result.append(file_path)
+            if len(result) >= MAX_SEARCH_FILES:
+                return sorted(result)
+    return sorted(result)
+
+
+def search_files(repo_root: str, term: str) -> list[str]:
+    term = term.strip()
+    if not term:
+        return []
+
+    files = run_rg_search(repo_root, term)
+    if len(files) < 3:
+        lower_term = term.lower()
+        for file_path in list_repo_files(repo_root):
+            if lower_term in file_path.lower():
+                files.append(file_path)
+    return dedupe_and_sort(files)
+
+
+def heuristic_candidate_files(repo_root: str, search_terms: list[str]) -> list[str]:
+    scored: list[tuple[int, str]] = []
+    for file_path in list_repo_files(repo_root):
+        lower_path = file_path.lower()
+        score = sum(1 for term in search_terms if term and term.lower() in lower_path)
+        if score > 0:
+            scored.append((score, file_path))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [path for _, path in scored[:MAX_SEARCH_FILES]]
+
+
+def run_rg_search(repo_root: str, term: str) -> list[str]:
+    command = ["rg", "--files-with-matches"]
+    for pattern in SEARCH_FILE_GLOBS:
+        command.extend(["--glob", pattern])
+    command.extend([term, "."])
+    result = subprocess.run(
+        command,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode not in {0, 1}:
+        return []
+    return normalize_repo_files(result.stdout.splitlines())
+
+
+def list_repo_files(repo_root: str) -> list[str]:
+    command = ["rg", "--files", "."]
+    for pattern in SEARCH_FILE_GLOBS:
+        command.extend(["--glob", pattern])
+    result = subprocess.run(
+        command,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    return normalize_repo_files(result.stdout.splitlines())
+
+
+def normalize_repo_files(lines: list[str]) -> list[str]:
+    files: list[str] = []
+    for line in lines:
+        current = line.strip()
+        if not current:
+            continue
+        if current.startswith("./"):
+            current = current[2:]
+        if any(current.startswith(prefix) for prefix in SEARCH_EXCLUDED_PREFIXES):
+            continue
+        files.append(current)
+    return dedupe_and_sort(files)
+
+
+def dedupe_terms(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if not item:
+            continue
+        lowered = item.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        result.append(item)
+    return result
+
+
+def dedupe_and_sort(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        current = item.strip()
+        if not current:
+            continue
+        lowered = current.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        result.append(current)
+    return sorted(result)
+
+
+def summarize_dirs(files: list[str]) -> list[str]:
+    seen: set[str] = set()
+    dirs: list[str] = []
+    for file_path in files:
+        directory = str(Path(file_path).parent)
+        if directory == "." or directory in seen:
+            continue
+        seen.add(directory)
+        dirs.append(directory)
+    return sorted(dirs)
+
+
+def has_path_keyword(files: list[str], *keywords: str) -> bool:
+    return any(keyword in file_path for file_path in files for keyword in keywords if keyword)
+
+
+def score_complexity(sections: RefinedSections, findings: ResearchFinding) -> ComplexityAssessment:
+    dimensions: list[ComplexityDimension] = []
+
+    file_count = len(findings.candidate_files)
+    scope_score = 0
+    scope_reason = "候选改动文件较少，范围集中。"
+    if file_count > 5:
+        scope_score = 2
+        scope_reason = "候选改动文件超过 5 个，范围偏大。"
+    elif file_count > 2:
+        scope_score = 1
+        scope_reason = "候选改动文件在 3-5 个之间，范围中等。"
+    dimensions.append(ComplexityDimension("改动范围", scope_score, scope_reason))
+
+    interface_score = 0
+    interface_reason = "未发现明显的接口或协议变更信号。"
+    if contains_any("\n".join(sections.features), "接口", "协议", "请求", "返回", "字段"):
+        interface_score = 1
+        interface_reason = "需求描述中包含接口/字段类变更信号。"
+    if has_path_keyword(findings.candidate_files, "handler", ".proto", ".thrift"):
+        interface_score = 2
+        interface_reason = "候选文件涉及 handler/IDL，可能影响对外接口。"
+    dimensions.append(ComplexityDimension("接口协议", interface_score, interface_reason))
+
+    data_score = 0
+    data_reason = "未发现复杂数据或持久化变更。"
+    if contains_any("\n".join(sections.boundaries), "状态", "缓存", "数据库", "表", "持久化"):
+        data_score = 1
+        data_reason = "边界条件中出现状态/数据类描述。"
+    if contains_any("\n".join(sections.business_rules), "状态流转", "一致性", "数据同步"):
+        data_score = 2
+        data_reason = "业务规则暗示存在复杂状态流转或一致性要求。"
+    dimensions.append(ComplexityDimension("数据状态", data_score, data_reason))
+
+    question_count = len(sections.open_questions)
+    rule_score = 0
+    rule_reason = "业务规则相对清晰。"
+    if question_count > 5:
+        rule_score = 2
+        rule_reason = "待确认问题较多，业务规则仍不清晰。"
+    elif question_count > 2:
+        rule_score = 1
+        rule_reason = "存在少量待确认问题，需要人工确认。"
+    dimensions.append(ComplexityDimension("规则清晰度", rule_score, rule_reason))
+
+    dependency_score = 0
+    dependency_reason = "候选目录较集中，依赖面可控。"
+    if len(findings.candidate_dirs) > 2:
+        dependency_score = 2
+        dependency_reason = "候选目录跨多个模块，可能需要跨模块协作。"
+    elif len(findings.candidate_dirs) > 1:
+        dependency_score = 1
+        dependency_reason = "候选目录跨两个模块，存在一定依赖关系。"
+    dimensions.append(ComplexityDimension("依赖联动", dependency_score, dependency_reason))
+
+    verify_score = 0
+    verify_reason = "需求较易验证。"
+    if len(findings.unmatched_terms) > 2:
+        verify_score = 1
+        verify_reason = "存在 glossary 未命中的术语，调研结果需要额外验证。"
+    if not findings.candidate_files:
+        verify_score = 2
+        verify_reason = "未找到候选文件，当前无法形成可靠实现方案。"
+    dimensions.append(ComplexityDimension("验证风险", verify_score, verify_reason))
+
+    total = sum(item.score for item in dimensions)
+    level = "简单"
+    conclusion = "复杂度较低，可以进入详细编码计划阶段。"
+    if total > 6:
+        level = "复杂"
+        conclusion = "复杂度超过阈值，建议先人工拆解或补充上下文，不直接进入自动实现。"
+    elif total > 4:
+        level = "中等"
+        conclusion = "复杂度中等，可以生成计划，但需重点关注风险与待确认项。"
+
+    return ComplexityAssessment(dimensions=dimensions, total=total, level=level, conclusion=conclusion)
+
+
+def build_plan_tasks(sections: RefinedSections, findings: ResearchFinding, ai: PlanAISections | None) -> list[PlanTask]:
+    if not findings.candidate_files:
+        return []
+
+    ai_steps = ai.steps if ai else ""
+    dir_files: dict[str, list[str]] = {}
+    dir_order: list[str] = []
+    for file_path in findings.candidate_files:
+        directory = str(Path(file_path).parent)
+        if directory not in dir_files:
+            dir_order.append(directory)
+            dir_files[directory] = []
+        dir_files[directory].append(file_path)
+
+    tasks: list[PlanTask] = []
+    for index, directory in enumerate(dir_order, start=1):
+        files = dir_files[directory]
+        tasks.append(
+            PlanTask(
+                id=f"T{index}",
+                title=f"修改 {directory} 下相关文件",
+                goal=f"在 {directory} 目录中完成需求涉及的改动。",
+                depends_on=[],
+                files=files,
+                input=["refined PRD 中的功能点与边界条件", "context 调研结果"],
+                output=[f"{directory} 目录下的改动文件通过编译和自测"],
+                actions=build_task_actions(files, sections, ai_steps),
+                done=["涉及文件编译通过，功能符合 PRD 要求。"],
+            )
+        )
+    return tasks
+
+
+def build_plan_repo_groups(files: list[str]) -> list[tuple[str, list[str]]]:
+    order: list[str] = []
+    groups: dict[str, list[str]] = {}
+    for file_path in files:
+        repo_id = infer_repo_id_from_file(file_path)
+        if repo_id not in groups:
+            groups[repo_id] = []
+            order.append(repo_id)
+        groups[repo_id].append(file_path)
+    return [(repo_id, groups[repo_id]) for repo_id in order]
+
+
+def infer_repo_id_from_file(file_path: str) -> str:
+    first = Path(file_path).parts[0] if Path(file_path).parts else "current-repo"
+    if first in {"sdk", "client", "clients"}:
+        return "shared-sdk"
+    if first in {"web", "frontend", "ui"}:
+        return "frontend"
+    return "current-repo"
+
+
+def build_task_actions(files: list[str], sections: RefinedSections, ai_steps: str) -> list[str]:
+    actions: list[str] = []
+    has_ai_match = False
+    for file_path in files:
+        step = match_ai_step_for_file(ai_steps, file_path)
+        if step:
+            actions.append(step)
+            has_ai_match = True
+        else:
+            actions.append(f"检查并修改 {file_path}。")
+    if not has_ai_match and sections.features:
+        actions.append(f"确保满足功能点：{sections.features[0]}")
+    return actions
+
+
+def match_ai_step_for_file(ai_steps: str, file_path: str) -> str:
+    if not ai_steps:
+        return ""
+    basename = Path(file_path).name
+    for line in ai_steps.splitlines():
+        current = line.strip().removeprefix("- ").strip()
+        if not current:
+            continue
+        if file_path in current or basename in current:
+            return current[:100] + "..." if len(current) > 100 else current
+    return ""
+
+
+def suggest_file_action(file_path: str) -> str:
+    if "/handler/" in file_path:
+        return "评估接口层入参、返回或展示逻辑是否需要调整。"
+    if "/service/" in file_path:
+        return "评估业务逻辑和下游调用是否需要补充。"
+    if "/converter/" in file_path:
+        return "优先检查字段映射和 response 拼装逻辑。"
+    if "/model/" in file_path:
+        return "检查结构体字段或状态定义是否需要扩展。"
+    return "作为候选实现文件，需要人工确认是否纳入本次改动范围。"
+
+
+def render_requirement_summary(sections: RefinedSections, source_markdown: str) -> str:
+    items = []
+    if sections.summary:
+        items.append(f"- 需求概述：{sections.summary}")
+    for feature in sections.features[:4]:
+        items.append(f"- 功能点：{feature}")
+    if not items:
+        excerpt = extract_excerpt(source_markdown)
+        return excerpt or "- 当前尚未提取到有效需求内容。"
+    return "\n".join(items)
+
+
+def render_context_snapshot(context: ContextSnapshot) -> str:
+    lines: list[str] = []
+    if context.glossary_excerpt:
+        lines.extend(["### glossary", context.glossary_excerpt])
+    if context.architecture_excerpt:
+        lines.extend(["### architecture", context.architecture_excerpt])
+    if context.patterns_excerpt:
+        lines.extend(["### patterns", context.patterns_excerpt])
+    if context.gotchas_excerpt:
+        lines.extend(["### gotchas", context.gotchas_excerpt])
+    if context.missing_files:
+        lines.append(f"- 缺少 context 文件: {', '.join(context.missing_files)}")
+    return "\n".join(lines) if lines else "- 无可用 context。"
+
+
+def render_glossary_hits(entries: list[GlossaryEntry]) -> str:
+    if not entries:
+        return "  - 无"
+    return "\n".join(f"  - {entry.business} -> {entry.identifier} ({entry.module or 'module-unknown'})" for entry in entries)
+
+
+def render_research_summary(finding: ResearchFinding) -> str:
+    parts = [
+        "- glossary 命中术语：",
+        render_glossary_hits(finding.matched_terms),
+        "- glossary 未命中术语：",
+        render_list_block(finding.unmatched_terms, default="  - 无"),
+        "- candidate files：",
+        render_list_block(finding.candidate_files, default="  - 无"),
+        "- candidate dirs：",
+        render_list_block(finding.candidate_dirs, default="  - 无"),
+        "- 本地备注：",
+        render_list_block(finding.notes, default="  - 无"),
+    ]
+    return "\n".join(parts)
+
+
+def render_complexity_summary(assessment: ComplexityAssessment) -> str:
+    lines = [f"- complexity: {assessment.level} ({assessment.total})", f"- 结论: {assessment.conclusion}"]
+    lines.extend(f"- {item.name}: {item.score} | {item.reason}" for item in assessment.dimensions)
+    return "\n".join(lines)
+
+
+def render_implementation_summary(ai: PlanAISections | None, assessment: ComplexityAssessment) -> str:
+    if ai and ai.summary.strip():
+        return ensure_markdown_list(ai.summary)
+    lines = [
+        "- 基于 refined PRD、context 和本地调研结果收敛改动范围。",
+        "- 优先在已有模块中收敛实现，保持最小改动范围。",
+    ]
+    if assessment.total > 6:
+        lines.append("- 当前需求复杂度偏高，建议先人工拆解，不直接进入自动实现。")
+    else:
+        lines.append("- 先完成最小验证路径，再决定是否继续扩展。")
+    return "\n".join(lines)
+
+
+def render_candidate_files(ai: PlanAISections | None, fallback_files: list[str]) -> str:
+    if ai and ai.candidate_files.strip():
+        return ensure_markdown_list(ai.candidate_files)
+    return ensure_markdown_list("\n".join(fallback_files))
+
+
+def render_risk_section(ai: PlanAISections | None, notes: list[str]) -> str:
+    if ai and ai.risks.strip():
+        return ensure_markdown_list(ai.risks)
+    if notes:
+        return "\n".join(f"- {note}" for note in notes)
+    return "- 当前未发现额外风险补充。"
+
+
+def render_goal_list(sections: RefinedSections) -> str:
+    if not sections.features:
+        return "- 基于 refined PRD 补全实现目标。"
+    return "\n".join(f"- {feature}" for feature in sections.features)
+
+
+def render_plan_candidate_groups(repo_groups: list[tuple[str, list[str]]], ai: PlanAISections | None) -> str:
+    if not repo_groups:
+        return "- 暂未命中候选文件，需要补充 context 或人工指定模块。"
+    ai_steps = ai.steps if ai else ""
+    blocks: list[str] = []
+    for repo_id, files in repo_groups:
+        blocks.append(f"### repo: {repo_id}\n")
+        for file_path in files:
+            desc = match_ai_step_for_file(ai_steps, file_path) or suggest_file_action(file_path)
+            blocks.append(f"- {file_path}：{desc}")
+        blocks.append("")
+    return "\n".join(blocks).strip()
+
+
+def render_plan_tasks(tasks: list[PlanTask]) -> str:
+    if not tasks:
+        return "- 暂未生成任务列表，需要先收敛候选文件后再继续。"
+    blocks: list[str] = []
+    for task in tasks:
+        blocks.extend(
+            [
+                f"### {task.id} {task.title}",
+                "",
+                f"- 目标：{task.goal}",
+            ]
+        )
+        if task.depends_on:
+            blocks.append(f"- 依赖任务：{', '.join(task.depends_on)}")
+        blocks.append("- 涉及文件：")
+        blocks.extend(f"  - {item}" for item in task.files)
+        blocks.append("- 输入：")
+        blocks.extend(f"  - {item}" for item in task.input)
+        blocks.append("- 输出：")
+        blocks.extend(f"  - {item}" for item in task.output)
+        blocks.append("- 具体动作：")
+        blocks.extend(f"  - {item}" for item in task.actions)
+        blocks.append("- 完成标志：")
+        blocks.extend(f"  - {item}" for item in task.done)
+        blocks.append("")
+    return "\n".join(blocks).rstrip()
+
+
+def render_implementation_steps(tasks: list[PlanTask], ai: PlanAISections | None) -> str:
+    if ai and ai.steps.strip():
+        return ai.steps.strip()
+    if not tasks:
+        return "- 先补充 context 或人工确认目标模块，再继续细化实施步骤。"
+    return "\n".join(f"- {task.id}：先完成「{task.title}」，再根据完成标志逐项自检。" for task in tasks)
+
+
+def render_open_questions(open_questions: list[str]) -> str:
+    if not open_questions:
+        return "- 无额外待确认项。"
+    return "\n".join(f"- {item}" for item in open_questions)
+
+
+def render_validation_section(notes: list[str], ai: PlanAISections | None) -> str:
+    lines = [
+        "- 仅编译涉及的 package，不执行全仓 build/test。",
+        "- 完成实现后建议进行最小范围 review。",
+    ]
+    if notes:
+        lines.extend(f"- {note}" for note in notes)
+    if ai and ai.validation_extra.strip():
+        lines.append(ensure_markdown_list(ai.validation_extra))
+    return "\n".join(lines)
+
+
+def render_list_block(items: list[str], default: str = "  - 无") -> str:
+    if not items:
+        return default
+    return "\n".join(f"  - {item}" for item in items)
 
 
 def extract_excerpt(markdown: str) -> str:
@@ -453,127 +1297,13 @@ def ensure_markdown_list(content: str) -> str:
     normalized = content.strip()
     if not normalized:
         return "- 无"
-    lines = []
+    lines: list[str] = []
     for line in normalized.splitlines():
         stripped = line.strip()
         if not stripped:
             continue
-        if stripped.startswith("- "):
-            lines.append(stripped)
-        else:
-            lines.append(f"- {stripped}")
+        lines.append(stripped if stripped.startswith("- ") else f"- {stripped}")
     return "\n".join(lines) if lines else "- 无"
-
-
-def ensure_numbered_list(content: str) -> str:
-    normalized = content.strip()
-    if not normalized:
-        return "\n".join(
-            [
-                "1. 读取现有上下文与任务产物，确认设计边界。",
-                "2. 在受影响仓库内完成最小实现。",
-                "3. 做最小验证，确认没有明显行为回退。",
-                "4. 补充必要文档或产物，便于后续继续推进 code 阶段。",
-            ]
-        )
-    items = []
-    for line in normalized.splitlines():
-        stripped = re.sub(r"^[-*]\s*", "", line.strip())
-        stripped = re.sub(r"^\d+\.\s*", "", stripped)
-        if stripped:
-            items.append(stripped)
-    if not items:
-        return ensure_numbered_list("")
-    return "\n".join(f"{index}. {item}" for index, item in enumerate(items, start=1))
-
-
-def load_optional_context_snapshot(repo_root: str | None) -> ContextSnapshot:
-    if not repo_root:
-        return ContextSnapshot(available=False, missing_files=["glossary.md", "architecture.md", "patterns.md"])
-    context_dir = Path(repo_root) / ".livecoding" / "context"
-    required = {
-        "glossary.md": "",
-        "architecture.md": "",
-        "patterns.md": "",
-        "gotchas.md": "",
-    }
-    missing: list[str] = []
-    values: dict[str, str] = {}
-    for name in required:
-        path = context_dir / name
-        if not path.exists():
-            missing.append(name)
-            continue
-        try:
-            values[name] = excerpt_context(path.read_text())
-        except OSError:
-            missing.append(name)
-    return ContextSnapshot(
-        available=bool(values),
-        glossary_excerpt=values.get("glossary.md", ""),
-        architecture_excerpt=values.get("architecture.md", ""),
-        patterns_excerpt=values.get("patterns.md", ""),
-        gotchas_excerpt=values.get("gotchas.md", ""),
-        missing_files=missing,
-    )
-
-
-def research_codebase(repo_root: str | None, title: str, refined_markdown: str) -> ResearchFinding:
-    if not repo_root:
-        return ResearchFinding(candidate_files=[], candidate_dirs=[], notes=["当前未绑定可调研的 repo root。"])
-    terms = extract_research_terms(title, refined_markdown)
-    if not terms:
-        return ResearchFinding(candidate_files=[], candidate_dirs=[], notes=["当前未提取到稳定的代码检索关键词。"])
-
-    files: list[str] = []
-    seen: set[str] = set()
-    for term in terms[:6]:
-        result = subprocess.run(
-            [
-                "rg",
-                "-l",
-                "--hidden",
-                "--glob",
-                "!.git",
-                "--glob",
-                "!node_modules",
-                "--glob",
-                "!dist",
-                "--glob",
-                "!.livecoding",
-                term,
-                repo_root,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode not in {0, 1}:
-            continue
-        for line in result.stdout.splitlines():
-            current = line.strip()
-            if not current or current in seen:
-                continue
-            seen.add(current)
-            files.append(current.replace(repo_root.rstrip("/") + "/", ""))
-        if len(files) >= 16:
-            break
-
-    dirs = sorted({str(Path(path).parent) for path in files if "/" in path})[:8]
-    notes = [f"命中检索词: {', '.join(terms[:6])}"] if terms else []
-    return ResearchFinding(candidate_files=files[:16], candidate_dirs=dirs, notes=notes)
-
-
-def extract_research_terms(title: str, refined_markdown: str) -> list[str]:
-    terms: list[str] = []
-    seen: set[str] = set()
-    for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,}", f"{title}\n{refined_markdown}"):
-        lowered = token.lower()
-        if lowered in seen:
-            continue
-        seen.add(lowered)
-        terms.append(token)
-    return terms
 
 
 def excerpt_context(content: str, limit: int = 800) -> str:
@@ -583,29 +1313,10 @@ def excerpt_context(content: str, limit: int = 800) -> str:
     return normalized[:limit].rstrip() + "..."
 
 
-def render_context_snapshot(context: ContextSnapshot) -> str:
-    lines: list[str] = []
-    if context.glossary_excerpt:
-        lines.append("### glossary")
-        lines.append(context.glossary_excerpt)
-    if context.architecture_excerpt:
-        lines.append("### architecture")
-        lines.append(context.architecture_excerpt)
-    if context.patterns_excerpt:
-        lines.append("### patterns")
-        lines.append(context.patterns_excerpt)
-    if context.gotchas_excerpt:
-        lines.append("### gotchas")
-        lines.append(context.gotchas_excerpt)
-    if context.missing_files:
-        lines.append(f"- 缺少 context 文件: {', '.join(context.missing_files)}")
-    return "\n".join(lines) if lines else "- 无可用 context。"
-
-
-def render_list_block(items: list[str]) -> str:
-    if not items:
-        return "  - 无"
-    return "\n".join(f"  - {item}" for item in items)
+def read_text_if_exists(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return path.read_text()
 
 
 def append_plan_log(task_dir: Path, message: str) -> None:
