@@ -18,6 +18,7 @@ TRACKED_ARTIFACTS = [
     "source.json",
     "prd.source.md",
     "prd-refined.md",
+    "refine-result.json",
     "design.md",
     "plan.md",
     "refine.log",

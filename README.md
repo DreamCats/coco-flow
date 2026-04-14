@@ -129,6 +129,7 @@ Behavior notes:
 
 - `refine` / `plan`: default to native; if native execution fails, `coco-flow` falls back to local template generation
 - `refine` accepts plain text, local file paths, and Lark doc links; when a Lark doc cannot be fetched yet, it creates a pending refine placeholder instead of failing task creation
+- `refine` now records a `refine-result.json` artifact with `context_mode`, business-memory usage, and risk flags; when no business memory is available it degrades explicitly to `source_only`
 - `code`: supports `native` and `local`
 - `code=native` runs through `coco acp serve`, verifies the changed scope, retries once or twice on build failures, and records commit/code-result artifacts back into the task
 - Go verification defaults to `go build` only; `go test` is disabled by default for large repos. If you really want it, set `COCO_FLOW_ENABLE_GO_TEST_VERIFY=1`, and `coco-flow` will only run tests for affected packages that actually contain `*_test.go`
@@ -174,8 +175,9 @@ Current endpoints:
 ```text
 src/coco_flow/
 ├── api/            # FastAPI app factory
+├── engines/        # Refine / plan reasoning engines
 ├── models/         # Shared response models
-├── services/       # Task store and filesystem access
+├── services/       # Workflow wrappers, queries, and runtime helpers
 ├── cli.py          # Typer entrypoint
 └── config.py       # Config and compatibility roots
 
