@@ -66,6 +66,7 @@ SEARCH_EXCLUDED_PREFIXES = (
 )
 MAX_SEARCH_FILES = 8
 MAX_UNMATCHED_TERMS = 10
+MAX_TASK_ACTIONS = 4
 
 LogHandler = Callable[[str], None]
 
@@ -1225,6 +1226,7 @@ def build_plan_tasks(
     tasks: list[PlanTask] = []
     task_index = 1
     last_repo_task_id: dict[str, str] = {}
+    previous_repo_last_task_id = ""
     ordered_repos = [repo for repo in (repo_order or []) if repo in repo_dir_files]
     for repo_id in sorted(repo_dir_files):
         if repo_id not in ordered_repos:
@@ -1232,31 +1234,29 @@ def build_plan_tasks(
 
     for repo_id in ordered_repos:
         repo_dirs = repo_dir_files.get(repo_id, {})
-        for directory in sorted(repo_dirs):
-            files = repo_dirs[directory]
-            display_dir = directory if directory != "." else repo_id
-            depends_on = [last_repo_task_id[repo_id]] if repo_id in last_repo_task_id else []
-            goal_prefix = f"在仓库 {repo_id}" if repo_id not in {"", "current-repo"} else "在当前仓库"
-            title_prefix = f"[{repo_id}] " if repo_id not in {"", "current-repo"} else ""
+        for directory, files in repo_dirs.items():
+            files = dedupe_and_sort(files)
+            display_dir = render_task_directory(repo_id, directory)
+            depends_on = build_task_dependencies(repo_id, last_repo_task_id, previous_repo_last_task_id)
             task_id = f"T{task_index}"
-            actions = build_task_actions(files, sections, ai_steps)
-            if repo_id not in {"", "current-repo"}:
-                actions.insert(0, f"先在仓库 {repo_id} 中确认目录 {display_dir} 的改动边界。")
+            actions = build_task_actions_for_scope(files, sections, ai_steps, repo_id=repo_id, display_dir=display_dir)
             tasks.append(
                 PlanTask(
                     id=task_id,
-                    title=f"{title_prefix}修改 {display_dir} 下相关文件",
-                    goal=f"{goal_prefix}的 {display_dir} 目录中完成需求涉及的改动。",
+                    title=build_plan_task_title(repo_id, display_dir, files, sections, ai_steps),
+                    goal=build_plan_task_goal(repo_id, display_dir, sections, files),
                     depends_on=depends_on,
                     files=files,
                     input=["refined PRD 中的功能点与边界条件", "context 调研结果"],
-                    output=[f"{display_dir} 目录下的改动文件通过编译和自测"],
+                    output=build_task_outputs(repo_id, display_dir, files),
                     actions=actions,
                     done=["涉及文件编译通过，功能符合 PRD 要求。"],
                 )
             )
             last_repo_task_id[repo_id] = task_id
             task_index += 1
+        if repo_id in last_repo_task_id:
+            previous_repo_last_task_id = last_repo_task_id[repo_id]
     return tasks
 
 
@@ -1296,29 +1296,162 @@ def infer_repo_id_from_file(file_path: str, repo_ids: set[str]) -> str:
 
 
 def build_task_actions(files: list[str], sections: RefinedSections, ai_steps: str) -> list[str]:
+    return build_task_actions_for_scope(files, sections, ai_steps, repo_id="", display_dir="")
+
+
+def build_task_dependencies(
+    repo_id: str,
+    last_repo_task_id: dict[str, str],
+    previous_repo_last_task_id: str,
+) -> list[str]:
+    if repo_id in last_repo_task_id:
+        return [last_repo_task_id[repo_id]]
+    if previous_repo_last_task_id:
+        return [previous_repo_last_task_id]
+    return []
+
+
+def build_plan_task_title(
+    repo_id: str,
+    display_dir: str,
+    files: list[str],
+    sections: RefinedSections,
+    ai_steps: str,
+) -> str:
+    repo_prefix = f"[{repo_id}] " if repo_id not in {"", "current-repo"} else ""
+    feature = summarize_feature(sections)
+    step = summarize_ai_focus(files, ai_steps)
+    if step:
+        return f"{repo_prefix}{step}"
+    if feature:
+        if display_dir == "仓库根目录":
+            return f"{repo_prefix}为「{feature}」补齐核心改动"
+        return f"{repo_prefix}为「{feature}」调整 {display_dir}"
+    return f"{repo_prefix}修改 {display_dir} 下相关文件"
+
+
+def build_plan_task_goal(repo_id: str, display_dir: str, sections: RefinedSections, files: list[str]) -> str:
+    repo_scope = f"在仓库 {repo_id}" if repo_id not in {"", "current-repo"} else "在当前仓库"
+    feature = summarize_feature(sections)
+    if feature:
+        return f"{repo_scope} 的 {display_dir} 中完成「{feature}」相关改动，并收敛到可验证的最小实现范围。"
+    if len(files) == 1:
+        return f"{repo_scope}围绕 {files[0]} 完成需求涉及的改动，并保证结果可验证。"
+    return f"{repo_scope} 的 {display_dir} 中完成需求涉及的改动，并保证结果可验证。"
+
+
+def build_task_outputs(repo_id: str, display_dir: str, files: list[str]) -> list[str]:
+    outputs = [f"{display_dir} 下的改动文件通过编译和自测"]
+    if repo_id not in {"", "current-repo"}:
+        outputs.append(f"仓库 {repo_id} 的改动边界清晰，可继续推进后续仓库任务")
+    if len(files) == 1:
+        outputs.append(f"{files[0]} 的实现变更已落地")
+    return outputs
+
+
+def build_task_actions_for_scope(
+    files: list[str],
+    sections: RefinedSections,
+    ai_steps: str,
+    repo_id: str,
+    display_dir: str,
+) -> list[str]:
     actions: list[str] = []
-    has_ai_match = False
+    seen: set[str] = set()
+    boundary = build_boundary_action(repo_id, display_dir)
+    if boundary:
+        actions.append(boundary)
+        seen.add(boundary)
+
     for file_path in files:
-        step = match_ai_step_for_file(ai_steps, file_path)
-        if step:
+        step = normalize_action_line(match_ai_step_for_file(ai_steps, file_path))
+        if step and step not in seen:
             actions.append(step)
-            has_ai_match = True
-        else:
-            actions.append(f"检查并修改 {file_path}。")
-    if not has_ai_match and sections.features:
-        actions.append(f"确保满足功能点：{sections.features[0]}")
-    return actions
+            seen.add(step)
+        if len(actions) >= MAX_TASK_ACTIONS:
+            break
+
+    if len(actions) < MAX_TASK_ACTIONS:
+        for file_path in files:
+            fallback = normalize_action_line(f"处理 {file_path}：{suggest_file_action(file_path)}")
+            if fallback not in seen:
+                actions.append(fallback)
+                seen.add(fallback)
+            if len(actions) >= MAX_TASK_ACTIONS:
+                break
+
+    feature = summarize_feature(sections)
+    if feature:
+        feature_action = normalize_action_line(f"确保实现覆盖功能点「{feature}」及其边界条件。")
+        if feature_action not in seen:
+            actions.append(feature_action)
+
+    return actions[:MAX_TASK_ACTIONS]
+
+
+def build_boundary_action(repo_id: str, display_dir: str) -> str:
+    if display_dir == "仓库根目录":
+        if repo_id not in {"", "current-repo"}:
+            return f"先确认仓库 {repo_id} 的改动边界，避免把无关文件带入本次实现。"
+        return "先确认本次需求的改动边界，避免把无关文件带入实现。"
+    if repo_id not in {"", "current-repo"}:
+        return f"先确认仓库 {repo_id} 中 {display_dir} 的改动边界和上下游影响。"
+    return f"先确认 {display_dir} 的改动边界和上下游影响。"
+
+
+def render_task_directory(repo_id: str, directory: str) -> str:
+    if directory in {"", "."}:
+        return "仓库根目录"
+    return directory
+
+
+def summarize_feature(sections: RefinedSections, limit: int = 24) -> str:
+    source = ""
+    if sections.features:
+        source = sections.features[0]
+    elif sections.summary:
+        source = sections.summary
+    source = normalize_action_line(source).removesuffix("。")
+    if len(source) > limit:
+        return source[: limit - 1] + "…"
+    return source
+
+
+def summarize_ai_focus(files: list[str], ai_steps: str, limit: int = 32) -> str:
+    for file_path in files:
+        current = normalize_action_line(match_ai_step_for_file(ai_steps, file_path)).removesuffix("。")
+        current = re.sub(r"^在\s+.+?\s+中", "", current).strip()
+        if current:
+            return current[: limit - 1] + "…" if len(current) > limit else current
+    return ""
+
+
+def normalize_action_line(content: str) -> str:
+    current = content.strip().removeprefix("- ").strip()
+    if not current:
+        return ""
+    return current if current.endswith(("。", "？", "！")) else current + "。"
 
 
 def match_ai_step_for_file(ai_steps: str, file_path: str) -> str:
     if not ai_steps:
         return ""
     basename = Path(file_path).name
+    exact_match = ""
     for line in ai_steps.splitlines():
         current = line.strip().removeprefix("- ").strip()
         if not current:
             continue
-        if file_path in current or basename in current:
+        if file_path in current:
+            exact_match = current[:100] + "..." if len(current) > 100 else current
+            break
+    if exact_match:
+        return exact_match
+    for line in ai_steps.splitlines():
+        current = line.strip().removeprefix("- ").strip()
+        if not current:
+            continue
+        if basename in current:
             return current[:100] + "..." if len(current) > 100 else current
     return ""
 
