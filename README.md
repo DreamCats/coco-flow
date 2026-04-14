@@ -131,6 +131,7 @@ Behavior notes:
 - `refine` accepts plain text, local file paths, and Lark doc links; when a Lark doc cannot be fetched yet, it creates a pending refine placeholder instead of failing task creation
 - `code`: supports `native` and `local`
 - `code=native` runs through `coco acp serve`, verifies the changed scope, retries once or twice on build failures, and records commit/code-result artifacts back into the task
+- Go verification defaults to `go build` only; `go test` is disabled by default for large repos. If you really want it, set `COCO_FLOW_ENABLE_GO_TEST_VERIFY=1`, and `coco-flow` will only run tests for affected packages that actually contain `*_test.go`
 
 ## Idle Timeout
 

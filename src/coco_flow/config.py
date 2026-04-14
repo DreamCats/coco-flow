@@ -12,6 +12,7 @@ class Settings:
     refine_executor: str
     plan_executor: str
     code_executor: str
+    enable_go_test_verify: bool
     coco_bin: str
     native_query_timeout: str
     native_code_timeout: str
@@ -30,6 +31,7 @@ def load_settings() -> Settings:
     refine_executor = os.getenv("COCO_FLOW_REFINE_EXECUTOR", "native").strip() or "native"
     plan_executor = os.getenv("COCO_FLOW_PLAN_EXECUTOR", "native").strip() or "native"
     code_executor = os.getenv("COCO_FLOW_CODE_EXECUTOR", "native").strip() or "native"
+    enable_go_test_verify = (os.getenv("COCO_FLOW_ENABLE_GO_TEST_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
     coco_bin = os.getenv("COCO_FLOW_COCO_BIN", "coco").strip() or "coco"
     native_query_timeout = os.getenv("COCO_FLOW_NATIVE_QUERY_TIMEOUT", "90s").strip() or "90s"
     native_code_timeout = os.getenv("COCO_FLOW_NATIVE_CODE_TIMEOUT", "10m").strip() or "10m"
@@ -41,6 +43,7 @@ def load_settings() -> Settings:
         refine_executor=refine_executor,
         plan_executor=plan_executor,
         code_executor=code_executor,
+        enable_go_test_verify=enable_go_test_verify,
         coco_bin=coco_bin,
         native_query_timeout=native_query_timeout,
         native_code_timeout=native_code_timeout,

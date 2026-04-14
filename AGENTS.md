@@ -149,7 +149,8 @@ uv run python -m unittest discover -s tests -v
 - 当前已支持：
   - repo 级 `code-result.json` / `code.log` / diff summary / diff patch
   - 最小验证
-    - Go：按受影响目录执行 `go build ./dir/...`
+    - Go：默认按受影响目录执行 `go build ./dir/...`
+    - Go：默认不跑 `go test`；如确实需要，可通过 `COCO_FLOW_ENABLE_GO_TEST_VERIFY=1` 显式开启，并且仅在受影响 package 存在 `*_test.go` 时才执行
     - Python：`python3 -m py_compile`
   - 验证失败后 follow-up 重试
   - 自动 commit

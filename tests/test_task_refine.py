@@ -20,6 +20,7 @@ def make_settings(root: Path) -> Settings:
         refine_executor="local",
         plan_executor="local",
         code_executor="local",
+        enable_go_test_verify=False,
         coco_bin="coco",
         native_query_timeout="90s",
         native_code_timeout="10m",

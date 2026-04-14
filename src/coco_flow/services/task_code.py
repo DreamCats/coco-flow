@@ -31,6 +31,7 @@ EXECUTOR_NATIVE = "native"
 EXECUTOR_LOCAL = "local"
 MAX_CODE_ATTEMPTS = 3
 MAX_GO_TEST_PACKAGES = 3
+MAX_GO_TEST_DISCOVERY_PACKAGES = 8
 LogHandler = Callable[[str], None]
 
 
@@ -341,7 +342,11 @@ def execute_native_repo(
         parsed = parse_native_code_result(agent_reply)
         changed_files = collect_code_changes(worktree)
         clean_files = clean_files_written(changed_files, repo_path, worktree)
-        verification_ok, verification_output = verify_repo_changes(worktree, clean_files)
+        verification_ok, verification_output = verify_repo_changes(
+            worktree,
+            clean_files,
+            enable_go_test=settings.enable_go_test_verify,
+        )
         for line in verification_output.splitlines():
             if line.strip():
                 log(f"repo_verify_output: {line}")
@@ -676,13 +681,13 @@ def commit_code_changes(repo_root: str, task_id: str) -> str:
     return result.stdout.strip()
 
 
-def verify_repo_changes(repo_root: str, files: list[str]) -> tuple[bool, str]:
+def verify_repo_changes(repo_root: str, files: list[str], enable_go_test: bool = False) -> tuple[bool, str]:
     if not files:
         return True, "no changed files"
 
     go_files = [item for item in files if item.endswith(".go")]
     if go_files:
-        return verify_go_build(repo_root, go_files)
+        return verify_go_build(repo_root, go_files, enable_go_test=enable_go_test)
 
     py_files = [item for item in files if item.endswith(".py")]
     if py_files:
@@ -691,14 +696,14 @@ def verify_repo_changes(repo_root: str, files: list[str]) -> tuple[bool, str]:
     return True, "no language-specific verification for current changed files"
 
 
-def verify_go_build(repo_root: str, files: list[str]) -> tuple[bool, str]:
+def verify_go_build(repo_root: str, files: list[str], enable_go_test: bool = False) -> tuple[bool, str]:
     packages = sorted({go_package_pattern(file_path) for file_path in files if file_path.endswith(".go")})
     if not packages:
         return True, "no go packages to build"
 
     outputs: list[str] = []
     all_ok = True
-    test_candidates = sorted({go_test_package_pattern(file_path) for file_path in files if should_run_go_test(file_path)})
+    test_candidates = discover_go_test_packages(repo_root, files) if enable_go_test else []
     for package in packages:
         result = subprocess.run(
             ["go", "build", package],
@@ -728,6 +733,8 @@ def verify_go_build(repo_root: str, files: list[str]) -> tuple[bool, str]:
                 outputs.append(f"go test {package} 失败:\n{result.stdout}{result.stderr}".strip())
             elif result.stdout.strip() or result.stderr.strip():
                 outputs.append(f"go test {package} 成功:\n{result.stdout}{result.stderr}".strip())
+    elif all_ok and enable_go_test:
+        outputs.append("go test skipped: no *_test.go files in affected packages")
     if all_ok and not outputs:
         outputs.append("go build passed")
     return all_ok, "\n\n".join(outputs).strip()
@@ -749,7 +756,33 @@ def go_test_package_pattern(file_path: str) -> str:
 
 def should_run_go_test(file_path: str) -> bool:
     name = Path(file_path).name
-    return name.endswith("_test.go") or name.endswith(".go")
+    return name.endswith(".go")
+
+
+def discover_go_test_packages(repo_root: str, files: list[str]) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for file_path in files:
+        if not should_run_go_test(file_path):
+            continue
+        package = go_test_package_pattern(file_path)
+        if package in seen:
+            continue
+        seen.add(package)
+        candidates.append(package)
+        if len(candidates) >= MAX_GO_TEST_DISCOVERY_PACKAGES:
+            break
+    return [package for package in candidates if package_has_go_tests(repo_root, package)]
+
+
+def package_has_go_tests(repo_root: str, package_pattern: str) -> bool:
+    directory = package_pattern.removeprefix("./")
+    package_dir = Path(repo_root) / directory
+    if directory in {"", "."}:
+        package_dir = Path(repo_root)
+    if not package_dir.is_dir():
+        return False
+    return any(path.is_file() for path in package_dir.glob("*_test.go"))
 
 
 def verify_python_files(repo_root: str, files: list[str]) -> tuple[bool, str]:
