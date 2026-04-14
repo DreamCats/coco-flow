@@ -76,6 +76,8 @@ npm run build
 定向校验：
 
 ```bash
+uv run python -m py_compile src/coco_flow/engines/refine.py
+uv run python -m py_compile src/coco_flow/engines/plan.py
 uv run python -m py_compile src/coco_flow/services/tasks/plan.py
 uv run python -m py_compile src/coco_flow/services/tasks/code.py
 uv run python -m unittest discover -s tests -v
@@ -83,12 +85,13 @@ uv run python -m unittest discover -s tests -v
 
 ## 目录与架构
 
-三层结构：CLI / API 层 `src/coco_flow/cli.py`、`src/coco_flow/api/` → 业务逻辑 `src/coco_flow/services/` → 外部依赖（`coco acp serve`、git、`lark-cli`、前端静态资源）。
+当前建议按四层理解：CLI / API 层 `src/coco_flow/cli.py`、`src/coco_flow/api/` → workflow 壳 `src/coco_flow/services/tasks/` → 推理引擎 `src/coco_flow/engines/` → 外部依赖与运行时（`clients/`、`daemon/`、`services/runtime/`、git、`lark-cli`）。
 
 关键目录：
 
 - [`src/coco_flow/api/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/api)：FastAPI app factory 与路由
-- [`src/coco_flow/services/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/services)：按 `tasks/`、`queries/`、`runtime/` 拆分 task 流程、查询拼装与运行时状态逻辑
+- [`src/coco_flow/engines/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines)：`refine` / `plan` 的核心推理与编排引擎
+- [`src/coco_flow/services/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/services)：按 `tasks/`、`queries/`、`runtime/` 拆分 workflow 壳、查询拼装与运行时状态逻辑
 - [`src/coco_flow/clients/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/clients)：ACP client 抽象
 - [`src/coco_flow/daemon/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/daemon)：daemon client / server / protocol / paths
 - [`src/coco_flow/models/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/models)：API response model
@@ -113,10 +116,15 @@ uv run python -m unittest discover -s tests -v
 - `refine` 支持 `native` 和 `local`
 - `native` 通过 `coco acp serve` 执行 prompt-only refine
 - `local` 生成结构化兜底稿
+- `refine` 当前已支持业务记忆降级模式：
+  - 默认优先读取 repo 下 `.livecoding/context/`
+  - 若未找到可用上下文，显式降级为 `source_only`
+  - 若只找到部分上下文，标记为 `partial_grounded`
 - 飞书文档若暂时拉不到正文，会生成 pending refine 占位稿，状态保持 `initialized`
 - `refine.log` 当前会记录：
   - `=== REFINE START === / === REFINE END ===`
   - `task_id / task_dir / executor`
+  - `context_mode / business_memory_provider / business_memory_used`
   - `source_type / source_path / source_url / source_doc_token`
   - `source_length`
   - `prompt_start / prompt_ok`
@@ -166,6 +174,8 @@ uv run python -m unittest discover -s tests -v
   - `prd-refined.md`
   - `design.md`
   - `plan.md`
+- 当前 task 级非编辑 artifact 还包括：
+  - `refine-result.json`
 
 ### daemon / ACP
 

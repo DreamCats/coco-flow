@@ -117,6 +117,7 @@ export COCO_FLOW_CODE_EXECUTOR=local
   - 本地文件路径
   - 飞书文档链接
 - 飞书文档如果暂时无法拉到正文，会生成 pending refine 占位稿，而不是直接创建失败
+- `refine` 现在会额外产出 `refine-result.json`，记录 `context_mode`、业务记忆是否命中、风险提示；当没有业务记忆可用时会显式降级为 `source_only`
 - `code=native` 走 `coco acp serve`
 - `code` 会做最小范围验证，并在 build 失败后进行一到两轮修复重试
 
@@ -144,8 +145,9 @@ export COCO_FLOW_CODE_EXECUTOR=local
 ```text
 src/coco_flow/
 ├── api/            # FastAPI app factory
+├── engines/        # refine / plan 推理引擎
 ├── models/         # 共享模型
-├── services/       # task/workflow/repo 业务逻辑
+├── services/       # workflow 壳、查询拼装与 runtime helper
 ├── cli.py          # Typer 入口
 └── config.py       # 配置与默认目录
 
