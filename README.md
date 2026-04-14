@@ -1,5 +1,7 @@
 # coco-flow
 
+中文说明见：[README.zh-CN.md](/Users/bytedance/Work/tools/bytedance/coco-flow/README.zh-CN.md)
+
 `coco-flow` is a standalone workflow product for PRD task orchestration, worktree-based code execution,
 and the local Web UI / API surface.
 
