@@ -4,6 +4,14 @@ from pathlib import Path
 import json
 
 from coco_flow.models import ArtifactItem, RepoBinding, TaskDetail, TimelineItem
+from coco_flow.services.repo_state import (
+    clean_files_written,
+    read_repo_code_log,
+    read_repo_code_result,
+    read_repo_diff_patch,
+    read_repo_diff_summary,
+    summarize_repo_failure,
+)
 
 TRACKED_ARTIFACTS = [
     "repos.json",
@@ -28,7 +36,7 @@ def build_task_detail(
 ) -> TaskDetail:
     task_id = str(metadata.get("task_id") or task_dir.name)
     status = str(metadata.get("status") or "unknown")
-    repos = parse_repos(repos_meta)
+    repos = parse_repos(repos_meta, task_dir)
 
     return TaskDetail(
         task_id=task_id,
@@ -88,7 +96,7 @@ def build_artifacts(task_dir: Path) -> list[ArtifactItem]:
     return items
 
 
-def parse_repos(repos_meta: dict[str, object]) -> list[RepoBinding]:
+def parse_repos(repos_meta: dict[str, object], task_dir: Path | None = None) -> list[RepoBinding]:
     raw_repos = repos_meta.get("repos")
     if not isinstance(raw_repos, list):
         return []
@@ -97,14 +105,60 @@ def parse_repos(repos_meta: dict[str, object]) -> list[RepoBinding]:
     for item in raw_repos:
         if not isinstance(item, dict):
             continue
+        repo_id = str(item.get("id") or "")
+        repo_path = str(item.get("path") or "")
+        status = _optional_str(item.get("status"))
+        branch = _optional_str(item.get("branch"))
+        worktree = _optional_str(item.get("worktree"))
+        commit = _optional_str(item.get("commit"))
+        build = "n/a"
+        failure_hint: str | None = None
+        files_written: list[str] | None = None
+        diff_summary: dict[str, object] | None = None
+
+        if task_dir is not None and repo_id:
+            report = read_repo_code_result(task_dir, repo_id)
+            if report:
+                build = "passed" if bool(report.get("build_ok")) else "failed"
+                failure_hint = summarize_repo_failure(task_dir, repo_id, report)
+                files_written = clean_files_written(
+                    [str(path) for path in (report.get("files_written") or []) if isinstance(path, str)],
+                    repo_path,
+                    worktree or "",
+                ) or None
+                branch = branch or _optional_str(report.get("branch"))
+                worktree = worktree or _optional_str(report.get("worktree"))
+                commit = commit or _optional_str(report.get("commit"))
+                status = status or _optional_str(report.get("status"))
+            diff_meta = read_repo_diff_summary(task_dir, repo_id)
+            if diff_meta:
+                patch = ""
+                try:
+                    patch = read_repo_diff_patch(task_dir, repo_id)
+                except OSError:
+                    patch = ""
+                diff_summary = {
+                    "repoId": str(diff_meta.get("repo_id") or repo_id),
+                    "commit": str(diff_meta.get("commit") or commit or ""),
+                    "branch": str(diff_meta.get("branch") or branch or ""),
+                    "files": [str(path) for path in (diff_meta.get("files") or []) if isinstance(path, str)],
+                    "additions": int(diff_meta.get("additions") or 0),
+                    "deletions": int(diff_meta.get("deletions") or 0),
+                    "patch": patch,
+                }
+
         repos.append(
             RepoBinding(
-                repo_id=str(item.get("id") or ""),
-                path=str(item.get("path") or ""),
-                status=_optional_str(item.get("status")),
-                branch=_optional_str(item.get("branch")),
-                worktree=_optional_str(item.get("worktree")),
-                commit=_optional_str(item.get("commit")),
+                repo_id=repo_id,
+                path=repo_path,
+                status=status,
+                branch=branch,
+                worktree=worktree,
+                commit=commit,
+                build=build,
+                failure_hint=failure_hint,
+                files_written=files_written,
+                diff_summary=diff_summary,
             )
         )
     return repos

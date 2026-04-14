@@ -26,7 +26,7 @@ EDIT_RULES = {
             "code-result.json",
             "code.log",
         ],
-        "invalidate_dirs": ["code-results"],
+        "invalidate_dirs": ["code-results", "code-logs", "diffs"],
     },
     "prd-refined.md": {
         "allowed": {STATUS_REFINED, STATUS_PLANNED},
@@ -38,7 +38,7 @@ EDIT_RULES = {
             "code-result.json",
             "code.log",
         ],
-        "invalidate_dirs": ["code-results"],
+        "invalidate_dirs": ["code-results", "code-logs", "diffs"],
     },
     "design.md": {
         "allowed": {STATUS_PLANNED},

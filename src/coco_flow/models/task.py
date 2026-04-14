@@ -26,6 +26,10 @@ class RepoBinding(BaseModel):
     branch: str | None = None
     worktree: str | None = None
     commit: str | None = None
+    build: str | None = None
+    failure_hint: str | None = None
+    files_written: list[str] | None = None
+    diff_summary: dict[str, object] | None = None
 
 
 class TimelineItem(BaseModel):
@@ -62,6 +66,7 @@ class ArtifactContentResponse(BaseModel):
     task_id: str
     name: str
     content: str
+    repo_id: str | None = None
 
 
 class UpdateArtifactRequest(BaseModel):

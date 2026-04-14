@@ -166,9 +166,9 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
             raise HTTPException(status_code=409, detail=message) from error
 
     @app.post("/api/tasks/{task_id}/code", response_model=TaskActionResponse)
-    def code_task_handler(task_id: str) -> TaskActionResponse:
+    def code_task_handler(task_id: str, repo: str = "") -> TaskActionResponse:
         try:
-            status = code_task(task_id, settings=store.settings)
+            status = code_task(task_id, settings=store.settings, repo_id=repo)
             return TaskActionResponse(task_id=task_id, status=status)
         except ValueError as error:
             message = str(error)
@@ -178,12 +178,19 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
 
     @app.post("/api/tasks/{task_id}/code-all", response_model=TaskActionResponse)
     def code_all_task_handler(task_id: str) -> TaskActionResponse:
-        return code_task_handler(task_id)
+        try:
+            status = code_task(task_id, settings=store.settings, all_repos=True)
+            return TaskActionResponse(task_id=task_id, status=status)
+        except ValueError as error:
+            message = str(error)
+            if "not found" in message:
+                raise HTTPException(status_code=404, detail=message) from error
+            raise HTTPException(status_code=409, detail=message) from error
 
     @app.post("/api/tasks/{task_id}/reset", response_model=TaskActionResponse)
-    def reset_task_handler(task_id: str) -> TaskActionResponse:
+    def reset_task_handler(task_id: str, repo: str = "") -> TaskActionResponse:
         try:
-            status = reset_task(task_id, settings=store.settings)
+            status = reset_task(task_id, settings=store.settings, repo_id=repo)
             return TaskActionResponse(task_id=task_id, status=status)
         except ValueError as error:
             message = str(error)
@@ -192,9 +199,9 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
             raise HTTPException(status_code=409, detail=message) from error
 
     @app.post("/api/tasks/{task_id}/archive", response_model=TaskActionResponse)
-    def archive_task_handler(task_id: str) -> TaskActionResponse:
+    def archive_task_handler(task_id: str, repo: str = "") -> TaskActionResponse:
         try:
-            status = archive_task(task_id, settings=store.settings)
+            status = archive_task(task_id, settings=store.settings, repo_id=repo)
             return TaskActionResponse(task_id=task_id, status=status)
         except ValueError as error:
             message = str(error)
@@ -203,11 +210,11 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
             raise HTTPException(status_code=409, detail=message) from error
 
     @app.get("/api/tasks/{task_id}/artifact", response_model=ArtifactContentResponse)
-    def get_task_artifact(task_id: str, name: str) -> ArtifactContentResponse:
-        content = store.get_artifact(task_id, name)
+    def get_task_artifact(task_id: str, name: str, repo: str = "") -> ArtifactContentResponse:
+        content = store.get_artifact(task_id, name, repo_id=repo or None)
         if content is None:
             raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
-        return ArtifactContentResponse(task_id=task_id, name=name, content=content)
+        return ArtifactContentResponse(task_id=task_id, repo_id=repo or None, name=name, content=content)
 
     @app.put("/api/tasks/{task_id}/artifact", response_model=UpdateArtifactResponse)
     def update_task_artifact(

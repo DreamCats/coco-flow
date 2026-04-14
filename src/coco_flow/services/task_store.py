@@ -6,6 +6,10 @@ import os
 
 from coco_flow.config import Settings, load_settings
 from coco_flow.models import TaskDetail, TaskSummary, WorkspaceInfo
+from coco_flow.services.repo_state import (
+    read_repo_code_log,
+    read_repo_code_result_raw,
+)
 from coco_flow.services.task_detail import (
     build_task_detail,
     read_artifact_content,
@@ -56,8 +60,25 @@ class TaskStore:
         repos_meta = read_json_file(task_dir / "repos.json")
         return build_task_detail(task_dir, "primary", metadata, source_meta, repos_meta)
 
-    def get_artifact(self, task_id: str, name: str) -> str | None:
+    def get_artifact(self, task_id: str, name: str, repo_id: str | None = None) -> str | None:
         task_dir = self.settings.task_root / task_id
+        if not task_dir.is_dir():
+            return None
+        if repo_id:
+            try:
+                if name == "code.log":
+                    return read_repo_code_log(task_dir, repo_id)
+                if name == "code-result.json":
+                    return read_repo_code_result_raw(task_dir, repo_id)
+            except OSError:
+                if name == "code.log":
+                    return f"repo `{repo_id}` 当前没有可用的 code.log。可能尚未执行实现，或日志尚未生成。"
+                if name == "code-result.json":
+                    return f"repo `{repo_id}` 当前没有可用的 code-result.json。可能尚未执行实现。"
+                return f"repo `{repo_id}` 的 `{name}` 当前为空。"
+            if name in {"code.log", "code-result.json"}:
+                return None
+            return f"repo 级 artifact 暂不支持 {name}"
         if task_dir.is_dir():
             return read_artifact_content(task_dir, name)
         return None

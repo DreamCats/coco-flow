@@ -41,7 +41,11 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
         "owner": "local",
         "complexity": read_task_complexity(Path(detail.task_dir)),
         "nextAction": detail.next_action,
-        "repoNext": [],
+        "repoNext": [
+            repo.repo_id
+            for repo in detail.repos
+            if repo.repo_id and (repo.status or "") in {"planned", "failed", "initialized", "refined"}
+        ],
         "repos": [
             {
                 "id": repo.repo_id,
@@ -51,8 +55,10 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
                 "branch": repo.branch,
                 "worktree": repo.worktree,
                 "commit": repo.commit,
-                "build": infer_repo_build(repo.status, repo.commit),
-                "filesWritten": [],
+                "build": repo.build or infer_repo_build(repo.status, repo.commit),
+                "failureHint": repo.failure_hint,
+                "filesWritten": repo.files_written or [],
+                "diffSummary": repo.diff_summary,
             }
             for repo in detail.repos
         ],

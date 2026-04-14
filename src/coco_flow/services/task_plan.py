@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 import os
 import re
+import subprocess
 from typing import Callable
 
 from coco_flow.clients import CocoACPClient
@@ -31,6 +32,23 @@ class PlanAISections:
     steps: str = ""
     risks: str = ""
     validation_extra: str = ""
+
+
+@dataclass
+class ContextSnapshot:
+    available: bool
+    glossary_excerpt: str = ""
+    architecture_excerpt: str = ""
+    patterns_excerpt: str = ""
+    gotchas_excerpt: str = ""
+    missing_files: list[str] | None = None
+
+
+@dataclass
+class ResearchFinding:
+    candidate_files: list[str]
+    candidate_dirs: list[str]
+    notes: list[str]
 
 
 def plan_task(task_id: str, settings: Settings | None = None, on_log: LogHandler | None = None) -> str:
@@ -91,9 +109,14 @@ def plan_task_local(task_dir: Path, task_meta: dict[str, object], on_log: LogHan
     refined_markdown = (task_dir / "prd-refined.md").read_text() if (task_dir / "prd-refined.md").exists() else ""
     repos_meta = read_json_file(task_dir / "repos.json")
     repo_lines = describe_repos(repos_meta)
+    repo_root = resolve_primary_repo_root(repos_meta)
+    context = load_optional_context_snapshot(repo_root)
+    finding = research_codebase(repo_root, title, refined_markdown)
 
     if on_log is not None:
         on_log("fallback_local_plan: true")
+        if context.missing_files:
+            on_log(f"context_missing: {', '.join(context.missing_files)}")
 
     design = build_design(
         title,
@@ -101,9 +124,11 @@ def plan_task_local(task_dir: Path, task_meta: dict[str, object], on_log: LogHan
         source_markdown,
         refined_markdown,
         repo_lines,
+        context=context,
+        finding=finding,
         ai=None,
     )
-    plan = build_plan(title, source_value, repo_lines, ai=None)
+    plan = build_plan(title, source_value, repo_lines, context=context, finding=finding, ai=None)
 
     (task_dir / "design.md").write_text(design)
     (task_dir / "plan.md").write_text(plan)
@@ -133,14 +158,20 @@ def plan_task_native(
         settings=settings,
     )
     repo_root = resolve_primary_repo_root(repos_meta)
+    context = load_optional_context_snapshot(repo_root)
+    finding = research_codebase(repo_root, title, refined_markdown)
 
     if on_log is not None:
         on_log("generator_mode: explorer(readonly)")
+        if context.missing_files:
+            on_log(f"context_missing: {', '.join(context.missing_files)}")
+        if finding.candidate_files:
+            on_log(f"candidate_files_count: {len(finding.candidate_files)}")
         on_log(f"prompt_start: timeout={settings.native_query_timeout}")
 
     try:
         raw = client.run_readonly_agent(
-            build_plan_prompt(title, source_markdown, refined_markdown, repo_lines),
+            build_plan_prompt(title, source_markdown, refined_markdown, repo_lines, context, finding),
             settings.native_query_timeout,
             repo_root or os.getcwd(),
         )
@@ -164,9 +195,11 @@ def plan_task_native(
         source_markdown,
         refined_markdown,
         repo_lines,
+        context=context,
+        finding=finding,
         ai=ai_sections,
     )
-    plan = build_plan(title, source_value, repo_lines, ai=ai_sections)
+    plan = build_plan(title, source_value, repo_lines, context=context, finding=finding, ai=ai_sections)
 
     (task_dir / "design.md").write_text(design)
     (task_dir / "plan.md").write_text(plan)
@@ -228,6 +261,8 @@ def build_design(
     source_markdown: str,
     refined_markdown: str,
     repo_lines: list[str],
+    context: ContextSnapshot,
+    finding: ResearchFinding,
     ai: PlanAISections | None,
 ) -> str:
     repo_section = "\n".join(repo_lines) if repo_lines else "- current-repo"
@@ -245,6 +280,11 @@ def build_design(
         "## 需求理解\n\n",
         f"{refined_excerpt or source_excerpt or '- 当前尚未提取到有效需求内容。'}\n\n",
     ]
+
+    if context.available:
+        parts.extend(["## Context 摘要\n\n", render_context_snapshot(context), "\n\n"])
+    if finding.candidate_files:
+        parts.extend(["## 本地候选文件\n\n", ensure_markdown_list("\n".join(finding.candidate_files)), "\n\n"])
 
     if ai and ai.summary:
         parts.extend(["## 实施摘要\n\n", ensure_markdown_list(ai.summary), "\n\n"])
@@ -267,6 +307,8 @@ def build_plan(
     title: str,
     source_value: str,
     repo_lines: list[str],
+    context: ContextSnapshot,
+    finding: ResearchFinding,
     ai: PlanAISections | None,
 ) -> str:
     repo_section = "\n".join(repo_lines) if repo_lines else "- current-repo"
@@ -290,6 +332,8 @@ def build_plan(
         "- 仅编译涉及的 package，不执行全仓 build/test。\n",
         "- 完成实现后建议进行最小范围 review。\n",
     ]
+    if finding.notes:
+        parts.append("\n".join(f"- {note}" for note in finding.notes) + "\n")
     if ai and ai.validation_extra:
         parts.append(ensure_markdown_list(ai.validation_extra))
     return "".join(parts)
@@ -300,6 +344,8 @@ def build_plan_prompt(
     source_markdown: str,
     refined_markdown: str,
     repo_lines: list[str],
+    context: ContextSnapshot,
+    finding: ResearchFinding,
 ) -> str:
     repo_section = "\n".join(repo_lines) if repo_lines else "- current-repo"
     return f"""你是一名资深技术方案与研发计划助手。基于提供的 PRD refined 内容和任务关联仓库，输出结构化的方案内容。
@@ -331,6 +377,17 @@ def build_plan_prompt(
 
 ## 任务关联仓库
 {repo_section}
+
+## Context 摘要
+{render_context_snapshot(context)}
+
+## 本地调研结果
+- candidate_files_count: {len(finding.candidate_files)}
+{render_list_block(finding.candidate_files)}
+- candidate_dirs_count: {len(finding.candidate_dirs)}
+{render_list_block(finding.candidate_dirs)}
+- 本地风险备注：
+{render_list_block(finding.notes)}
 
 任务标题：{title}
 """
@@ -428,6 +485,127 @@ def ensure_numbered_list(content: str) -> str:
     if not items:
         return ensure_numbered_list("")
     return "\n".join(f"{index}. {item}" for index, item in enumerate(items, start=1))
+
+
+def load_optional_context_snapshot(repo_root: str | None) -> ContextSnapshot:
+    if not repo_root:
+        return ContextSnapshot(available=False, missing_files=["glossary.md", "architecture.md", "patterns.md"])
+    context_dir = Path(repo_root) / ".livecoding" / "context"
+    required = {
+        "glossary.md": "",
+        "architecture.md": "",
+        "patterns.md": "",
+        "gotchas.md": "",
+    }
+    missing: list[str] = []
+    values: dict[str, str] = {}
+    for name in required:
+        path = context_dir / name
+        if not path.exists():
+            missing.append(name)
+            continue
+        try:
+            values[name] = excerpt_context(path.read_text())
+        except OSError:
+            missing.append(name)
+    return ContextSnapshot(
+        available=bool(values),
+        glossary_excerpt=values.get("glossary.md", ""),
+        architecture_excerpt=values.get("architecture.md", ""),
+        patterns_excerpt=values.get("patterns.md", ""),
+        gotchas_excerpt=values.get("gotchas.md", ""),
+        missing_files=missing,
+    )
+
+
+def research_codebase(repo_root: str | None, title: str, refined_markdown: str) -> ResearchFinding:
+    if not repo_root:
+        return ResearchFinding(candidate_files=[], candidate_dirs=[], notes=["当前未绑定可调研的 repo root。"])
+    terms = extract_research_terms(title, refined_markdown)
+    if not terms:
+        return ResearchFinding(candidate_files=[], candidate_dirs=[], notes=["当前未提取到稳定的代码检索关键词。"])
+
+    files: list[str] = []
+    seen: set[str] = set()
+    for term in terms[:6]:
+        result = subprocess.run(
+            [
+                "rg",
+                "-l",
+                "--hidden",
+                "--glob",
+                "!.git",
+                "--glob",
+                "!node_modules",
+                "--glob",
+                "!dist",
+                "--glob",
+                "!.livecoding",
+                term,
+                repo_root,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode not in {0, 1}:
+            continue
+        for line in result.stdout.splitlines():
+            current = line.strip()
+            if not current or current in seen:
+                continue
+            seen.add(current)
+            files.append(current.replace(repo_root.rstrip("/") + "/", ""))
+        if len(files) >= 16:
+            break
+
+    dirs = sorted({str(Path(path).parent) for path in files if "/" in path})[:8]
+    notes = [f"命中检索词: {', '.join(terms[:6])}"] if terms else []
+    return ResearchFinding(candidate_files=files[:16], candidate_dirs=dirs, notes=notes)
+
+
+def extract_research_terms(title: str, refined_markdown: str) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,}", f"{title}\n{refined_markdown}"):
+        lowered = token.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        terms.append(token)
+    return terms
+
+
+def excerpt_context(content: str, limit: int = 800) -> str:
+    normalized = content.strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[:limit].rstrip() + "..."
+
+
+def render_context_snapshot(context: ContextSnapshot) -> str:
+    lines: list[str] = []
+    if context.glossary_excerpt:
+        lines.append("### glossary")
+        lines.append(context.glossary_excerpt)
+    if context.architecture_excerpt:
+        lines.append("### architecture")
+        lines.append(context.architecture_excerpt)
+    if context.patterns_excerpt:
+        lines.append("### patterns")
+        lines.append(context.patterns_excerpt)
+    if context.gotchas_excerpt:
+        lines.append("### gotchas")
+        lines.append(context.gotchas_excerpt)
+    if context.missing_files:
+        lines.append(f"- 缺少 context 文件: {', '.join(context.missing_files)}")
+    return "\n".join(lines) if lines else "- 无可用 context。"
+
+
+def render_list_block(items: list[str]) -> str:
+    if not items:
+        return "  - 无"
+    return "\n".join(f"  - {item}" for item in items)
 
 
 def append_plan_log(task_dir: Path, message: str) -> None:
