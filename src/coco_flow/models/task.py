@@ -27,7 +27,9 @@ class RepoBinding(BaseModel):
     worktree: str | None = None
     commit: str | None = None
     build: str | None = None
+    failure_type: str | None = None
     failure_hint: str | None = None
+    failure_action: str | None = None
     files_written: list[str] | None = None
     diff_summary: dict[str, object] | None = None
 

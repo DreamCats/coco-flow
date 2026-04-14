@@ -5,10 +5,44 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from coco_flow.services.task_code import discover_go_test_packages, package_has_go_tests, verify_go_build
+from coco_flow.services.task_code import (
+    FAILURE_AGENT,
+    FAILURE_BUILD,
+    FAILURE_GIT,
+    FAILURE_VERIFY,
+    classify_exception_failure_type,
+    classify_failure_type,
+    discover_go_test_packages,
+    package_has_go_tests,
+    verify_go_build,
+)
 
 
 class TaskCodeVerificationTest(unittest.TestCase):
+    def test_classify_failure_type_prefers_build_failure(self) -> None:
+        self.assertEqual(
+            classify_failure_type("failed", "go build ./internal/service/... 失败:\nundefined symbol", True),
+            FAILURE_BUILD,
+        )
+
+    def test_classify_failure_type_detects_verify_failure(self) -> None:
+        self.assertEqual(
+            classify_failure_type("failed", "go test ./internal/service 失败:\nassert failed", True),
+            FAILURE_VERIFY,
+        )
+
+    def test_classify_failure_type_detects_agent_failure_without_changes(self) -> None:
+        self.assertEqual(
+            classify_failure_type("failed", "", False),
+            FAILURE_AGENT,
+        )
+
+    def test_classify_exception_failure_type_detects_git_error(self) -> None:
+        self.assertEqual(
+            classify_exception_failure_type(RuntimeError("git index.lock already exists")),
+            FAILURE_GIT,
+        )
+
     def test_package_has_go_tests_detects_test_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

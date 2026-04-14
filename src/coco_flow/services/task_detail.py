@@ -115,6 +115,8 @@ def parse_repos(repos_meta: dict[str, object], task_dir: Path | None = None) -> 
         commit = _optional_str(item.get("commit"))
         build = "n/a"
         failure_hint: str | None = None
+        failure_type: str | None = None
+        failure_action: str | None = None
         files_written: list[str] | None = None
         diff_summary: dict[str, object] | None = None
 
@@ -122,7 +124,9 @@ def parse_repos(repos_meta: dict[str, object], task_dir: Path | None = None) -> 
             report = read_repo_code_result(task_dir, repo_id)
             if report:
                 build = "passed" if bool(report.get("build_ok")) else "failed"
+                failure_type = _optional_str(report.get("failure_type"))
                 failure_hint = summarize_repo_failure(task_dir, repo_id, report)
+                failure_action = _optional_str(report.get("failure_action"))
                 files_written = clean_files_written(
                     [str(path) for path in (report.get("files_written") or []) if isinstance(path, str)],
                     repo_path,
@@ -158,7 +162,9 @@ def parse_repos(repos_meta: dict[str, object], task_dir: Path | None = None) -> 
                 worktree=worktree,
                 commit=commit,
                 build=build,
+                failure_type=failure_type,
                 failure_hint=failure_hint,
+                failure_action=failure_action,
                 files_written=files_written,
                 diff_summary=diff_summary,
             )

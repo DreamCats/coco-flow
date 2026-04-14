@@ -140,8 +140,16 @@ function RepoDeliveryCard({
 
       {repo.failureHint ? (
         <div className="mb-4 rounded-[18px] border border-rose-200/90 bg-rose-50/90 px-3 py-3 text-sm leading-6 text-rose-800 dark:border-rose-300/20 dark:bg-rose-400/10 dark:text-rose-100">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] opacity-80">失败摘要</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] opacity-80">失败摘要</div>
+            {repo.failureType ? (
+              <div className="rounded-full border border-rose-300/40 bg-white/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-rose-700 dark:border-rose-200/20 dark:bg-black/15 dark:text-rose-100">
+                {failureTypeLabel(repo.failureType)}
+              </div>
+            ) : null}
+          </div>
           <div className="mt-2 font-mono text-xs leading-6">{repo.failureHint}</div>
+          {repo.failureAction ? <div className="mt-2 text-xs leading-5 opacity-90">建议：{repo.failureAction}</div> : null}
         </div>
       ) : null}
 
@@ -231,7 +239,7 @@ function repoDeliverySummary(repo: TaskRecord['repos'][number]) {
     case 'coding':
       return '正在后台生成实现并验证结果，适合先查看日志确认当前进度。'
     case 'failed':
-      return '这次推进失败了，建议先查看结果或日志，再决定重试还是回退。'
+      return repo.failureAction || '这次推进失败了，建议先查看结果或日志，再决定重试还是回退。'
     case 'planned':
       return '方案已经准备好，这个仓库可以直接开始实现。'
     case 'coded':
@@ -240,6 +248,21 @@ function repoDeliverySummary(repo: TaskRecord['repos'][number]) {
       return '这个仓库已经完成归档，结果保留但执行环境已清理。'
     default:
       return '当前还没有进入实现阶段。'
+  }
+}
+
+function failureTypeLabel(value: string) {
+  switch (value) {
+    case 'build_failed':
+      return '编译失败'
+    case 'verify_failed':
+      return '验证失败'
+    case 'git_failed':
+      return 'Git 失败'
+    case 'agent_failed':
+      return 'Agent 失败'
+    default:
+      return '运行失败'
   }
 }
 

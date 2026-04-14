@@ -32,6 +32,11 @@ EXECUTOR_LOCAL = "local"
 MAX_CODE_ATTEMPTS = 3
 MAX_GO_TEST_PACKAGES = 3
 MAX_GO_TEST_DISCOVERY_PACKAGES = 8
+FAILURE_AGENT = "agent_failed"
+FAILURE_BUILD = "build_failed"
+FAILURE_VERIFY = "verify_failed"
+FAILURE_GIT = "git_failed"
+FAILURE_RUNTIME = "runtime_failed"
 LogHandler = Callable[[str], None]
 
 
@@ -371,15 +376,32 @@ def execute_native_repo(
     if verification_ok and not clean_files and status == "success":
         status = "no_change"
 
+    failure_type = ""
+    failure_action = ""
     if clean_files and verification_ok:
-        patch = stage_and_read_patch(worktree, clean_files)
-        commit_hash = commit_code_changes(worktree, task_id)
-        write_repo_diff_artifacts(task_dir, repo_id, branch, commit_hash, clean_files, patch)
-        repo_status = STATUS_CODED if status in {"success", "no_change"} else STATUS_FAILED
+        try:
+            patch = stage_and_read_patch(worktree, clean_files)
+            commit_hash = commit_code_changes(worktree, task_id)
+            write_repo_diff_artifacts(task_dir, repo_id, branch, commit_hash, clean_files, patch)
+        except Exception as error:
+            verification_ok = False
+            repo_status = STATUS_FAILED
+            failure_type = FAILURE_GIT
+            verification_output = str(error)
+            log(f"repo_git_failed: {repo_id} {error}")
+        else:
+            repo_status = STATUS_CODED if status in {"success", "no_change"} else STATUS_FAILED
     elif clean_files and not verification_ok:
         repo_status = STATUS_FAILED
     else:
         repo_status = STATUS_CODED if status == "no_change" else STATUS_FAILED if status == "failed" else STATUS_CODED
+
+    if repo_status == STATUS_FAILED and not failure_type:
+        failure_type = classify_failure_type(status, verification_output, bool(clean_files))
+        failure_action = suggest_failure_action(failure_type)
+        log(f"repo_failure_type: {repo_id} {failure_type}")
+    elif repo_status == STATUS_FAILED:
+        failure_action = suggest_failure_action(failure_type)
 
     report = {
         "status": status,
@@ -392,6 +414,8 @@ def execute_native_repo(
         "build_ok": bool(parsed["build_ok"]),
         "files_written": clean_files,
         "summary": str(parsed["summary"] or ""),
+        "failure_type": failure_type,
+        "failure_action": failure_action,
         "error": (
             ""
             if repo_status != STATUS_FAILED
@@ -433,6 +457,8 @@ def build_failed_report(
         "build_ok": False,
         "files_written": [],
         "summary": str(error),
+        "failure_type": classify_exception_failure_type(error),
+        "failure_action": suggest_failure_action(classify_exception_failure_type(error)),
         "error": str(error),
         "log": str(task_dir / "code.log"),
         "started_at": started_at,
@@ -447,9 +473,11 @@ def build_repo_log(repo_id: str, report: dict[str, object], body: str, verificat
         f"branch={report.get('branch') or ''}",
         f"worktree={report.get('worktree') or ''}",
         f"status={report.get('status') or ''}",
+        f"failure_type={report.get('failure_type') or '-'}",
         f"build_ok={report.get('build_ok')}",
         f"commit={report.get('commit') or '-'}",
         f"files_written={', '.join([str(item) for item in report.get('files_written') or []]) or '-'}",
+        f"failure_action={report.get('failure_action') or '-'}",
         "verification:",
         verification_output.strip() or "verification skipped or passed without output",
         "reply:",
@@ -783,6 +811,40 @@ def package_has_go_tests(repo_root: str, package_pattern: str) -> bool:
     if not package_dir.is_dir():
         return False
     return any(path.is_file() for path in package_dir.glob("*_test.go"))
+
+
+def classify_failure_type(status: str, verification_output: str, has_changed_files: bool) -> str:
+    output = verification_output.strip().lower()
+    if "git" in output and ("commit" in output or "index.lock" in output or "worktree" in output):
+        return FAILURE_GIT
+    if "go build " in output or "python py_compile failed" in output:
+        return FAILURE_BUILD
+    if "go test " in output:
+        return FAILURE_VERIFY
+    if status == "failed" and not has_changed_files:
+        return FAILURE_AGENT
+    if status == "failed":
+        return FAILURE_VERIFY
+    return FAILURE_RUNTIME
+
+
+def classify_exception_failure_type(error: Exception) -> str:
+    message = str(error).lower()
+    if "git" in message or "worktree" in message or "index.lock" in message:
+        return FAILURE_GIT
+    return FAILURE_RUNTIME
+
+
+def suggest_failure_action(failure_type: str) -> str:
+    if failure_type == FAILURE_BUILD:
+        return "先修复编译错误，再重试实现。"
+    if failure_type == FAILURE_VERIFY:
+        return "先查看验证输出，确认测试或校验失败点，再决定重试还是调整方案。"
+    if failure_type == FAILURE_GIT:
+        return "先检查 worktree、分支或 git 锁冲突，再重试实现。"
+    if failure_type == FAILURE_AGENT:
+        return "先查看 agent 输出和方案上下文，确认提示词或实现边界后再重试。"
+    return "先查看日志定位失败点，再决定重试还是回退。"
 
 
 def verify_python_files(repo_root: str, files: list[str]) -> tuple[bool, str]:

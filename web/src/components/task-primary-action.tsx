@@ -54,6 +54,7 @@ export function TaskPrimaryAction({
   const failedCount = task.repos.filter((repo) => repo.status === 'failed').length
   const runningCount = task.repos.filter((repo) => repo.status === 'coding').length
   const pendingRefine = isPendingRefineTask(task)
+  const dominantFailure = summarizeFailureType(task)
 
   return (
     <section className="rounded-[28px] border border-emerald-300/18 bg-[linear-gradient(140deg,rgba(16,185,129,0.2),rgba(12,18,18,0.96)_42%,rgba(11,13,17,0.98)_100%)] p-5 shadow-[0_28px_60px_rgba(6,78,59,0.24)]">
@@ -81,6 +82,13 @@ export function TaskPrimaryAction({
       ) : null}
       {task.status === 'coding' ? (
         <NoticeBox tone="emerald">后台正在生成实现并验证结果。若停留时间过长，可先查看 `code.log`。</NoticeBox>
+      ) : null}
+      {task.status === 'failed' ? (
+        <NoticeBox tone="rose">
+          {dominantFailure
+            ? `当前主要失败类型是「${dominantFailure.label}」。${dominantFailure.action}`
+            : '本次推进失败了，建议先查看 code.log 和 code-result.json，再决定重试还是回退。'}
+        </NoticeBox>
       ) : null}
       {task.repos.length > 1 && canStartRemainingCode ? (
         <NoticeBox tone="amber">这是一条多仓任务。建议优先一键推进剩余仓库，再到下方逐个处理例外情况。</NoticeBox>
@@ -306,6 +314,10 @@ function primaryNarrative(task: TaskRecord) {
     return `${codedCount} 个仓库已经完成，仍有 ${Math.max(repoCount - codedCount, 0)} 个仓库需要继续处理。`
   }
   if (task.status === 'failed' && repoCount > 1) {
+    const dominantFailure = summarizeFailureType(task)
+    if (dominantFailure) {
+      return `${failedCount} 个仓库在推进中失败，当前主要是「${dominantFailure.label}」。${dominantFailure.action}`
+    }
     return `${failedCount} 个仓库在推进中失败，建议先查看日志，再决定重试还是回退。`
   }
   if (task.status === 'coded') {
@@ -324,6 +336,41 @@ function primaryNarrative(task: TaskRecord) {
     return '需求已经整理成可执行任务，下一步最值得做的是生成方案。'
   }
   return '你可以在这里集中推进任务、查看结果，并决定接下来的动作。'
+}
+
+function summarizeFailureType(task: TaskRecord) {
+  const failedRepos = task.repos.filter((repo) => repo.status === 'failed' && repo.failureType)
+  if (failedRepos.length === 0) {
+    return null
+  }
+
+  const counts = new Map<string, number>()
+  for (const repo of failedRepos) {
+    const current = repo.failureType as string
+    counts.set(current, (counts.get(current) ?? 0) + 1)
+  }
+
+  const [type] = Array.from(counts.entries()).sort((left, right) => right[1] - left[1])[0]
+  const sample = failedRepos.find((repo) => repo.failureType === type)
+  return {
+    label: failureTypeLabel(type),
+    action: sample?.failureAction || '建议先查看日志，再决定重试还是回退。',
+  }
+}
+
+function failureTypeLabel(value: string) {
+  switch (value) {
+    case 'build_failed':
+      return '编译失败'
+    case 'verify_failed':
+      return '验证失败'
+    case 'git_failed':
+      return 'Git 失败'
+    case 'agent_failed':
+      return 'Agent 失败'
+    default:
+      return '运行失败'
+  }
 }
 
 function isPendingRefineTask(task: TaskRecord) {

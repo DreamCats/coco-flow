@@ -56,7 +56,9 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
                 "worktree": repo.worktree,
                 "commit": repo.commit,
                 "build": repo.build or infer_repo_build(repo.status, repo.commit),
+                "failureType": repo.failure_type,
                 "failureHint": repo.failure_hint,
+                "failureAction": repo.failure_action,
                 "filesWritten": repo.files_written or [],
                 "diffSummary": repo.diff_summary,
             }
