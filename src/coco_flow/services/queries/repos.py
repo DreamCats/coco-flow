@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 
 from coco_flow.services import TaskStore
-from coco_flow.services.view_compat import format_timestamp
+from coco_flow.api.presenters import format_timestamp
 
 
 def list_recent_repos(store: TaskStore) -> list[dict[str, object]]:

@@ -9,7 +9,7 @@ import time
 
 from coco_flow.clients.acp_client import run_prompt_with_pool
 from coco_flow.config import Settings, load_settings
-from coco_flow.daemon_paths import daemon_log_path, daemon_pid_path, daemon_socket_path
+from coco_flow.daemon.paths import daemon_log_path, daemon_pid_path, daemon_socket_path
 
 
 class DaemonServer:

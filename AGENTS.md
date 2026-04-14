@@ -76,8 +76,8 @@ npm run build
 定向校验：
 
 ```bash
-uv run python -m py_compile src/coco_flow/services/task_plan.py
-uv run python -m py_compile src/coco_flow/services/task_code.py
+uv run python -m py_compile src/coco_flow/services/tasks/plan.py
+uv run python -m py_compile src/coco_flow/services/tasks/code.py
 uv run python -m unittest discover -s tests -v
 ```
 
@@ -88,10 +88,9 @@ uv run python -m unittest discover -s tests -v
 关键目录：
 
 - [`src/coco_flow/api/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/api)：FastAPI app factory 与路由
-- [`src/coco_flow/services/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/services)：task create/refine/plan/code/reset/archive、artifact、repo 状态与 workspace 逻辑
+- [`src/coco_flow/services/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/services)：按 `tasks/`、`queries/`、`runtime/` 拆分 task 流程、查询拼装与运行时状态逻辑
 - [`src/coco_flow/clients/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/clients)：ACP client 抽象
-- [`src/coco_flow/daemon_client.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/daemon_client.py)：daemon 客户端
-- [`src/coco_flow/daemon_server.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/daemon_server.py)：本地 Unix socket daemon
+- [`src/coco_flow/daemon/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/daemon)：daemon client / server / protocol / paths
 - [`src/coco_flow/models/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/models)：API response model
 - [`web/`](/Users/bytedance/Work/tools/bytedance/coco-flow/web)：本地 Web UI
 

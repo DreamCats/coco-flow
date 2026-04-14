@@ -6,7 +6,7 @@ import shutil
 import subprocess
 
 from coco_flow.config import Settings, load_settings
-from coco_flow.services.repo_state import (
+from coco_flow.services.runtime.repo_state import (
     STATUS_ARCHIVED,
     STATUS_CODED,
     STATUS_CODING,
@@ -17,8 +17,8 @@ from coco_flow.services.repo_state import (
     sync_task_status_from_repos,
     update_repo_binding,
 )
-from coco_flow.services.task_detail import read_json_file
-from coco_flow.services.task_refine import locate_task_dir
+from coco_flow.services.queries.task_detail import read_json_file
+from coco_flow.services.tasks.refine import locate_task_dir
 
 
 def reset_task(task_id: str, settings: Settings | None = None, repo_id: str = "") -> str:

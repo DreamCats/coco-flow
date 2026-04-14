@@ -9,7 +9,7 @@ import sys
 import time
 
 from coco_flow.config import Settings, load_settings
-from coco_flow.daemon_paths import daemon_log_path, daemon_pid_path, daemon_socket_path
+from coco_flow.daemon.paths import daemon_log_path, daemon_pid_path, daemon_socket_path
 
 
 def run_prompt_via_daemon(
@@ -107,7 +107,7 @@ def start_daemon(settings: Settings | None = None) -> None:
     env["COCO_FLOW_ACP_IDLE_TIMEOUT_SECONDS"] = str(cfg.acp_idle_timeout_seconds)
     env["COCO_FLOW_DAEMON_IDLE_TIMEOUT_SECONDS"] = str(cfg.daemon_idle_timeout_seconds)
     subprocess.Popen(
-        [sys.executable, "-m", "coco_flow.daemon_main"],
+        [sys.executable, "-m", "coco_flow.daemon.main"],
         cwd=str(Path.cwd()),
         stdout=log_file,
         stderr=log_file,

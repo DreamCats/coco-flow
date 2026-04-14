@@ -6,13 +6,13 @@ import os
 
 from coco_flow.config import Settings, load_settings
 from coco_flow.models import TaskDetail, TaskSummary, WorkspaceInfo
-from coco_flow.services.repo_state import (
+from coco_flow.services.runtime.repo_state import (
     read_repo_code_log,
     read_repo_code_result_raw,
     read_repo_diff_patch,
     read_repo_diff_summary,
 )
-from coco_flow.services.task_detail import (
+from coco_flow.services.queries.task_detail import (
     build_task_detail,
     read_artifact_content,
     read_json_file,
