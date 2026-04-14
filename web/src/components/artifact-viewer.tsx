@@ -34,29 +34,29 @@ export function ArtifactViewer({
   const [focusOpen, setFocusOpen] = useState(false)
 
   return (
-    <div className="overflow-hidden rounded-[22px] border border-stone-200 bg-[#0d1014] shadow-[0_20px_60px_rgba(17,24,39,0.12)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-4 py-3 text-sm text-stone-300">
+    <div className="overflow-hidden rounded-[22px] border border-[#e8e6dc] bg-[#faf9f5] shadow-[0_0_0_1px_rgba(240,238,230,0.92),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98),0_8px_28px_rgba(0,0,0,0.2)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8e6dc] px-4 py-3 text-sm text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]">
         <div>
-          <div className="font-semibold text-stone-100">{artifactLabel(artifact)}</div>
-          <div className="mt-1 font-mono text-xs text-stone-500">{sourcePath || `task/${taskID}/${artifact}`}</div>
+          <div className="font-medium text-[#141413] dark:text-[#faf9f5]">{artifactLabel(artifact)}</div>
+          <div className="mt-1 font-mono text-xs text-[#87867f] dark:text-[#b0aea5]">{sourcePath || `task/${taskID}/${artifact}`}</div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-stone-500">
+        <div className="flex items-center gap-2 text-xs text-[#87867f] dark:text-[#b0aea5]">
           {isLive ? (
-            <span className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-emerald-100">
+            <span className="flex items-center gap-2 rounded-full border border-[#ccd6c8] bg-[#f3f7f1] px-3 py-1 text-[#4a6b4a] dark:border-[#425142] dark:bg-[#263126] dark:text-[#d8e7d4]">
               <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300/70" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-300" />
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#7fa27f]/60 dark:bg-[#8bb28b]/60" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#5d7f5d] dark:bg-[#9dc39d]" />
               </span>
               {liveLabel || 'Live'}
             </span>
           ) : null}
-          <span className="rounded-full border border-white/10 px-2 py-1">
+          <span className="rounded-full border border-[#d1cfc5] bg-[#f5f4ed] px-2 py-1 text-[#5e5d59] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
             {isLog ? 'Log' : isJSON ? 'JSON' : isPatch ? 'Patch' : isMarkdown ? 'Markdown' : 'Text'}
           </span>
           <span>{lines} lines</span>
           {canEdit ? (
             <button
-              className="rounded-full border border-emerald-300/25 bg-emerald-400/10 px-3 py-1 text-emerald-100 transition hover:border-emerald-200/40 hover:bg-emerald-400/18 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-full border border-[#c96442] bg-[#fff7f2] px-3 py-1 text-[#c96442] transition hover:bg-[#fbe9df] disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0] dark:hover:bg-[#4a2f28]"
               disabled={saving}
               onClick={onEdit}
               type="button"
@@ -66,7 +66,7 @@ export function ArtifactViewer({
           ) : null}
           {isMarkdown ? (
             <button
-              className="rounded-full border border-white/10 px-3 py-1 text-stone-300 transition hover:border-white/20 hover:text-white"
+              className="rounded-full border border-[#d1cfc5] bg-[#e8e6dc] px-3 py-1 text-[#4d4c48] transition hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]"
               onClick={() => setFocusOpen(true)}
               type="button"
             >
@@ -74,7 +74,7 @@ export function ArtifactViewer({
             </button>
           ) : null}
           <button
-            className="rounded-full border border-white/10 px-3 py-1 text-stone-300 transition hover:border-white/20 hover:text-white"
+            className="rounded-full border border-[#d1cfc5] bg-[#e8e6dc] px-3 py-1 text-[#4d4c48] transition hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]"
             onClick={() => {
               void navigator.clipboard
                 .writeText(normalized)
@@ -94,7 +94,7 @@ export function ArtifactViewer({
         </div>
       </div>
       {isLive ? (
-        <div className="border-b border-emerald-300/12 bg-emerald-400/10 px-4 py-2 text-xs text-emerald-100/90">
+        <div className="border-b border-[#ccd6c8] bg-[#f3f7f1] px-4 py-2 text-xs text-[#4a6b4a] dark:border-[#425142] dark:bg-[#263126] dark:text-[#d8e7d4]">
           正在后台运行，内容会随轮询自动刷新。最近同步 {lastRefreshedAt || '--:--:--'}。
         </div>
       ) : null}
@@ -130,7 +130,7 @@ function MarkdownArtifact({
   const lines = content.split('\n')
 
   return (
-    <div className={variant === 'drawer' ? 'space-y-3 text-[#141413] dark:text-[#faf9f5]' : 'space-y-2 text-stone-100'}>
+    <div className={variant === 'drawer' ? 'space-y-3 text-[#141413] dark:text-[#faf9f5]' : 'space-y-2 text-[#141413] dark:text-[#faf9f5]'}>
       <div className={variant === 'drawer' ? 'space-y-3' : 'space-y-2'}>
         {lines.map((line, index) => {
           const trimmed = line.trim()
@@ -144,7 +144,7 @@ function MarkdownArtifact({
                 className={
                   variant === 'drawer'
                     ? 'mt-6 text-[24px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
-                    : 'mt-4 text-lg font-semibold text-amber-100'
+                    : 'mt-4 text-[20px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
                 }
                 id={markdownHeadingID(title)}
                 key={index}
@@ -160,7 +160,7 @@ function MarkdownArtifact({
                 className={
                   variant === 'drawer'
                     ? 'mt-8 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
-                    : 'mt-5 text-xl font-semibold text-white'
+                    : 'mt-5 text-[24px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
                 }
                 id={markdownHeadingID(title)}
                 key={index}
@@ -176,7 +176,7 @@ function MarkdownArtifact({
                 className={
                   variant === 'drawer'
                     ? 'mt-2 text-[42px] leading-[1.1] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
-                    : 'mt-2 text-2xl font-semibold tracking-[-0.03em] text-white'
+                    : 'mt-2 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
                 }
                 id={markdownHeadingID(title)}
                 key={index}
@@ -191,7 +191,7 @@ function MarkdownArtifact({
                 className={
                   variant === 'drawer'
                     ? 'flex gap-3 pl-1 text-[16px] leading-8 text-[#4d4c48] dark:text-[#b0aea5]'
-                    : 'flex gap-3 pl-1 text-[13px] leading-7 text-stone-200'
+                    : 'flex gap-3 pl-1 text-[15px] leading-8 text-[#4d4c48] dark:text-[#b0aea5]'
                 }
                 key={index}
               >
@@ -199,7 +199,7 @@ function MarkdownArtifact({
                   className={
                     variant === 'drawer'
                       ? 'mt-[13px] h-1.5 w-1.5 rounded-full bg-[#c96442] dark:bg-[#d97757]'
-                      : 'mt-[10px] h-1.5 w-1.5 rounded-full bg-emerald-300'
+                      : 'mt-[12px] h-1.5 w-1.5 rounded-full bg-[#c96442] dark:bg-[#d97757]'
                   }
                 />
                 <span>{trimmed.slice(2)}</span>
@@ -212,7 +212,7 @@ function MarkdownArtifact({
                 className={
                   variant === 'drawer'
                     ? 'overflow-x-auto rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 font-mono text-xs text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]'
-                    : 'overflow-x-auto rounded-xl border border-white/8 bg-white/3 px-3 py-2 font-mono text-xs text-stone-300'
+                    : 'overflow-x-auto rounded-[14px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-2 font-mono text-xs text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]'
                 }
                 key={index}
               >
@@ -222,7 +222,7 @@ function MarkdownArtifact({
           }
           return (
             <p
-              className={variant === 'drawer' ? 'text-[17px] leading-[1.8] text-[#4d4c48] dark:text-[#b0aea5]' : 'text-[13px] leading-7 text-stone-200'}
+              className={variant === 'drawer' ? 'text-[17px] leading-[1.8] text-[#4d4c48] dark:text-[#b0aea5]' : 'text-[15px] leading-[1.8] text-[#4d4c48] dark:text-[#b0aea5]'}
               key={index}
             >
               {trimmed}
@@ -251,7 +251,7 @@ function JsonArtifact({ content }: { content: string }) {
         <ModeButton active={mode === 'summary'} label="关键信息" onClick={() => setMode('summary')} />
         <ModeButton active={mode === 'full'} label="完整 JSON" onClick={() => setMode('full')} />
       </div>
-      <pre className="rounded-[18px] bg-[#0b0e12] text-[12px] leading-6 text-sky-100">
+      <pre className="rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] text-[12px] leading-6 text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#141413] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
         <code>{mode === 'summary' ? summary : pretty}</code>
       </pre>
     </div>
@@ -270,7 +270,7 @@ function LogArtifact({ content }: { content: string }) {
         <ModeButton active={mode === 'highlights'} label="关键信息" onClick={() => setMode('highlights')} />
         <ModeButton active={mode === 'full'} label="完整日志" onClick={() => setMode('full')} />
       </div>
-      <div className="space-y-1 rounded-[18px] bg-[#0a0d10] text-[12px] leading-6">
+      <div className="space-y-1 rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-3 text-[12px] leading-6 shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#141413] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
         {lines.map((line, index) => (
         <div className={logLineTone(line)} key={`${index}-${line}`}>
           <code>{line || ' '}</code>
@@ -294,8 +294,8 @@ function ModeButton({
     <button
       className={`rounded-full border px-3 py-1 text-xs transition ${
         active
-          ? 'border-stone-200 bg-stone-100 text-stone-950'
-          : 'border-white/10 bg-transparent text-stone-400 hover:border-white/20 hover:text-stone-200'
+          ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
+          : 'border-[#d1cfc5] bg-[#e8e6dc] text-[#4d4c48] hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]'
       }`}
       onClick={onClick}
       type="button"
@@ -308,18 +308,18 @@ function ModeButton({
 function logLineTone(line: string) {
   const lower = line.toLowerCase()
   if (lower.includes('error') || lower.includes('failed')) {
-    return 'font-mono text-rose-300'
+    return 'font-mono text-[#b53333] dark:text-[#efb3b3]'
   }
   if (lower.includes('passed') || lower.includes('success') || lower.includes('ok')) {
-    return 'font-mono text-emerald-300'
+    return 'font-mono text-[#4a6b4a] dark:text-[#b7d1b7]'
   }
   if (lower.includes('retry') || lower.includes('warning')) {
-    return 'font-mono text-amber-300'
+    return 'font-mono text-[#9a6a18] dark:text-[#e4c07c]'
   }
   if (line.startsWith('===') || line.startsWith('[tool]')) {
-    return 'font-mono text-sky-300'
+    return 'font-mono text-[#6b7280] dark:text-[#c5c9d1]'
   }
-  return 'font-mono text-stone-200'
+  return 'font-mono text-[#4d4c48] dark:text-[#b0aea5]'
 }
 
 function isImportantLogLine(line: string) {

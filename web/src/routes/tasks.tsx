@@ -961,7 +961,7 @@ function TaskListItemCard({ task }: { task: TaskListItem }) {
     <Link
       className={`block rounded-[18px] border px-3.5 py-3 transition ${
         active
-          ? 'border-[#30302e] bg-[#30302e] text-[#faf9f5] shadow-[0_0_0_1px_rgba(48,48,46,1),0_4px_24px_rgba(20,20,19,0.08)] dark:border-[#faf9f5] dark:bg-[#faf9f5] dark:text-[#141413] dark:shadow-[0_0_0_1px_rgba(240,238,230,0.92)]'
+          ? 'border-[#c96442] bg-[#fff7f2] text-[#141413] shadow-[0_0_0_1px_rgba(201,100,66,0.2),0_4px_24px_rgba(20,20,19,0.06)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(217,119,87,0.24)]'
           : 'border-[#e8e6dc] bg-[#faf9f5] text-[#141413] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] hover:bg-[#f5f4ed] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)] dark:hover:bg-[#2a2927]'
       }`}
       params={{ taskId: task.id }}
@@ -970,24 +970,24 @@ function TaskListItemCard({ task }: { task: TaskListItem }) {
     >
       <div className="flex items-center justify-between gap-3">
         <StatusBadge status={task.status} />
-        <div className={`text-xs ${active ? 'text-stone-300 dark:text-stone-500' : 'text-stone-500 dark:text-stone-400'}`}>{task.updatedAt}</div>
+        <div className={`text-xs ${active ? 'text-[#87867f] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>{task.updatedAt}</div>
       </div>
       <div className="mt-2 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-semibold leading-5 tracking-[-0.03em]">{task.title}</div>
-          <div className={`mt-1 text-[11px] font-mono ${active ? 'text-stone-400 dark:text-stone-500' : 'text-stone-500 dark:text-stone-400'}`}>{task.id}</div>
+          <div className={`mt-1 text-[11px] font-mono ${active ? 'text-[#87867f] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>{task.id}</div>
         </div>
         <div
           className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.5px] ${
             active
-              ? 'border-[#e8e6dc]/30 text-[#faf9f5] dark:border-[#30302e] dark:text-[#141413]'
+              ? 'border-[#d97757]/40 text-[#c96442] dark:border-[#d97757]/40 dark:text-[#f0c0b0]'
               : 'border-[#e8e6dc] text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]'
           }`}
         >
           {task.repoCount} 仓库
         </div>
       </div>
-      <div className={`mt-2 flex items-center justify-between gap-3 text-xs ${active ? 'text-stone-300 dark:text-stone-500' : 'text-stone-500 dark:text-stone-400'}`}>
+      <div className={`mt-2 flex items-center justify-between gap-3 text-xs ${active ? 'text-[#5e5d59] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>
         <span className="min-w-0 truncate">{repoSummary}</span>
         <span className="shrink-0">{nextStepHint}</span>
       </div>

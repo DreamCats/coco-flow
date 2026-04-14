@@ -43,7 +43,7 @@ export function DiffPanel({
   const deletionsValue = unifiedAvailable ? activeFile?.deletions ?? 0 : activeRepo?.diffSummary?.deletions ?? 0
 
   return (
-    <section className="rounded-[24px] border border-stone-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
+    <section className="rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">变更对比</div>
@@ -63,8 +63,8 @@ export function DiffPanel({
               <button
                 className={`rounded-full border px-3 py-2 text-sm font-medium transition ${
                   activeRepo?.id === repo.id
-                    ? 'border-stone-900 bg-stone-900 text-white shadow-sm dark:border-stone-100 dark:bg-stone-100 dark:text-stone-950'
-                    : 'border-stone-200 bg-stone-50 text-stone-700 hover:border-stone-300 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:hover:border-white/20 dark:hover:bg-white/10'
+                    ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
+                    : 'border-[#e8e6dc] bg-[#f5f4ed] text-[#5e5d59] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
                 }`}
                 key={repo.id}
                 onClick={() => onSelectRepo(repo.id)}
@@ -82,7 +82,7 @@ export function DiffPanel({
                 <FilterChip label="+ / -" value={`${additionsValue} / ${deletionsValue}`} />
               </div>
 
-              <div className="rounded-[18px] border border-stone-200 bg-stone-50 px-3 py-3 dark:border-white/10 dark:bg-white/5">
+              <div className="rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
                 <div className="grid gap-3 md:grid-cols-4">
                   <KeyValue label="分支" mono value={activeRepo.diffSummary.branch || '-'} />
                   <KeyValue label="提交" mono value={activeRepo.diffSummary.commit || '-'} />
@@ -92,15 +92,15 @@ export function DiffPanel({
               </div>
 
               <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-                <div className="rounded-[18px] border border-stone-200 bg-white px-3 py-3 dark:border-white/10 dark:bg-white/5">
+                <div className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
                   <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-stone-500 dark:text-stone-400">涉及文件</div>
                   <div className="space-y-2">
                     {fileButtons.map((file) => (
                       <button
                         className={`block w-full rounded-xl border px-3 py-2 text-left transition ${
                           activeFile?.path === file.path
-                            ? 'border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-950'
-                            : 'border-stone-200 bg-stone-50 text-stone-800 hover:border-stone-300 hover:bg-white dark:border-white/10 dark:bg-stone-950/70 dark:text-stone-200 dark:hover:border-white/20 dark:hover:bg-stone-900'
+                            ? 'border-[#c96442] bg-[#fff7f2] text-[#141413] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#faf9f5]'
+                            : 'border-[#e8e6dc] bg-[#f5f4ed] text-[#4d4c48] hover:bg-[#efede4] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:hover:bg-[#2a2927]'
                         }`}
                         key={file.path}
                         onClick={() => setSelectedFile(file.path)}
@@ -120,20 +120,20 @@ export function DiffPanel({
                   </div>
                 </div>
 
-                <div className="overflow-hidden rounded-[18px] border border-stone-200 bg-[#0d1014] shadow-[0_12px_30px_rgba(17,24,39,0.08)]">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-4 py-3 text-sm text-stone-300">
+                <div className="overflow-hidden rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] shadow-[0_0_0_1px_rgba(240,238,230,0.92),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#141413] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8e6dc] px-4 py-3 text-sm text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]">
                     <div>
-                      <div className="font-semibold text-stone-100">
+                      <div className="font-semibold text-[#141413] dark:text-[#faf9f5]">
                         {activeFile?.path ? `Diff · ${activeFile.path}` : '提交差异'}
                       </div>
-                      <div className="mt-1 text-xs text-stone-500">优先展示当前文件的变更；需要时可切回原始 patch。</div>
+                      <div className="mt-1 text-xs text-[#87867f] dark:text-[#b0aea5]">优先展示当前文件的变更；需要时可切回原始 patch。</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                           viewMode === 'split'
-                            ? 'bg-stone-100 text-stone-950'
-                            : 'bg-white/5 text-stone-300 hover:bg-white/10'
+                            ? 'bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
+                            : 'bg-[#e8e6dc] text-[#4d4c48] hover:bg-[#ddd9cc] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]'
                         }`}
                         onClick={() => setViewMode('split')}
                         type="button"
@@ -143,8 +143,8 @@ export function DiffPanel({
                       <button
                         className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                           viewMode === 'unified'
-                            ? 'bg-stone-100 text-stone-950'
-                            : 'bg-white/5 text-stone-300 hover:bg-white/10'
+                            ? 'bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
+                            : 'bg-[#e8e6dc] text-[#4d4c48] hover:bg-[#ddd9cc] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]'
                         }`}
                         onClick={() => setViewMode('unified')}
                         type="button"
@@ -154,8 +154,8 @@ export function DiffPanel({
                       <button
                         className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                           viewMode === 'raw'
-                            ? 'bg-stone-100 text-stone-950'
-                            : 'bg-white/5 text-stone-300 hover:bg-white/10'
+                            ? 'bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
+                            : 'bg-[#e8e6dc] text-[#4d4c48] hover:bg-[#ddd9cc] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]'
                         }`}
                         onClick={() => setViewMode('raw')}
                         type="button"

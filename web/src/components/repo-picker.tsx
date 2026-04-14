@@ -247,7 +247,7 @@ export function RepoPicker({
                 <button
                   className={`rounded-[12px] border px-3 py-2 text-xs uppercase tracking-[0.5px] transition ${
                     browserPath === root.path
-                      ? 'border-[#30302e] bg-[#30302e] text-[#faf9f5] dark:border-[#faf9f5] dark:bg-[#faf9f5] dark:text-[#141413]'
+                      ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
                       : 'border-[#d1cfc5] bg-[#e8e6dc] text-[#4d4c48] hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]'
                   }`}
                   key={root.path}
@@ -268,7 +268,7 @@ export function RepoPicker({
                 <button
                   className={`rounded-[12px] border px-3 py-2 text-xs transition ${
                     browserPath === item.path
-                      ? 'border-[#30302e] bg-[#30302e] text-[#faf9f5] dark:border-[#faf9f5] dark:bg-[#faf9f5] dark:text-[#141413]'
+                      ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
                       : 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
                   }`}
                   key={item.path}

@@ -185,7 +185,7 @@ export function TaskWorkbench({
                 <button
                   className={`rounded-full border px-3 py-2 text-sm transition ${
                     repo.id === activeRepo.id
-                      ? 'border-[#30302e] bg-[#30302e] text-[#faf9f5] dark:border-[#faf9f5] dark:bg-[#faf9f5] dark:text-[#141413]'
+                      ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
                       : 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
                   }`}
                   key={repo.id}
@@ -288,7 +288,7 @@ export function TaskWorkbench({
               <button
                 className={`rounded-full border px-3 py-2 text-sm transition ${
                   artifact === name
-                    ? 'border-[#30302e] bg-[#30302e] text-[#faf9f5] dark:border-[#faf9f5] dark:bg-[#faf9f5] dark:text-[#141413]'
+                    ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
                     : 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
                 }`}
                 key={name}
@@ -333,7 +333,7 @@ function PaneButton({
     <button
       className={`rounded-full border px-3 py-2 text-sm transition ${
         active
-          ? 'border-[#30302e] bg-[#30302e] text-[#faf9f5] dark:border-[#faf9f5] dark:bg-[#faf9f5] dark:text-[#141413]'
+          ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
           : 'border-transparent bg-[#faf9f5] text-[#5e5d59] hover:border-[#e8e6dc] hover:text-[#141413] dark:bg-transparent dark:text-[#b0aea5] dark:hover:border-[#30302e] dark:hover:text-[#faf9f5]'
       }`}
       onClick={onClick}
