@@ -20,13 +20,14 @@ import {
 import { ArtifactEditorDrawer } from '../components/artifact-editor-drawer'
 import { RepoPicker } from '../components/repo-picker'
 import { TaskPrimaryAction } from '../components/task-primary-action'
-import { TaskWorkbench, type WorkbenchPane } from '../components/task-workbench'
-import { CompactField, PanelMessage, StatusBadge } from '../components/ui-primitives'
+import { RepoContextPanel, TaskWorkbench, type WorkbenchPane } from '../components/task-workbench'
+import { PanelMessage, StatusBadge } from '../components/ui-primitives'
 import { useAppData } from '../hooks/use-app-data'
 
 export function TasksLayout() {
   const { tasks, loading, error, reload } = useAppData()
   const navigate = useNavigate()
+  const location = useLocation()
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all')
   const [repoFilter, setRepoFilter] = useState('all')
@@ -114,6 +115,22 @@ export function TasksLayout() {
     setSelectedRepos([])
   }
 
+  async function handleDeleteTaskItem(task: TaskListItem) {
+    const confirmed = window.confirm(`确认删除 task ${task.id}？仅允许删除未进入 code 的 task。`)
+    if (!confirmed) {
+      return
+    }
+    try {
+      await deleteTask(task.id)
+      await reload()
+      if (location.pathname === `/tasks/${task.id}`) {
+        void navigate({ to: '/tasks' })
+      }
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : '删除 task 失败')
+    }
+  }
+
   return (
     <>
       <div className="grid gap-4 lg:h-full lg:min-h-0 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -131,11 +148,17 @@ export function TasksLayout() {
               </div>
               <div className="shrink-0">
                 <button
-                  className="rounded-[12px] border border-[#30302e] bg-[#30302e] px-4 py-2.5 text-sm text-[#faf9f5] transition hover:bg-[#141413] dark:border-[#e8e6dc] dark:bg-[#faf9f5] dark:text-[#141413] dark:hover:bg-[#f5f4ed]"
+                  aria-label={showCreateForm ? '收起新建任务入口' : '新建任务'}
+                  title={showCreateForm ? '收起新建任务入口' : '新建任务'}
+                  className={`inline-flex h-10 w-10 items-center justify-center rounded-[12px] border transition ${
+                    showCreateForm
+                      ? 'border-[#d1cfc5] bg-[#e8e6dc] text-[#4d4c48] hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]'
+                      : 'border-[#c96442] bg-[#c96442] text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] hover:bg-[#d97757]'
+                  }`}
                   onClick={() => setShowCreateForm((current) => !current)}
                   type="button"
                 >
-                  {showCreateForm ? '收起入口' : '新建任务'}
+                  {showCreateForm ? <CloseIcon /> : <PlusIcon />}
                 </button>
               </div>
             </div>
@@ -207,7 +230,12 @@ export function TasksLayout() {
           ) : (
             <div className="space-y-1.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               {filteredTasks.map((task) => (
-                <TaskListItemCard key={task.id} task={task} />
+                <TaskListItemCard
+                  canDelete={canDeleteTaskStatus(task.status)}
+                  key={task.id}
+                  onDelete={() => void handleDeleteTaskItem(task)}
+                  task={task}
+                />
               ))}
             </div>
           )}
@@ -306,7 +334,6 @@ export function TasksIndexPage() {
 }
 
 export function TaskDetailPage() {
-  const navigate = useNavigate()
   const { reload } = useAppData()
   const { taskId } = useParams({ from: '/tasks/$taskId' })
   const [task, setTask] = useState<TaskRecord | null>(null)
@@ -465,8 +492,6 @@ export function TaskDetailPage() {
     return <PanelMessage>未找到对应 task。</PanelMessage>
   }
   const hasGeneratedPlan = hasActionableArtifact(task.artifacts['design.md']) && hasActionableArtifact(task.artifacts['plan.md'])
-  const deletableStatuses = new Set<TaskStatus>(['initialized', 'refined', 'planned', 'failed'])
-  const canDelete = deletableStatuses.has(task.status)
   const canStartPlan = task.status === 'refined' || task.status === 'planned' || task.status === 'failed'
   const singleRepo = task.repos.length === 1 ? task.repos[0] : null
   const canStartCode = singleRepo ? canStartCodeForRepo(singleRepo, hasGeneratedPlan) : false
@@ -482,20 +507,6 @@ export function TaskDetailPage() {
   const canEditArtifact = canEditTaskArtifact(task.status, artifact)
   const editorDirty = editorDraft !== editorInitial
   const editorCanSave = editorDraft.trim() !== '' && editorDirty && !editorSaving
-
-  async function handleDeleteTask() {
-    const confirmed = window.confirm(`确认删除 task ${currentTask.id}？仅允许删除未进入 code 的 task。`)
-    if (!confirmed) {
-      return
-    }
-    try {
-      await deleteTask(currentTask.id)
-      await reload()
-      void navigate({ to: '/tasks' })
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : '删除 task 失败')
-    }
-  }
 
   async function handleStartPlan() {
     try {
@@ -669,29 +680,14 @@ export function TaskDetailPage() {
               {task.complexity}
             </span>
           </div>
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Task Detail</div>
-              <h3 className="mt-2 text-[38px] leading-[1.12] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{task.title}</h3>
-              <p className="mt-3 max-w-3xl text-[15px] leading-7 text-[#5e5d59] dark:text-[#b0aea5]">{taskStatusSummary(currentTask)}</p>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <CompactField label="任务编号" value={task.id} />
-                <CompactField label="最近更新" value={task.updatedAt} />
-                <CompactField label="负责人" value={task.owner} />
-                <CompactField label="涉及仓库" value={`${task.repos.length}`} />
-              </div>
-              {canDelete ? (
-                <div className="mt-4">
-                  <button
-                    className="rounded-[12px] border border-[#e1c1bf] bg-[#fbf1f0] px-4 py-2.5 text-sm text-[#b53333] transition hover:bg-[#f7e6e4]"
-                    onClick={handleDeleteTask}
-                    type="button"
-                  >
-                    删除任务
-                  </button>
-                </div>
-              ) : null}
-            </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Task Detail</div>
+            <h3 className="mt-2 text-[38px] leading-[1.12] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{task.title}</h3>
+            <p className="mt-3 max-w-3xl text-[15px] leading-7 text-[#5e5d59] dark:text-[#b0aea5]">{taskStatusSummary(currentTask)}</p>
+          </div>
+        </div>
+        <div className="px-5 py-5">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
             <TaskPrimaryAction
               actionBusy={actionBusy}
               actionError={actionError}
@@ -717,100 +713,105 @@ export function TaskDetailPage() {
               resetting={Boolean(resettingRepo)}
               task={task}
             />
+            <RepoContextPanel
+              actionBusy={actionBusy}
+              archivingRepo={archivingRepo}
+              codeStartingRepo={codeStartingRepo}
+              hasGeneratedPlan={hasGeneratedPlan}
+              onArchive={async (repoId) => {
+                const confirmed = window.confirm('归档后会清理这次实现产生的分支和 worktree，但会保留结果记录。确认继续吗？')
+                if (!confirmed) {
+                  return
+                }
+                try {
+                  setArchivingRepo(repoId)
+                  setActionError('')
+                  const result = await archiveCode(currentTask.id, repoId)
+                  setTask({
+                    ...currentTask,
+                    status: result.status as TaskStatus,
+                    nextAction: `仓库 ${repoId} 已归档。`,
+                  })
+                  await reload()
+                } catch (err) {
+                  setActionError(err instanceof Error ? err.message : '归档失败')
+                  setArchivingRepo(null)
+                }
+              }}
+              onReset={async (repoId) => {
+                const confirmed = window.confirm('回退后会删除这次生成的分支、worktree、diff 和结果记录。确认继续吗？')
+                if (!confirmed) {
+                  return
+                }
+                try {
+                  setResettingRepo(repoId)
+                  setActionError('')
+                  const result = await resetCode(currentTask.id, repoId)
+                  setTask({
+                    ...currentTask,
+                    status: result.status as TaskStatus,
+                    nextAction: `仓库 ${repoId} 的实现结果已回退。`,
+                  })
+                  setArtifact('plan.md')
+                  setArtifactRepo('')
+                  await reload()
+                } catch (err) {
+                  setActionError(err instanceof Error ? err.message : '回退实现失败')
+                  setResettingRepo(null)
+                }
+              }}
+              onReviewDiff={(repoId) => {
+                handleRepoContextChange(repoId)
+                focusWorkbench('diff')
+              }}
+              onReviewResult={(repoId) => {
+                setArtifact('code-result.json')
+                handleRepoContextChange(repoId)
+                focusWorkbench('result')
+              }}
+              onSelectRepo={handleRepoContextChange}
+              onStartCode={async (repoId) => {
+                try {
+                  setCodeStartingRepo(repoId)
+                  setActionError('')
+                  const result = await startCode(currentTask.id, repoId)
+                  setTask({
+                    ...currentTask,
+                    status: result.status as TaskStatus,
+                    nextAction: `仓库 ${repoId} 正在生成实现，请稍候刷新任务详情。`,
+                  })
+                  setArtifact('code.log')
+                  handleRepoContextChange(repoId)
+                  await reload()
+                } catch (err) {
+                  setActionError(err instanceof Error ? err.message : '启动实现失败')
+                  setCodeStartingRepo(null)
+                }
+              }}
+              resettingRepo={resettingRepo}
+              selectedRepo={selectedDiffRepo || artifactRepo || task.repos[0]?.id || ''}
+              task={task}
+            />
           </div>
         </div>
       </section>
 
       <div ref={workbenchRef}>
         <TaskWorkbench
-          actionBusy={actionBusy}
-          archivingRepo={archivingRepo}
           artifact={artifact}
           artifactContent={artifactContent}
           artifactRepo={artifactRepo}
           artifactSaving={editorSaving}
           canEditArtifact={canEditArtifact}
-          codeStartingRepo={codeStartingRepo}
           focusToken={workbenchFocusToken}
           forcedPane={workbenchForcedPane}
-          hasGeneratedPlan={hasGeneratedPlan}
           lastRefreshedAt={lastRefreshedAt}
-          onArchive={async (repoId) => {
-            const confirmed = window.confirm('归档后会清理这次实现产生的分支和 worktree，但会保留结果记录。确认继续吗？')
-            if (!confirmed) {
-              return
-            }
-            try {
-              setArchivingRepo(repoId)
-              setActionError('')
-              const result = await archiveCode(currentTask.id, repoId)
-              setTask({
-                ...currentTask,
-                status: result.status as TaskStatus,
-                nextAction: `仓库 ${repoId} 已归档。`,
-              })
-              await reload()
-            } catch (err) {
-              setActionError(err instanceof Error ? err.message : '归档失败')
-              setArchivingRepo(null)
-            }
-          }}
           onArtifactChange={setArtifact}
           onArtifactRepoChange={setArtifactRepo}
           onEditArtifact={openArtifactEditor}
           onPaneChange={setWorkbenchForcedPane}
-          onReset={async (repoId) => {
-            const confirmed = window.confirm('回退后会删除这次生成的分支、worktree、diff 和结果记录。确认继续吗？')
-            if (!confirmed) {
-              return
-            }
-            try {
-              setResettingRepo(repoId)
-              setActionError('')
-              const result = await resetCode(currentTask.id, repoId)
-              setTask({
-                ...currentTask,
-                status: result.status as TaskStatus,
-                nextAction: `仓库 ${repoId} 的实现结果已回退。`,
-              })
-              setArtifact('plan.md')
-              setArtifactRepo('')
-              await reload()
-            } catch (err) {
-              setActionError(err instanceof Error ? err.message : '回退实现失败')
-              setResettingRepo(null)
-            }
-          }}
-          onReviewDiff={(repoId) => {
-            handleRepoContextChange(repoId)
-            focusWorkbench('diff')
-          }}
-          onReviewResult={(repoId) => {
-            setArtifact('code-result.json')
-            handleRepoContextChange(repoId)
-            focusWorkbench('result')
-          }}
           onSelectDiffRepo={handleRepoContextChange}
-          onStartCode={async (repoId) => {
-            try {
-              setCodeStartingRepo(repoId)
-              setActionError('')
-              const result = await startCode(currentTask.id, repoId)
-              setTask({
-                ...currentTask,
-                status: result.status as TaskStatus,
-                nextAction: `仓库 ${repoId} 正在生成实现，请稍候刷新任务详情。`,
-              })
-              setArtifact('code.log')
-              handleRepoContextChange(repoId)
-              await reload()
-            } catch (err) {
-              setActionError(err instanceof Error ? err.message : '启动实现失败')
-              setCodeStartingRepo(null)
-            }
-          }}
           polling={polling}
-          resettingRepo={resettingRepo}
           selectedDiffRepo={selectedDiffRepo}
           task={task}
         />
@@ -944,7 +945,15 @@ function isPendingRefineTask(task: TaskRecord) {
   return task.status === 'initialized' && task.sourceType === 'lark_doc' && task.artifacts['prd-refined.md']?.includes('状态：待补充源内容')
 }
 
-function TaskListItemCard({ task }: { task: TaskListItem }) {
+function TaskListItemCard({
+  canDelete,
+  onDelete,
+  task,
+}: {
+  canDelete: boolean
+  onDelete: () => void
+  task: TaskListItem
+}) {
   const location = useLocation()
   const active = location.pathname === `/tasks/${task.id}`
   const repoSummary =
@@ -958,40 +967,92 @@ function TaskListItemCard({ task }: { task: TaskListItem }) {
   const nextStepHint = taskListNextStep(task.status)
 
   return (
-    <Link
+    <div
       className={`block rounded-[18px] border px-3.5 py-3 transition ${
         active
           ? 'border-[#c96442] bg-[#fff7f2] text-[#141413] shadow-[0_0_0_1px_rgba(201,100,66,0.2),0_4px_24px_rgba(20,20,19,0.06)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(217,119,87,0.24)]'
           : 'border-[#e8e6dc] bg-[#faf9f5] text-[#141413] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] hover:bg-[#f5f4ed] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)] dark:hover:bg-[#2a2927]'
       }`}
-      params={{ taskId: task.id }}
-      resetScroll={false}
-      to="/tasks/$taskId"
     >
-      <div className="flex items-center justify-between gap-3">
-        <StatusBadge status={task.status} />
-        <div className={`text-xs ${active ? 'text-[#87867f] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>{task.updatedAt}</div>
+      <div className="flex items-start justify-between gap-3">
+        <Link className="min-w-0 flex-1" params={{ taskId: task.id }} resetScroll={false} to="/tasks/$taskId">
+          <div className="flex items-center justify-between gap-3">
+            <StatusBadge status={task.status} />
+            <div className={`text-xs ${active ? 'text-[#87867f] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>{task.updatedAt}</div>
+          </div>
+          <div className="mt-2 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[15px] font-semibold leading-5 tracking-[-0.03em]">{task.title}</div>
+              <div className={`mt-1 text-[11px] font-mono ${active ? 'text-[#87867f] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>{task.id}</div>
+            </div>
+            <div
+              className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.5px] ${
+                active
+                  ? 'border-[#d97757]/40 text-[#c96442] dark:border-[#d97757]/40 dark:text-[#f0c0b0]'
+                  : 'border-[#e8e6dc] text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]'
+              }`}
+            >
+              {task.repoCount} 仓库
+            </div>
+          </div>
+          <div className={`mt-2 flex items-center justify-between gap-3 text-xs ${active ? 'text-[#5e5d59] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>
+            <span className="min-w-0 truncate">{repoSummary}</span>
+            <span className="flex shrink-0 items-center gap-2">
+              <span>{nextStepHint}</span>
+              {canDelete ? (
+                <button
+                  aria-label={`删除任务 ${task.title}`}
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-[#e1c1bf] bg-[#fbf1f0] text-[#b53333] transition hover:bg-[#f7e6e4] dark:border-[#7a3b3b] dark:bg-[#362020] dark:text-[#efb3b3] dark:hover:bg-[#442626]"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onDelete()
+                  }}
+                  title="删除任务"
+                  type="button"
+                >
+                  <TrashIcon />
+                </button>
+              ) : null}
+            </span>
+          </div>
+        </Link>
       </div>
-      <div className="mt-2 flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-[15px] font-semibold leading-5 tracking-[-0.03em]">{task.title}</div>
-          <div className={`mt-1 text-[11px] font-mono ${active ? 'text-[#87867f] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>{task.id}</div>
-        </div>
-        <div
-          className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.5px] ${
-            active
-              ? 'border-[#d97757]/40 text-[#c96442] dark:border-[#d97757]/40 dark:text-[#f0c0b0]'
-              : 'border-[#e8e6dc] text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]'
-          }`}
-        >
-          {task.repoCount} 仓库
-        </div>
-      </div>
-      <div className={`mt-2 flex items-center justify-between gap-3 text-xs ${active ? 'text-[#5e5d59] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>
-        <span className="min-w-0 truncate">{repoSummary}</span>
-        <span className="shrink-0">{nextStepHint}</span>
-      </div>
-    </Link>
+    </div>
+  )
+}
+
+function canDeleteTaskStatus(status: TaskStatus) {
+  return new Set<TaskStatus>(['initialized', 'refined', 'planned', 'failed']).has(status)
+}
+
+function PlusIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path
+        d="M9 4.75h6m-8 3h10m-8.25 0l.5 10.5a1.5 1.5 0 001.5 1.43h2.5a1.5 1.5 0 001.5-1.43l.5-10.5m-5.25 2.5v6m3-6v6"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+    </svg>
   )
 }
 

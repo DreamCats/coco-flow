@@ -24,57 +24,37 @@ const repoStatusPriority: Record<TaskRecord['repos'][number]['status'], number> 
 }
 
 export function TaskWorkbench({
-  actionBusy,
-  archivingRepo,
   artifact,
   artifactContent,
   artifactRepo,
   artifactSaving,
   canEditArtifact,
-  codeStartingRepo,
   focusToken,
   forcedPane,
-  hasGeneratedPlan,
   lastRefreshedAt,
-  onArchive,
   onArtifactChange,
   onArtifactRepoChange,
   onEditArtifact,
   onPaneChange,
-  onReset,
-  onReviewDiff,
-  onReviewResult,
   onSelectDiffRepo,
-  onStartCode,
   polling,
-  resettingRepo,
   selectedDiffRepo,
   task,
 }: {
-  actionBusy: boolean
-  archivingRepo: string | null
   artifact: TaskArtifactName
   artifactContent: string
   artifactRepo: string
   artifactSaving: boolean
   canEditArtifact: boolean
-  codeStartingRepo: string | null
   focusToken: number
   forcedPane: WorkbenchPane | null
-  hasGeneratedPlan: boolean
   lastRefreshedAt: string
-  onArchive: (repoId: string) => Promise<void>
   onArtifactChange: (artifact: TaskArtifactName) => void
   onArtifactRepoChange: (repoId: string) => void
   onEditArtifact: () => void
   onPaneChange?: (pane: WorkbenchPane) => void
-  onReset: (repoId: string) => Promise<void>
-  onReviewDiff: (repoId: string) => void
-  onReviewResult: (repoId: string) => void
   onSelectDiffRepo: (repoId: string) => void
-  onStartCode: (repoId: string) => Promise<void>
   polling: boolean
-  resettingRepo: string | null
   selectedDiffRepo: string
   task: TaskRecord
 }) {
@@ -115,14 +95,8 @@ export function TaskWorkbench({
     task.repos.length > 1 &&
     (artifact === 'code.log' || artifact === 'code-result.json' || artifact === 'diff.json' || artifact === 'diff.patch')
   const activeRepoID = artifactRepo || selectedDiffRepo || orderedRepos[0]?.id || ''
-  const activeRepo = orderedRepos.find((repo) => repo.id === activeRepoID) ?? orderedRepos[0] ?? null
   const liveArtifact = resolveLiveArtifact(task.status)
   const artifactLive = polling && liveArtifact === artifact
-  const canStartCode = activeRepo ? canStartCodeForRepo(activeRepo, hasGeneratedPlan) : false
-  const canResetCode = activeRepo ? canResetCodeForRepo(activeRepo) : false
-  const canArchiveCode = activeRepo ? canArchiveCodeForRepo(activeRepo) : false
-  const hasResult = activeRepo ? hasRepoResult(activeRepo) : false
-  const hasDiff = activeRepo ? Boolean(activeRepo.diffSummary) : false
 
   function switchPane(nextPane: WorkbenchPane) {
     setPane(nextPane)
@@ -142,19 +116,6 @@ export function TaskWorkbench({
     onSelectDiffRepo(repoId)
   }
 
-  function openRepoResult(repoId: string) {
-    selectRepo(repoId)
-    onArtifactChange('code-result.json')
-    switchPane('result')
-    onReviewResult(repoId)
-  }
-
-  function openRepoDiff(repoId: string) {
-    selectRepo(repoId)
-    switchPane('diff')
-    onReviewDiff(repoId)
-  }
-
   return (
     <section className="rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.92),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -166,111 +127,6 @@ export function TaskWorkbench({
         </div>
         <div className="text-sm text-[#87867f] dark:text-[#b0aea5]">统一查看文档、日志、结果、Diff 和仓库动作</div>
       </div>
-
-      {activeRepo ? (
-        <div className="mb-4 rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">仓库上下文</div>
-              <div className="mt-2 text-[24px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">
-                {activeRepo.displayName}
-              </div>
-            </div>
-            <RepoStatusBadge status={activeRepo.status} />
-          </div>
-
-          {orderedRepos.length > 1 ? (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {orderedRepos.map((repo) => (
-                <button
-                  className={`rounded-full border px-3 py-2 text-sm transition ${
-                    repo.id === activeRepo.id
-                      ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
-                      : 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
-                  }`}
-                  key={repo.id}
-                  onClick={() => selectRepo(repo.id)}
-                  type="button"
-                >
-                  {repo.id}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.7fr)]">
-            <div>
-              <div className="text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">{repoWorkbenchSummary(activeRepo)}</div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <MetaTile label="仓库标识" value={activeRepo.id} />
-                <MetaTile label="构建结果" value={buildLabel(activeRepo.build)} />
-                <MetaTile label="分支" value={activeRepo.branch ?? '尚未创建'} mono />
-                <MetaTile label="工作区" value={activeRepo.worktree ?? '尚未创建'} mono />
-              </div>
-              <div className="mt-3 rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] px-4 py-3 text-sm text-[#87867f] shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
-                {activeRepo.path}
-              </div>
-            </div>
-
-            <div className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
-              <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">当前动作</div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {canStartCode ? (
-                  <RepoActionButton
-                    disabled={actionBusy}
-                    onClick={() => void onStartCode(activeRepo.id)}
-                    tone="brand"
-                  >
-                    {codeStartingRepo === activeRepo.id ? '实现进行中...' : activeRepo.status === 'failed' ? '重试实现' : '开始实现'}
-                  </RepoActionButton>
-                ) : null}
-                {canResetCode ? (
-                  <RepoActionButton
-                    disabled={actionBusy}
-                    onClick={() => void onReset(activeRepo.id)}
-                    tone="danger"
-                  >
-                    {resettingRepo === activeRepo.id ? '回退中...' : '回退实现'}
-                  </RepoActionButton>
-                ) : null}
-                {canArchiveCode ? (
-                  <RepoActionButton
-                    disabled={actionBusy}
-                    onClick={() => void onArchive(activeRepo.id)}
-                    tone="neutral"
-                  >
-                    {archivingRepo === activeRepo.id ? '归档中...' : '归档任务'}
-                  </RepoActionButton>
-                ) : null}
-                {hasResult ? (
-                  <RepoActionButton disabled={false} onClick={() => openRepoResult(activeRepo.id)} tone="neutral">
-                    查看结果
-                  </RepoActionButton>
-                ) : null}
-                {hasDiff ? (
-                  <RepoActionButton disabled={false} onClick={() => openRepoDiff(activeRepo.id)} tone="neutral">
-                    查看 Diff
-                  </RepoActionButton>
-                ) : null}
-              </div>
-
-              {activeRepo.failureHint ? (
-                <div className="mt-4 rounded-[18px] border border-[#e1c1bf] bg-[#fbf1f0] px-4 py-3 text-sm leading-6 text-[#b53333]">
-                  <div className="text-[10px] uppercase tracking-[0.5px] opacity-80">失败摘要</div>
-                  <div className="mt-2 font-mono text-xs leading-6">{activeRepo.failureHint}</div>
-                  {activeRepo.failureAction ? <div className="mt-2 text-xs leading-5">建议：{activeRepo.failureAction}</div> : null}
-                </div>
-              ) : null}
-
-              <div className="mt-4 text-xs text-[#87867f] dark:text-[#b0aea5]">
-                {activeRepo.filesWritten && activeRepo.filesWritten.length > 0
-                  ? `已写入 ${activeRepo.filesWritten.length} 个文件`
-                  : '当前还没有写入结果'}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <div className="mb-4 rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] p-2 shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
         <div className="flex flex-wrap gap-2">
@@ -344,6 +200,183 @@ function PaneButton({
   )
 }
 
+function resolvePane(artifact: TaskArtifactName): WorkbenchPane {
+  if (artifact === 'code-result.json' || artifact === 'diff.json' || artifact === 'diff.patch') {
+    return 'result'
+  }
+  if (artifact.endsWith('.log')) {
+    return 'logs'
+  }
+  return 'docs'
+}
+
+function resolveLiveArtifact(status: TaskRecord['status']): TaskArtifactName | '' {
+  switch (status) {
+    case 'initialized':
+      return 'refine.log'
+    case 'planning':
+      return 'plan.log'
+    case 'coding':
+      return 'code.log'
+    default:
+      return ''
+  }
+}
+
+function resolveLiveLabel(status: TaskRecord['status']) {
+  switch (status) {
+    case 'initialized':
+      return 'Refine Live'
+    case 'planning':
+      return 'Plan Live'
+    case 'coding':
+      return 'Code Live'
+    default:
+      return 'Live'
+  }
+}
+
+export function RepoContextPanel({
+  actionBusy,
+  archivingRepo,
+  codeStartingRepo,
+  hasGeneratedPlan,
+  onArchive,
+  onReset,
+  onReviewDiff,
+  onReviewResult,
+  onSelectRepo,
+  onStartCode,
+  resettingRepo,
+  selectedRepo,
+  task,
+}: {
+  actionBusy: boolean
+  archivingRepo: string | null
+  codeStartingRepo: string | null
+  hasGeneratedPlan: boolean
+  onArchive: (repoId: string) => Promise<void>
+  onReset: (repoId: string) => Promise<void>
+  onReviewDiff: (repoId: string) => void
+  onReviewResult: (repoId: string) => void
+  onSelectRepo: (repoId: string) => void
+  onStartCode: (repoId: string) => Promise<void>
+  resettingRepo: string | null
+  selectedRepo: string
+  task: TaskRecord
+}) {
+  const orderedRepos = useMemo(
+    () =>
+      [...task.repos].sort((left, right) => {
+        const priorityGap = (repoStatusPriority[left.status] ?? 99) - (repoStatusPriority[right.status] ?? 99)
+        if (priorityGap !== 0) {
+          return priorityGap
+        }
+        return left.id.localeCompare(right.id)
+      }),
+    [task.repos],
+  )
+  const activeRepo = orderedRepos.find((repo) => repo.id === selectedRepo) ?? orderedRepos[0] ?? null
+
+  if (!activeRepo) {
+    return null
+  }
+
+  const canStartCode = canStartCodeForRepo(activeRepo, hasGeneratedPlan)
+  const canResetCode = canResetCodeForRepo(activeRepo)
+  const canArchiveCode = canArchiveCodeForRepo(activeRepo)
+  const hasResult = hasRepoResult(activeRepo)
+  const hasDiff = Boolean(activeRepo.diffSummary)
+
+  return (
+    <section className="rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">仓库上下文</div>
+          <h4 className="mt-2 text-[28px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">
+            {activeRepo.displayName}
+          </h4>
+        </div>
+        <RepoStatusBadge status={activeRepo.status} />
+      </div>
+
+      {orderedRepos.length > 1 ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {orderedRepos.map((repo) => (
+            <button
+              className={`rounded-full border px-3 py-2 text-sm transition ${
+                repo.id === activeRepo.id
+                  ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
+                  : 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
+              }`}
+              key={repo.id}
+              onClick={() => onSelectRepo(repo.id)}
+              type="button"
+            >
+              {repo.id}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-4 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">{repoWorkbenchSummary(activeRepo)}</div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <MetaTile label="仓库标识" value={activeRepo.id} />
+        <MetaTile label="构建结果" value={buildLabel(activeRepo.build)} />
+        <MetaTile label="分支" value={activeRepo.branch ?? '尚未创建'} mono />
+        <MetaTile label="工作区" value={activeRepo.worktree ?? '尚未创建'} mono />
+      </div>
+
+      <div className="mt-3 rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 text-sm text-[#87867f] shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+        {activeRepo.path}
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {canStartCode ? (
+          <RepoActionButton disabled={actionBusy} onClick={() => void onStartCode(activeRepo.id)} tone="brand">
+            {codeStartingRepo === activeRepo.id ? '实现进行中...' : activeRepo.status === 'failed' ? '重试实现' : '开始实现'}
+          </RepoActionButton>
+        ) : null}
+        {canResetCode ? (
+          <RepoActionButton disabled={actionBusy} onClick={() => void onReset(activeRepo.id)} tone="danger">
+            {resettingRepo === activeRepo.id ? '回退中...' : '回退实现'}
+          </RepoActionButton>
+        ) : null}
+        {canArchiveCode ? (
+          <RepoActionButton disabled={actionBusy} onClick={() => void onArchive(activeRepo.id)} tone="neutral">
+            {archivingRepo === activeRepo.id ? '归档中...' : '归档任务'}
+          </RepoActionButton>
+        ) : null}
+        {hasResult ? (
+          <RepoActionButton disabled={false} onClick={() => onReviewResult(activeRepo.id)} tone="neutral">
+            查看结果
+          </RepoActionButton>
+        ) : null}
+        {hasDiff ? (
+          <RepoActionButton disabled={false} onClick={() => onReviewDiff(activeRepo.id)} tone="neutral">
+            查看 Diff
+          </RepoActionButton>
+        ) : null}
+      </div>
+
+      {activeRepo.failureHint ? (
+        <div className="mt-4 rounded-[18px] border border-[#e1c1bf] bg-[#fbf1f0] px-4 py-3 text-sm leading-6 text-[#b53333]">
+          <div className="text-[10px] uppercase tracking-[0.5px] opacity-80">失败摘要</div>
+          <div className="mt-2 font-mono text-xs leading-6">{activeRepo.failureHint}</div>
+          {activeRepo.failureAction ? <div className="mt-2 text-xs leading-5">建议：{activeRepo.failureAction}</div> : null}
+        </div>
+      ) : null}
+
+      <div className="mt-4 text-xs text-[#87867f] dark:text-[#b0aea5]">
+        {activeRepo.filesWritten && activeRepo.filesWritten.length > 0
+          ? `已写入 ${activeRepo.filesWritten.length} 个文件`
+          : '当前还没有写入结果'}
+      </div>
+    </section>
+  )
+}
+
 function MetaTile({
   label,
   mono,
@@ -389,42 +422,6 @@ function RepoActionButton({
       {children}
     </button>
   )
-}
-
-function resolvePane(artifact: TaskArtifactName): WorkbenchPane {
-  if (artifact === 'code-result.json' || artifact === 'diff.json' || artifact === 'diff.patch') {
-    return 'result'
-  }
-  if (artifact.endsWith('.log')) {
-    return 'logs'
-  }
-  return 'docs'
-}
-
-function resolveLiveArtifact(status: TaskRecord['status']): TaskArtifactName | '' {
-  switch (status) {
-    case 'initialized':
-      return 'refine.log'
-    case 'planning':
-      return 'plan.log'
-    case 'coding':
-      return 'code.log'
-    default:
-      return ''
-  }
-}
-
-function resolveLiveLabel(status: TaskRecord['status']) {
-  switch (status) {
-    case 'initialized':
-      return 'Refine Live'
-    case 'planning':
-      return 'Plan Live'
-    case 'coding':
-      return 'Code Live'
-    default:
-      return 'Live'
-  }
 }
 
 function hasRepoResult(repo: TaskRecord['repos'][number]) {
