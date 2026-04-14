@@ -27,6 +27,7 @@ export function ArtifactViewer({
   const isLog = artifact.endsWith('.log')
   const isJSON = artifact.endsWith('.json')
   const isMarkdown = artifact.endsWith('.md')
+  const isPatch = artifact.endsWith('.patch')
   const lines = content.trim() === '' ? 0 : content.split('\n').length
   const normalized = content || '暂无内容'
   const [copyState, setCopyState] = useState<'idle' | 'done' | 'failed'>('idle')
@@ -49,7 +50,7 @@ export function ArtifactViewer({
             </span>
           ) : null}
           <span className="rounded-full border border-white/10 px-2 py-1">
-            {isLog ? 'Log' : isJSON ? 'JSON' : isMarkdown ? 'Markdown' : 'Text'}
+            {isLog ? 'Log' : isJSON ? 'JSON' : isPatch ? 'Patch' : isMarkdown ? 'Markdown' : 'Text'}
           </span>
           <span>{lines} lines</span>
           {canEdit ? (
@@ -88,7 +89,7 @@ export function ArtifactViewer({
         </div>
       ) : null}
       <div className="max-h-[520px] overflow-auto px-4 py-4">
-        {isLog ? (
+        {isLog || isPatch ? (
           <LogArtifact content={normalized} />
         ) : isJSON ? (
           <JsonArtifact content={normalized} />
@@ -368,6 +369,10 @@ export function artifactLabel(name: TaskArtifactName) {
       return 'Code Result'
     case 'code.log':
       return 'Code Log'
+    case 'diff.json':
+      return 'Diff Summary'
+    case 'diff.patch':
+      return 'Diff Patch'
     default:
       return name
   }

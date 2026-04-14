@@ -53,6 +53,7 @@ export function TaskPrimaryAction({
   const codedCount = task.repos.filter((repo) => repo.status === 'coded' || repo.status === 'archived').length
   const failedCount = task.repos.filter((repo) => repo.status === 'failed').length
   const runningCount = task.repos.filter((repo) => repo.status === 'coding').length
+  const pendingRefine = isPendingRefineTask(task)
 
   return (
     <section className="rounded-[28px] border border-emerald-300/18 bg-[linear-gradient(140deg,rgba(16,185,129,0.2),rgba(12,18,18,0.96)_42%,rgba(11,13,17,0.98)_100%)] p-5 shadow-[0_28px_60px_rgba(6,78,59,0.24)]">
@@ -69,7 +70,11 @@ export function TaskPrimaryAction({
       {polling ? <RunningStatusCard status={task.status} lastRefreshedAt={lastRefreshedAt} /> : null}
 
       {task.status === 'initialized' ? (
-        <NoticeBox tone="amber">需求正在整理中。若停留时间过长，可先查看 `refine.log`。</NoticeBox>
+        <NoticeBox tone="amber">
+          {pendingRefine
+            ? '飞书正文尚未拉取成功。请先补充 `prd.source.md` 的正文，再重新执行 refine。'
+            : '需求正在整理中。若停留时间过长，可先查看 `refine.log`。'}
+        </NoticeBox>
       ) : null}
       {task.status === 'planning' ? (
         <NoticeBox tone="sky">正在分析代码并生成方案。若停留时间过长，可先查看 `plan.log`。</NoticeBox>
@@ -266,6 +271,9 @@ function runningHeadline(status: TaskRecord['status']) {
 }
 
 function primaryHeadline(task: TaskRecord) {
+  if (isPendingRefineTask(task)) {
+    return '需要先补正文再继续'
+  }
   switch (task.status) {
     case 'coded':
       return '结果已产出，准备收尾'
@@ -291,6 +299,9 @@ function primaryNarrative(task: TaskRecord) {
   const codedCount = task.repos.filter((repo) => repo.status === 'coded' || repo.status === 'archived').length
   const failedCount = task.repos.filter((repo) => repo.status === 'failed').length
 
+  if (isPendingRefineTask(task)) {
+    return '当前任务已经记录了飞书文档来源，但正文尚未成功拉取。先补充 `prd.source.md`，再重新执行 refine，后续 plan/code 才能继续。'
+  }
   if (task.status === 'partially_coded') {
     return `${codedCount} 个仓库已经完成，仍有 ${Math.max(repoCount - codedCount, 0)} 个仓库需要继续处理。`
   }
@@ -313,4 +324,8 @@ function primaryNarrative(task: TaskRecord) {
     return '需求已经整理成可执行任务，下一步最值得做的是生成方案。'
   }
   return '你可以在这里集中推进任务、查看结果，并决定接下来的动作。'
+}
+
+function isPendingRefineTask(task: TaskRecord) {
+  return task.status === 'initialized' && task.sourceType === 'lark_doc' && task.artifacts['prd-refined.md']?.includes('状态：待补充源内容')
 }

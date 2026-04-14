@@ -21,6 +21,8 @@ export type TaskArtifactName =
   | 'plan.log'
   | 'code-result.json'
   | 'code.log'
+  | 'diff.json'
+  | 'diff.patch'
 
 export type RepoResult = {
   id: string

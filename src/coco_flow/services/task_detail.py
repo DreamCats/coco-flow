@@ -24,6 +24,8 @@ TRACKED_ARTIFACTS = [
     "plan.log",
     "code-result.json",
     "code.log",
+    "diff.json",
+    "diff.patch",
 ]
 
 
@@ -170,6 +172,8 @@ def build_next_action(
     has_refined = (task_dir / "prd-refined.md").exists()
     has_design = (task_dir / "design.md").exists()
     has_plan = (task_dir / "plan.md").exists()
+    if is_pending_refine_state(task_dir):
+        return f"请先补充 {task_dir / 'prd.source.md'} 的正文，然后重新执行 coco-flow tasks refine {task_id}"
 
     if not has_refined:
         return f"coco-flow tasks refine {task_id}"
@@ -178,7 +182,7 @@ def build_next_action(
     if status == "failed" and (not has_design or not has_plan):
         return f"coco-flow tasks plan {task_id}"
     if not has_design or not has_plan:
-        return f"coco-flow prd plan --task {task_id}"
+        return f"coco-flow tasks plan {task_id}"
     if status == "coding":
         return "code workspace 已准备，可继续接入自动实现或人工推进。"
     if status in {"partially_coded", "failed"}:
@@ -188,7 +192,7 @@ def build_next_action(
     if status == "planned":
         return f"coco-flow tasks code {task_id}"
     if status == "coded":
-        return f"coco-flow prd archive --task {task_id}"
+        return f"coco-flow tasks archive {task_id}"
     if status == "archived":
         return "task 已归档，无后续操作。"
     return "当前 task 无明确下一步，建议人工确认状态。"
@@ -225,7 +229,10 @@ def build_timeline(status: str, task_dir: Path) -> list[TimelineItem]:
 
     if status == "initialized":
         refine_state = "current"
-        refine_detail = "已初始化 task，等待生成 refined PRD"
+        if is_pending_refine_state(task_dir):
+            refine_detail = "飞书正文尚未拉取成功，请先补充 prd.source.md 后重新 refine"
+        else:
+            refine_detail = "已初始化 task，等待生成 refined PRD"
     elif status == "refined":
         refine_state, plan_state = "done", "current"
         refine_detail = "已生成 refined PRD"
@@ -292,6 +299,8 @@ def missing_artifact_placeholder(name: str) -> str:
         return "当前没有可用的 refine.log。可能任务尚未启动 refine，或日志写入失败。"
     if name == "plan.log":
         return "当前没有可用的 plan.log。可能任务尚未启动 plan，或日志写入失败。"
+    if name in {"diff.json", "diff.patch"}:
+        return "该任务当前没有可用的 diff artifact。生成 code 结果后可按仓库查看 diff。"
     return f"该 task 当前没有 `{name}`。"
 
 
@@ -300,7 +309,20 @@ def empty_artifact_placeholder(name: str) -> str:
         return "refine.log 当前为空。"
     if name == "plan.log":
         return "plan.log 当前为空。"
+    if name in {"diff.json", "diff.patch"}:
+        return f"`{name}` 当前为空。"
     return f"`{name}` 当前为空。"
+
+
+def is_pending_refine_state(task_dir: Path) -> bool:
+    refined_path = task_dir / "prd-refined.md"
+    if not refined_path.exists():
+        return False
+    try:
+        content = refined_path.read_text()
+    except OSError:
+        return False
+    return "状态：待补充源内容" in content
 
 
 def _optional_str(value: object) -> str | None:

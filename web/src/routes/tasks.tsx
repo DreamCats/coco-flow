@@ -406,6 +406,9 @@ export function TaskDetailPage() {
     if (!task || (!new Set<TaskStatus>(['initialized', 'planning', 'coding']).has(task.status) && !batchCodeStarting)) {
       return
     }
+    if (isPendingRefineTask(task)) {
+      return
+    }
 
     let cancelled = false
     const timer = window.setInterval(() => {
@@ -442,7 +445,9 @@ export function TaskDetailPage() {
       return
     }
 
-    const repoScopedArtifact = task.repos.length > 1 && (artifact === 'code.log' || artifact === 'code-result.json')
+    const repoScopedArtifact =
+      task.repos.length > 1 &&
+      (artifact === 'code.log' || artifact === 'code-result.json' || artifact === 'diff.json' || artifact === 'diff.patch')
     if (!repoScopedArtifact) {
       setArtifactContent(task.artifacts[artifact] || '')
       return
@@ -906,6 +911,9 @@ function hasRepoArtifactData(repo: TaskRecord['repos'][number], artifact: TaskAr
   if (artifact === 'code-result.json') {
     return Boolean(repo.commit || (repo.filesWritten && repo.filesWritten.length > 0) || repo.build === 'passed' || repo.build === 'failed')
   }
+  if (artifact === 'diff.json' || artifact === 'diff.patch') {
+    return Boolean(repo.diffSummary)
+  }
   return false
 }
 
@@ -925,6 +933,9 @@ function canArchiveCodeForRepo(repo: TaskRecord['repos'][number]) {
 }
 
 function shouldContinuePolling(task: TaskRecord, batchCodeStarting: boolean) {
+  if (isPendingRefineTask(task)) {
+    return false
+  }
   if (new Set<TaskStatus>(['initialized', 'planning', 'coding']).has(task.status)) {
     return true
   }
@@ -965,6 +976,10 @@ function normalizeEditableContent(content: string) {
     return ''
   }
   return content.replace(/\r\n/g, '\n')
+}
+
+function isPendingRefineTask(task: TaskRecord) {
+  return task.status === 'initialized' && task.sourceType === 'lark_doc' && task.artifacts['prd-refined.md']?.includes('状态：待补充源内容')
 }
 
 function DeletePolicyCard({

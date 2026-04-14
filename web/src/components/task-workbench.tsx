@@ -8,7 +8,7 @@ export type WorkbenchPane = 'docs' | 'logs' | 'result' | 'diff'
 const paneArtifacts: Record<Exclude<WorkbenchPane, 'diff'>, TaskArtifactName[]> = {
   docs: ['prd.source.md', 'prd-refined.md', 'design.md', 'plan.md'],
   logs: ['refine.log', 'plan.log', 'code.log'],
-  result: ['code-result.json'],
+  result: ['code-result.json', 'diff.json', 'diff.patch'],
 }
 
 export function TaskWorkbench({
@@ -68,7 +68,9 @@ export function TaskWorkbench({
     setPane(forcedPane)
   }, [forcedPane, focusToken])
 
-  const repoScopedArtifact = task.repos.length > 1 && (artifact === 'code.log' || artifact === 'code-result.json')
+  const repoScopedArtifact =
+    task.repos.length > 1 &&
+    (artifact === 'code.log' || artifact === 'code-result.json' || artifact === 'diff.json' || artifact === 'diff.patch')
   const activeRepoID = artifactRepo || selectedDiffRepo || task.repos[0]?.id || ''
   const liveArtifact = resolveLiveArtifact(task.status)
   const artifactLive = polling && liveArtifact === artifact
@@ -192,7 +194,7 @@ function PaneButton({
 }
 
 function resolvePane(artifact: TaskArtifactName): WorkbenchPane {
-  if (artifact === 'code-result.json') {
+  if (artifact === 'code-result.json' || artifact === 'diff.json' || artifact === 'diff.patch') {
     return 'result'
   }
   if (artifact.endsWith('.log')) {

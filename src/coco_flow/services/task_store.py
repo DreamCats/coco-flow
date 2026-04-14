@@ -9,6 +9,8 @@ from coco_flow.models import TaskDetail, TaskSummary, WorkspaceInfo
 from coco_flow.services.repo_state import (
     read_repo_code_log,
     read_repo_code_result_raw,
+    read_repo_diff_patch,
+    read_repo_diff_summary,
 )
 from coco_flow.services.task_detail import (
     build_task_detail,
@@ -70,13 +72,19 @@ class TaskStore:
                     return read_repo_code_log(task_dir, repo_id)
                 if name == "code-result.json":
                     return read_repo_code_result_raw(task_dir, repo_id)
+                if name == "diff.patch":
+                    return read_repo_diff_patch(task_dir, repo_id)
+                if name == "diff.json":
+                    return json.dumps(read_repo_diff_summary(task_dir, repo_id), ensure_ascii=False, indent=2)
             except OSError:
                 if name == "code.log":
                     return f"repo `{repo_id}` 当前没有可用的 code.log。可能尚未执行实现，或日志尚未生成。"
                 if name == "code-result.json":
                     return f"repo `{repo_id}` 当前没有可用的 code-result.json。可能尚未执行实现。"
+                if name in {"diff.patch", "diff.json"}:
+                    return f"repo `{repo_id}` 当前没有可用的 {name}。可能尚未生成提交差异。"
                 return f"repo `{repo_id}` 的 `{name}` 当前为空。"
-            if name in {"code.log", "code-result.json"}:
+            if name in {"code.log", "code-result.json", "diff.patch", "diff.json"}:
                 return None
             return f"repo 级 artifact 暂不支持 {name}"
         if task_dir.is_dir():
