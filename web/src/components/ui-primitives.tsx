@@ -63,18 +63,15 @@ export function TopNavItem({
 }) {
   return (
     <Link
-      className={`block min-w-[240px] rounded-[18px] border px-4 py-4 transition ${
+      className={`block min-w-[220px] rounded-[18px] border px-4 py-3 transition ${
         isActive
           ? 'border-[#e8e6dc] bg-[#ffffff] text-[#141413] shadow-[0_0_0_1px_rgba(240,238,230,0.95),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#faf9f5] dark:text-[#141413] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]'
           : 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.92)] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#2a2927] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)] dark:hover:text-[#faf9f5]'
       }`}
       to={to}
     >
-      <div className={`text-[10px] uppercase tracking-[0.5px] ${isActive ? 'text-[#87867f] dark:text-[#87867f]' : 'text-[#87867f] dark:text-[#b0aea5]'}`}>
-        导航
-      </div>
-      <div className="mt-2 text-[20px] leading-[1.2] font-medium tracking-normal [font-family:Georgia,serif]">{title}</div>
-      <div className={`mt-2 text-[14px] leading-6 ${isActive ? 'text-[#5e5d59] dark:text-[#5e5d59]' : 'text-[#87867f] dark:text-[#b0aea5]'}`}>{description}</div>
+      <div className="text-[18px] leading-[1.2] font-medium tracking-normal [font-family:Georgia,serif]">{title}</div>
+      <div className={`mt-1.5 text-[13px] leading-5 ${isActive ? 'text-[#5e5d59] dark:text-[#5e5d59]' : 'text-[#87867f] dark:text-[#b0aea5]'}`}>{description}</div>
     </Link>
   )
 }
