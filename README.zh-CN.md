@@ -1,6 +1,6 @@
 # coco-flow
 
-英文说明见：[README.md](/Users/bytedance/Work/tools/bytedance/coco-flow/README.md)
+英文说明见：[README.md](README.md)
 
 `coco-flow` 是一个独立的 workflow product，聚焦：
 
@@ -58,7 +58,7 @@ uv run coco-flow ui serve
 
 ## Web UI
 
-前端目录在：[web](/Users/bytedance/Work/tools/bytedance/coco-flow/web)
+前端目录在：[web](web/)
 
 最简单的本地启动方式：
 

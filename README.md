@@ -1,6 +1,6 @@
 # coco-flow
 
-中文说明见：[README.zh-CN.md](/Users/bytedance/Work/tools/bytedance/coco-flow/README.zh-CN.md)
+中文说明见：[README.zh-CN.md](README.zh-CN.md)
 
 `coco-flow` is a standalone workflow product for PRD task orchestration, worktree-based code execution,
 and the local Web UI / API surface.
@@ -75,7 +75,7 @@ The first batch covers:
 
 ## Web UI
 
-The Web UI lives in [`web/`](</Users/bytedance/Work/tools/bytedance/coco-flow/web>).
+The Web UI lives in [`web/`](web/).
 
 The simplest way to test locally is now:
 
