@@ -117,6 +117,23 @@ Behavior notes:
 - `code`: supports `native` and `local`
 - `code=native` runs through `coco acp serve`, verifies the changed scope, retries once or twice on build failures, and records commit/code-result artifacts back into the task
 
+## Idle Timeout
+
+By default:
+
+- daemon process idle timeout: `3600` seconds (`1h`)
+- ACP session idle timeout: `600` seconds (`10m`)
+
+Override with environment variables:
+
+```bash
+export COCO_FLOW_DAEMON_IDLE_TIMEOUT_SECONDS=86400
+export COCO_FLOW_ACP_IDLE_TIMEOUT_SECONDS=86400
+```
+
+Use the first variable if you only want the local daemon process to stay alive longer.
+Use both variables if you also want the daemon to keep ACP sessions warm for much longer.
+
 ## API
 
 Current endpoints:

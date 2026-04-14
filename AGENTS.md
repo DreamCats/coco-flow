@@ -174,6 +174,12 @@ uv run python -m py_compile src/coco_flow/services/task_code.py
   - `cwd`
   - `mode`
   - `query_timeout`
+- 默认空闲超时：
+  - daemon 进程：`3600` 秒（`1h`）
+  - ACP session：`600` 秒（`10m`）
+- 可通过环境变量覆盖：
+  - `COCO_FLOW_DAEMON_IDLE_TIMEOUT_SECONDS`
+  - `COCO_FLOW_ACP_IDLE_TIMEOUT_SECONDS`
 
 ## 当前 API 入口
 
