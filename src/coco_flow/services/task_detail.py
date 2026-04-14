@@ -173,24 +173,24 @@ def build_next_action(
     has_design = (task_dir / "design.md").exists()
     has_plan = (task_dir / "plan.md").exists()
     if is_pending_refine_state(task_dir):
-        return f"请先补充 {task_dir / 'prd.source.md'} 的正文，然后重新执行 coco-flow tasks refine {task_id}"
+        return f"请先补充 {task_dir / 'prd.source.md'} 的正文，然后重新执行 coco-flow prd refine --task {task_id}"
 
     if not has_refined:
-        return f"coco-flow tasks refine {task_id}"
+        return f"coco-flow prd refine --task {task_id}"
     if status == "planning":
         return "plan 正在执行，请稍候刷新任务详情。"
     if status == "failed" and (not has_design or not has_plan):
-        return f"coco-flow tasks plan {task_id}"
+        return f"coco-flow prd plan --task {task_id}"
     if not has_design or not has_plan:
-        return f"coco-flow tasks plan {task_id}"
+        return f"coco-flow prd plan --task {task_id}"
     if status == "coding":
         return "code workspace 已准备，可继续接入自动实现或人工推进。"
     if status in {"partially_coded", "failed"}:
         next_repo = suggest_next_repo(repos)
         if next_repo:
-            return f"coco-flow tasks code {task_id}"
+            return f"coco-flow prd code --task {task_id} --repo {next_repo}"
     if status == "planned":
-        return f"coco-flow tasks code {task_id}"
+        return f"coco-flow prd code --task {task_id}"
     if status == "coded":
         return f"coco-flow tasks archive {task_id}"
     if status == "archived":

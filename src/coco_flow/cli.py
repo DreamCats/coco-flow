@@ -4,6 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 import json
 from pathlib import Path
 import subprocess
+import re
 
 import typer
 import uvicorn
@@ -13,6 +14,7 @@ from coco_flow.config import load_settings
 from coco_flow.daemon_client import shutdown as shutdown_daemon, start_daemon, status as daemon_status, wait_for_daemon
 from coco_flow.daemon_server import run_daemon_server
 from coco_flow.services import TaskStore
+from coco_flow.services.task_create import create_task
 from coco_flow.services.task_code import code_task
 from coco_flow.services.task_lifecycle import archive_task, reset_task
 from coco_flow.services.task_plan import plan_task
@@ -24,12 +26,16 @@ app = typer.Typer(
 )
 api_app = typer.Typer(help="Run the local FastAPI service.")
 tasks_app = typer.Typer(help="Inspect task roots and task summaries.")
+prd_app = typer.Typer(help="PRD workflow commands aligned with coco-ext semantics.")
 ui_app = typer.Typer(help="Serve the built web UI together with the local API.")
 daemon_app = typer.Typer(help="Manage the local coco-flow ACP daemon.")
 app.add_typer(api_app, name="api")
 app.add_typer(tasks_app, name="tasks")
+app.add_typer(prd_app, name="prd")
 app.add_typer(ui_app, name="ui")
 app.add_typer(daemon_app, name="daemon")
+
+_COMPLEXITY_LINE = re.compile(r"(?m)^- complexity:\s*([^\s]+)\s*\((\d+)\)\s*$")
 
 
 @app.command("version")
@@ -41,9 +47,13 @@ def version_cmd() -> None:
 def list_tasks(
     limit: int = typer.Option(20, min=1, max=500, help="Max number of tasks to show."),
     as_json: bool = typer.Option(False, "--json", help="Print JSON output."),
+    status: str = typer.Option("", help="Filter by task status."),
 ) -> None:
     store = TaskStore()
-    tasks = [task.model_dump() for task in store.list_tasks(limit=limit)]
+    summaries = store.list_tasks(limit=500)
+    if status.strip():
+        summaries = [task for task in summaries if task.status == status.strip()]
+    tasks = [task.model_dump() for task in summaries[:limit]]
     if as_json:
         typer.echo(json.dumps({"tasks": tasks}, ensure_ascii=False, indent=2))
         return
@@ -88,9 +98,13 @@ def plan_task_cmd(task_id: str) -> None:
 
 
 @tasks_app.command("code")
-def code_task_cmd(task_id: str) -> None:
+def code_task_cmd(
+    task_id: str,
+    repo: str = typer.Option("", help="Run code for a specific repo in a multi-repo task."),
+    all_repos: bool = typer.Option(False, help="Run remaining repos in order for a multi-repo task."),
+) -> None:
     try:
-        status = code_task(task_id)
+        status = code_task(task_id, repo_id=repo, all_repos=all_repos)
     except ValueError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
@@ -115,6 +129,94 @@ def archive_task_cmd(task_id: str) -> None:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
     typer.echo(f"{task_id}: {status}")
+
+
+@prd_app.command("list")
+def prd_list_cmd(
+    status: str = typer.Option("", help="Filter by task status."),
+    as_json: bool = typer.Option(False, "--json", help="Print JSON output."),
+    limit: int = typer.Option(50, min=1, max=500, help="Max number of tasks to show."),
+) -> None:
+    list_tasks(limit=limit, as_json=as_json, status=status)
+
+
+@prd_app.command("refine")
+def prd_refine_cmd(
+    prd: str = typer.Option("", "--prd", help="PRD input: text, local file path, or Lark doc link."),
+    title: str = typer.Option("", "--title", help="Optional explicit title."),
+    task: str = typer.Option("", "--task", help="Existing task id to refine again."),
+    repo: list[str] = typer.Option(None, "--repo", help="Bind one or more repos to the task."),
+) -> None:
+    settings = load_settings()
+    if task.strip():
+        if prd.strip():
+            source_path = settings.task_root / task.strip() / "prd.source.md"
+            source_path.write_text(prd.strip() + "\n")
+        task_id = task.strip()
+    else:
+        if not prd.strip():
+            raise typer.BadParameter("--prd 不能为空；若要复用已有 task，请传 --task")
+        task_id, _ = create_task(
+            raw_input=prd,
+            title=title or None,
+            repos=repo or [str(Path.cwd())],
+            settings=settings,
+        )
+    try:
+        status = refine_task(task_id, settings=settings)
+    except ValueError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(f"{task_id}: {status}")
+
+
+@prd_app.command("plan")
+def prd_plan_cmd(task: str = typer.Option(..., "--task", help="Target task id.")) -> None:
+    plan_task_cmd(task)
+
+
+@prd_app.command("code")
+def prd_code_cmd(
+    task: str = typer.Option(..., "--task", help="Target task id."),
+    repo: str = typer.Option("", "--repo", help="Run code for a specific repo in a multi-repo task."),
+    all_repos: bool = typer.Option(False, "--all-repos", help="Run remaining repos in order for a multi-repo task."),
+) -> None:
+    code_task_cmd(task, repo=repo, all_repos=all_repos)
+
+
+@prd_app.command("run")
+def prd_run_cmd(
+    input_value: str = typer.Option(..., "--input", "-i", help="PRD input: text, local file path, or Lark doc link."),
+    title: str = typer.Option("", "--title", help="Optional explicit title."),
+    repo: list[str] = typer.Option(None, "--repo", help="Bind one or more repos to the task."),
+    all_repos: bool = typer.Option(False, "--all-repos", help="Run remaining repos in order for a multi-repo task."),
+) -> None:
+    settings = load_settings()
+    repos = repo or [str(Path.cwd())]
+    task_id, _ = create_task(
+        raw_input=input_value,
+        title=title or None,
+        repos=repos,
+        settings=settings,
+    )
+    typer.echo(f"task_id: {task_id}")
+
+    refine_status = refine_task(task_id, settings=settings)
+    typer.echo(f"refine: {refine_status}")
+    if refine_status == "initialized":
+        typer.echo("refine 仍处于 initialized，请先补充 prd.source.md 正文后再继续。")
+        raise typer.Exit(code=0)
+
+    plan_status = plan_task(task_id, settings=settings)
+    typer.echo(f"plan: {plan_status}")
+
+    complexity = read_task_complexity(settings.task_root / task_id)
+    if complexity == "复杂":
+        typer.echo("plan complexity=复杂，run 停止在 plan 阶段。")
+        raise typer.Exit(code=0)
+
+    code_status = code_task(task_id, settings=settings, all_repos=all_repos)
+    typer.echo(f"code: {code_status}")
 
 
 @api_app.command("serve")
@@ -217,3 +319,17 @@ def ensure_web_build(web_root: Path) -> None:
     )
     if build.returncode != 0:
         raise typer.Exit(code=build.returncode)
+
+
+def read_task_complexity(task_dir: Path) -> str:
+    plan_path = task_dir / "plan.md"
+    if not plan_path.exists():
+        return ""
+    try:
+        content = plan_path.read_text()
+    except OSError:
+        return ""
+    match = _COMPLEXITY_LINE.search(content)
+    if not match:
+        return ""
+    return match.group(1)

@@ -44,6 +44,7 @@ uv run coco-flow ui serve
 # 查看任务
 uv run coco-flow tasks roots
 uv run coco-flow tasks list
+uv run coco-flow prd list
 
 # 推进任务
 uv run coco-flow tasks refine <task_id>
@@ -51,6 +52,12 @@ uv run coco-flow tasks plan <task_id>
 uv run coco-flow tasks code <task_id>
 uv run coco-flow tasks reset <task_id>
 uv run coco-flow tasks archive <task_id>
+
+# 迁移友好的 prd 入口
+uv run coco-flow prd refine --prd "需求描述"
+uv run coco-flow prd plan --task <task_id>
+uv run coco-flow prd code --task <task_id>
+uv run coco-flow prd run -i "需求描述"
 
 # daemon
 uv run coco-flow daemon start
@@ -97,6 +104,9 @@ uv run python -m py_compile src/coco_flow/services/task_code.py
   - 本地文件路径
   - 飞书文档链接（`/wiki/TOKEN`、`/docx/TOKEN`）
 - 创建后默认后台异步启动 `refine`
+- CLI 层当前同时保留两套入口：
+  - `tasks ...`：底层 task 入口
+  - `prd ...`：对齐 `coco-ext` 的迁移入口
 
 ### refine
 

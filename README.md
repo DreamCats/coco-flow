@@ -15,9 +15,12 @@ The first version focuses on a minimal but usable scaffold:
 
 - `coco-flow tasks list` to inspect task summaries
 - `coco-flow tasks roots` to inspect the active task root
+- `coco-flow prd list` to inspect PRD workflow tasks
 - `coco-flow tasks refine <task_id>` to generate `prd-refined.md` or a pending refine placeholder for incomplete Lark sources
 - `coco-flow tasks plan <task_id>` to generate `design.md` and `plan.md`
 - `coco-flow tasks code <task_id>` to run the code stage
+- `coco-flow prd refine --prd ...` / `plan --task ...` / `code --task ...` as the migration-friendly CLI
+- `coco-flow prd run -i ...` to execute `refine -> plan -> code` in one command
 - `coco-flow tasks reset <task_id>` to roll the task back to planned state
 - `coco-flow tasks archive <task_id>` to archive coded tasks
 - `coco-flow api serve` to run a local FastAPI service
@@ -39,9 +42,14 @@ uv sync
 uv run coco-flow --help
 uv run coco-flow tasks roots
 uv run coco-flow tasks list
+uv run coco-flow prd list
 uv run coco-flow tasks refine <task_id>
 uv run coco-flow tasks plan <task_id>
 uv run coco-flow tasks code <task_id>
+uv run coco-flow prd refine --prd "需求描述"
+uv run coco-flow prd plan --task <task_id>
+uv run coco-flow prd code --task <task_id>
+uv run coco-flow prd run -i "需求描述"
 uv run coco-flow tasks reset <task_id>
 uv run coco-flow tasks archive <task_id>
 uv run coco-flow api serve --host 127.0.0.1 --port 4318

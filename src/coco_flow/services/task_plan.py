@@ -587,8 +587,9 @@ def build_design(build: PlanBuild, ai: PlanAISections | None) -> str:
 
 
 def build_plan(build: PlanBuild, ai: PlanAISections | None) -> str:
-    tasks = build_plan_tasks(build.sections, build.finding, ai, build.repo_ids)
-    repo_groups = build_plan_repo_groups(build.finding.candidate_files, build.repo_ids)
+    repo_order = [scope.repo_id for scope in build.repo_scopes]
+    tasks = build_plan_tasks(build.sections, build.finding, ai, build.repo_ids, repo_order)
+    repo_groups = build_plan_repo_groups(build.finding.candidate_files, build.repo_ids, repo_order)
     parts = [
         "# Plan\n\n",
         f"- task_id: {build.task_id}\n",
@@ -1207,52 +1208,67 @@ def build_plan_tasks(
     findings: ResearchFinding,
     ai: PlanAISections | None,
     repo_ids: set[str] | None = None,
+    repo_order: list[str] | None = None,
 ) -> list[PlanTask]:
     if not findings.candidate_files:
         return []
 
     ai_steps = ai.steps if ai else ""
-    dir_files: dict[str, list[str]] = {}
-    dir_order: list[str] = []
+    repo_dir_files: dict[str, dict[str, list[str]]] = {}
     for file_path in findings.candidate_files:
+        repo_id = infer_repo_id_from_file(file_path, repo_ids or set())
         _, relative_path = split_repo_prefixed_path(file_path, repo_ids or set())
         directory = str(Path(relative_path).parent)
-        if repo_ids:
-            repo_id = infer_repo_id_from_file(file_path, repo_ids)
-            if repo_id not in {"", "current-repo"}:
-                directory = f"{repo_id}/{directory}" if directory != "." else repo_id
-        if directory not in dir_files:
-            dir_order.append(directory)
-            dir_files[directory] = []
-        dir_files[directory].append(file_path)
+        repo_bucket = repo_dir_files.setdefault(repo_id, {})
+        repo_bucket.setdefault(directory, []).append(file_path)
 
     tasks: list[PlanTask] = []
-    for index, directory in enumerate(dir_order, start=1):
-        files = dir_files[directory]
-        tasks.append(
-            PlanTask(
-                id=f"T{index}",
-                title=f"修改 {directory} 下相关文件",
-                goal=f"在 {directory} 目录中完成需求涉及的改动。",
-                depends_on=[],
-                files=files,
-                input=["refined PRD 中的功能点与边界条件", "context 调研结果"],
-                output=[f"{directory} 目录下的改动文件通过编译和自测"],
-                actions=build_task_actions(files, sections, ai_steps),
-                done=["涉及文件编译通过，功能符合 PRD 要求。"],
+    task_index = 1
+    last_repo_task_id: dict[str, str] = {}
+    ordered_repos = [repo for repo in (repo_order or []) if repo in repo_dir_files]
+    for repo_id in sorted(repo_dir_files):
+        if repo_id not in ordered_repos:
+            ordered_repos.append(repo_id)
+
+    for repo_id in ordered_repos:
+        repo_dirs = repo_dir_files.get(repo_id, {})
+        for directory in sorted(repo_dirs):
+            files = repo_dirs[directory]
+            display_dir = directory if directory != "." else repo_id
+            depends_on = [last_repo_task_id[repo_id]] if repo_id in last_repo_task_id else []
+            goal_prefix = f"在仓库 {repo_id}" if repo_id not in {"", "current-repo"} else "在当前仓库"
+            title_prefix = f"[{repo_id}] " if repo_id not in {"", "current-repo"} else ""
+            task_id = f"T{task_index}"
+            actions = build_task_actions(files, sections, ai_steps)
+            if repo_id not in {"", "current-repo"}:
+                actions.insert(0, f"先在仓库 {repo_id} 中确认目录 {display_dir} 的改动边界。")
+            tasks.append(
+                PlanTask(
+                    id=task_id,
+                    title=f"{title_prefix}修改 {display_dir} 下相关文件",
+                    goal=f"{goal_prefix}的 {display_dir} 目录中完成需求涉及的改动。",
+                    depends_on=depends_on,
+                    files=files,
+                    input=["refined PRD 中的功能点与边界条件", "context 调研结果"],
+                    output=[f"{display_dir} 目录下的改动文件通过编译和自测"],
+                    actions=actions,
+                    done=["涉及文件编译通过，功能符合 PRD 要求。"],
+                )
             )
-        )
+            last_repo_task_id[repo_id] = task_id
+            task_index += 1
     return tasks
 
 
-def build_plan_repo_groups(files: list[str], repo_ids: set[str]) -> list[tuple[str, list[str]]]:
-    order: list[str] = []
-    groups: dict[str, list[str]] = {}
+def build_plan_repo_groups(files: list[str], repo_ids: set[str], repo_order: list[str]) -> list[tuple[str, list[str]]]:
+    order: list[str] = [repo for repo in repo_order if repo]
+    groups: dict[str, list[str]] = {repo: [] for repo in order}
     for file_path in files:
         repo_id = infer_repo_id_from_file(file_path, repo_ids)
         if repo_id not in groups:
             groups[repo_id] = []
-            order.append(repo_id)
+            if repo_id not in order:
+                order.append(repo_id)
         groups[repo_id].append(file_path)
     return [(repo_id, groups[repo_id]) for repo_id in order]
 

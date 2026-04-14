@@ -30,6 +30,7 @@ from coco_flow.services.task_refine import locate_task_dir
 EXECUTOR_NATIVE = "native"
 EXECUTOR_LOCAL = "local"
 MAX_CODE_ATTEMPTS = 3
+MAX_GO_TEST_PACKAGES = 3
 LogHandler = Callable[[str], None]
 
 
@@ -577,6 +578,7 @@ def build_code_retry_prompt(task_id: str, repo_id: str, changed_files: list[str]
 3. 优先修复下面这些已经变更过的文件：
 {file_block}
 4. 修复后请再次做最小范围验证。
+4.1 如果是 Go 代码，至少重新执行相关 package 的 go build；若存在测试或验证脚本，也一并确认。
 5. 最后仍然必须输出：
 
 === CODE RESULT ===
@@ -696,6 +698,7 @@ def verify_go_build(repo_root: str, files: list[str]) -> tuple[bool, str]:
 
     outputs: list[str] = []
     all_ok = True
+    test_candidates = sorted({go_test_package_pattern(file_path) for file_path in files if should_run_go_test(file_path)})
     for package in packages:
         result = subprocess.run(
             ["go", "build", package],
@@ -711,6 +714,20 @@ def verify_go_build(repo_root: str, files: list[str]) -> tuple[bool, str]:
             )
         elif result.stdout.strip() or result.stderr.strip():
             outputs.append(f"go build {package} 成功:\n{result.stdout}{result.stderr}".strip())
+    if all_ok and test_candidates:
+        for package in test_candidates[:MAX_GO_TEST_PACKAGES]:
+            result = subprocess.run(
+                ["go", "test", package],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                all_ok = False
+                outputs.append(f"go test {package} 失败:\n{result.stdout}{result.stderr}".strip())
+            elif result.stdout.strip() or result.stderr.strip():
+                outputs.append(f"go test {package} 成功:\n{result.stdout}{result.stderr}".strip())
     if all_ok and not outputs:
         outputs.append("go build passed")
     return all_ok, "\n\n".join(outputs).strip()
@@ -721,6 +738,18 @@ def go_package_pattern(file_path: str) -> str:
     if directory in {"", "."}:
         return "./..."
     return f"./{directory}/..."
+
+
+def go_test_package_pattern(file_path: str) -> str:
+    directory = str(Path(file_path).parent)
+    if directory in {"", "."}:
+        return "."
+    return f"./{directory}"
+
+
+def should_run_go_test(file_path: str) -> bool:
+    name = Path(file_path).name
+    return name.endswith("_test.go") or name.endswith(".go")
 
 
 def verify_python_files(repo_root: str, files: list[str]) -> tuple[bool, str]:
