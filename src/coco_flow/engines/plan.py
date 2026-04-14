@@ -481,35 +481,34 @@ def dedupe_glossary_entries(entries: list[GlossaryEntry]) -> list[GlossaryEntry]
 
 def build_design(build: PlanBuild, ai: PlanAISections | None) -> str:
     repo_section = "\n".join(build.repo_lines) if build.repo_lines else "- current-repo"
+    candidate_summary = render_design_candidate_summary(build.finding.candidate_files)
     parts = [
         "# Design\n\n",
         "## 背景与目标\n\n",
         f"- task_id: {build.task_id}\n",
         f"- 任务标题：{build.title}\n",
         f"- 原始输入：{build.source_value or '未记录'}\n",
-        "- 基于 refined PRD、context 和本地调研结果收敛实现边界。\n\n",
-        "## 涉及仓库\n\n",
-        f"{repo_section}\n\n",
-        "## 需求理解\n\n",
+        "- 基于 refined PRD、context 和本地调研结果收敛实现边界。\n",
+        "- 涉及仓库：\n",
+        f"{indent_block(repo_section, prefix='  ')}\n\n",
         render_requirement_summary(build.sections, build.source_markdown),
         "\n\n",
-        "## Context 摘要\n\n",
+        "## 现状与关键上下文\n\n",
         render_context_snapshot(build.context),
         "\n\n",
-        "## 本地调研结果\n\n",
         render_research_summary(build.finding),
         "\n\n",
-        "## 复杂度评估\n\n",
-        render_complexity_summary(build.assessment),
-        "\n\n",
-        "## 实施摘要\n\n",
+        "## 方案摘要\n\n",
         render_implementation_summary(ai, build.assessment),
         "\n\n",
-        "## 候选文件\n\n",
-        render_candidate_files(ai, build.finding.candidate_files),
+        "- 候选文件摘要：\n",
+        f"{candidate_summary}\n\n",
+        "## 风险与待确认\n\n",
+        render_complexity_summary(build.assessment),
         "\n\n",
-        "## 风险与约束\n\n",
         render_risk_section(ai, build.finding.notes),
+        "\n\n",
+        render_open_questions(build.sections.open_questions),
         "\n",
     ]
     return "".join(parts)
@@ -1411,13 +1410,13 @@ def render_requirement_summary(sections: RefinedSections, source_markdown: str) 
 def render_context_snapshot(context: ContextSnapshot) -> str:
     lines: list[str] = []
     if context.glossary_excerpt:
-        lines.extend(["### glossary", context.glossary_excerpt])
+        lines.extend(["- glossary：", indent_block(context.glossary_excerpt)])
     if context.architecture_excerpt:
-        lines.extend(["### architecture", context.architecture_excerpt])
+        lines.extend(["- architecture：", indent_block(context.architecture_excerpt)])
     if context.patterns_excerpt:
-        lines.extend(["### patterns", context.patterns_excerpt])
+        lines.extend(["- patterns：", indent_block(context.patterns_excerpt)])
     if context.gotchas_excerpt:
-        lines.extend(["### gotchas", context.gotchas_excerpt])
+        lines.extend(["- gotchas：", indent_block(context.gotchas_excerpt)])
     if context.missing_files:
         lines.append(f"- 缺少 context 文件: {', '.join(context.missing_files)}")
     return "\n".join(lines) if lines else "- 无可用 context。"
@@ -1435,8 +1434,6 @@ def render_research_summary(finding: ResearchFinding) -> str:
         render_glossary_hits(finding.matched_terms),
         "- glossary 未命中术语：",
         render_list_block(finding.unmatched_terms, default="  - 无"),
-        "- candidate files：",
-        render_list_block(finding.candidate_files, default="  - 无"),
         "- candidate dirs：",
         render_list_block(finding.candidate_dirs, default="  - 无"),
         "- 本地备注：",
@@ -1477,6 +1474,16 @@ def render_risk_section(ai: PlanAISections | None, notes: list[str]) -> str:
     if notes:
         return "\n".join(f"- {note}" for note in notes)
     return "- 当前未发现额外风险补充。"
+
+
+def render_design_candidate_summary(candidate_files: list[str]) -> str:
+    if not candidate_files:
+        return "  - 暂未命中候选文件，需要补充 context 或人工指定模块。"
+    lines = [f"  - {file_path}" for file_path in candidate_files[:8]]
+    remaining = len(candidate_files) - len(lines)
+    if remaining > 0:
+        lines.append(f"  - 其余 {remaining} 个候选文件见 plan.md")
+    return "\n".join(lines)
 
 
 def render_goal_list(sections: RefinedSections) -> str:
@@ -1551,6 +1558,13 @@ def render_validation_section(notes: list[str], ai: PlanAISections | None) -> st
     if ai and ai.validation_extra.strip():
         lines.append(ensure_markdown_list(ai.validation_extra))
     return "\n".join(lines)
+
+
+def indent_block(content: str, prefix: str = "  ") -> str:
+    stripped = content.strip()
+    if not stripped:
+        return f"{prefix}- 无"
+    return "\n".join(f"{prefix}{line}" if line.strip() else line for line in stripped.splitlines())
 
 
 def render_list_block(items: list[str], default: str = "  - 无") -> str:
