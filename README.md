@@ -58,6 +58,21 @@ uv run coco-flow api serve --host 127.0.0.1 --port 4318
 uv run coco-flow ui serve
 ```
 
+## Tests
+
+Current automated tests use the standard library `unittest` runner:
+
+```bash
+cd /Users/bytedance/Work/tools/bytedance/coco-flow
+uv run python -m unittest discover -s tests -v
+```
+
+The first batch covers:
+
+- pending Lark refine fallback
+- `plan` task builder output
+- `prd run` stopping at `plan` when complexity is `复杂`
+
 ## Web UI
 
 The Web UI lives in [`web/`](</Users/bytedance/Work/tools/bytedance/coco-flow/web>).

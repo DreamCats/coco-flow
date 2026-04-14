@@ -78,6 +78,7 @@ npm run build
 ```bash
 uv run python -m py_compile src/coco_flow/services/task_plan.py
 uv run python -m py_compile src/coco_flow/services/task_code.py
+uv run python -m unittest discover -s tests -v
 ```
 
 ## 目录与架构
