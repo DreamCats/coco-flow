@@ -11,8 +11,8 @@ from typing import Callable
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings, load_settings
-from coco_flow.services.task_detail import read_json_file
-from coco_flow.services.task_refine import locate_task_dir
+from coco_flow.services.queries.task_detail import read_json_file
+from coco_flow.services.tasks.refine import locate_task_dir
 
 STATUS_INITIALIZED = "initialized"
 STATUS_REFINED = "refined"

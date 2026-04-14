@@ -11,14 +11,14 @@ import uvicorn
 
 from coco_flow.api import create_app
 from coco_flow.config import load_settings
-from coco_flow.daemon_client import shutdown as shutdown_daemon, start_daemon, status as daemon_status, wait_for_daemon
-from coco_flow.daemon_server import run_daemon_server
+from coco_flow.daemon.client import shutdown as shutdown_daemon, start_daemon, status as daemon_status, wait_for_daemon
+from coco_flow.daemon.server import run_daemon_server
 from coco_flow.services import TaskStore
-from coco_flow.services.task_create import create_task
-from coco_flow.services.task_code import code_task
-from coco_flow.services.task_lifecycle import archive_task, reset_task
-from coco_flow.services.task_plan import plan_task
-from coco_flow.services.task_refine import refine_task
+from coco_flow.services.tasks.create import create_task
+from coco_flow.services.tasks.code import code_task
+from coco_flow.services.tasks.lifecycle import archive_task, reset_task
+from coco_flow.services.tasks.plan import plan_task
+from coco_flow.services.tasks.refine import refine_task
 
 app = typer.Typer(
     help="coco-flow: workflow product layer for PRD, task, worktree, and local API.",

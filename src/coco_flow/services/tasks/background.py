@@ -6,10 +6,10 @@ import json
 import threading
 
 from coco_flow.config import Settings
-from coco_flow.services.task_code import code_task
-from coco_flow.services.task_detail import read_json_file
-from coco_flow.services.task_plan import mark_task_failed, plan_task
-from coco_flow.services.task_refine import refine_task
+from coco_flow.services.tasks.code import code_task
+from coco_flow.services.queries.task_detail import read_json_file
+from coco_flow.services.tasks.plan import mark_task_failed, plan_task
+from coco_flow.services.tasks.refine import refine_task
 
 STATUS_FAILED = "failed"
 REFINE_LOG_NAME = "refine.log"

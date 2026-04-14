@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 
 from coco_flow.models import ArtifactItem, RepoBinding, TaskDetail, TimelineItem
-from coco_flow.services.repo_state import (
+from coco_flow.services.runtime.repo_state import (
     clean_files_written,
     read_repo_code_log,
     read_repo_code_result,

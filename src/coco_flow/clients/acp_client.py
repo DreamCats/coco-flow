@@ -13,7 +13,7 @@ import time
 from .base import CocoClient
 from .coco_cli import PROMPT_ONLY_DISALLOWED_TOOLS
 from coco_flow.config import Settings, load_settings
-from coco_flow.daemon_client import run_prompt_via_daemon
+from coco_flow.daemon.client import run_prompt_via_daemon
 
 _DURATION_PART = re.compile(r"(\d+)(ms|s|m|h)")
 

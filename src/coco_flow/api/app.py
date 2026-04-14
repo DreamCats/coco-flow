@@ -19,17 +19,17 @@ from coco_flow.models import (
     UpdateArtifactResponse,
 )
 from coco_flow.services import TaskStore
-from coco_flow.services.task_background import start_background_code, start_background_plan, start_background_refine
-from coco_flow.services.task_create import create_task
-from coco_flow.services.task_edit import update_artifact
-from coco_flow.services.fs_tools import list_fs_entries, list_fs_roots
-from coco_flow.services.task_lifecycle import archive_task, reset_task
-from coco_flow.services.task_code import start_coding_task
-from coco_flow.services.task_plan import start_planning_task
-from coco_flow.services.repo_tools import list_recent_repos, validate_repo_path
-from coco_flow.services.task_refine import refine_task
-from coco_flow.services.view_compat import task_detail_item, task_list_item
-from coco_flow.services.workspace_tools import workspace_summary
+from coco_flow.services.tasks.background import start_background_code, start_background_plan, start_background_refine
+from coco_flow.services.tasks.create import create_task
+from coco_flow.services.tasks.edit import update_artifact
+from coco_flow.services.runtime.fs_tools import list_fs_entries, list_fs_roots
+from coco_flow.services.tasks.lifecycle import archive_task, reset_task
+from coco_flow.services.tasks.code import start_coding_task
+from coco_flow.services.tasks.plan import start_planning_task
+from coco_flow.services.queries.repos import list_recent_repos, validate_repo_path
+from coco_flow.services.tasks.refine import refine_task
+from coco_flow.api.presenters import task_detail_item, task_list_item
+from coco_flow.services.queries.workspace import workspace_summary
 
 
 def create_app(task_store: TaskStore | None = None, static_dir: str | None = None) -> FastAPI:
