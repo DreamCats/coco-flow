@@ -49,20 +49,25 @@ export function ArtifactEditorDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-stone-950/38 backdrop-blur-sm" onClick={() => (!busy ? onClose() : undefined)}>
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-[rgba(20,20,19,0.22)] backdrop-blur-sm dark:bg-[rgba(20,20,19,0.58)]"
+      onClick={() => (!busy ? onClose() : undefined)}
+    >
       <div
-        className="flex h-full w-full max-w-[760px] flex-col border-l border-stone-200 bg-[#12151a] text-white shadow-[-24px_0_60px_rgba(15,23,42,0.28)] dark:border-white/10"
+        className="flex h-full w-full max-w-[820px] flex-col border-l border-[#e8e6dc] bg-[#faf9f5] text-[#141413] shadow-[-24px_0_60px_rgba(20,20,19,0.12)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#faf9f5] dark:shadow-[-24px_0_60px_rgba(0,0,0,0.32)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="border-b border-white/8 px-6 py-5">
+        <div className="border-b border-[#e8e6dc] px-6 py-5 dark:border-[#30302e]">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">Artifact Edit</div>
-              <h3 className="mt-2 text-[28px] font-semibold tracking-[-0.05em] text-white">{artifactLabel(artifact)}</h3>
-              <p className="mt-2 text-sm leading-6 text-stone-400">{editHint(artifact, taskStatus)}</p>
+              <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Artifact Edit</div>
+              <h3 className="mt-2 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">
+                {artifactLabel(artifact)}
+              </h3>
+              <p className="mt-2 text-[15px] leading-7 text-[#5e5d59] dark:text-[#b0aea5]">{editHint(artifact, taskStatus)}</p>
             </div>
             <button
-              className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-stone-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-[12px] border border-[#d1cfc5] bg-[#e8e6dc] px-3 py-2 text-xs text-[#4d4c48] transition hover:bg-[#ddd9cc] disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]"
               disabled={busy}
               onClick={onClose}
               type="button"
@@ -74,19 +79,21 @@ export function ArtifactEditorDrawer({
 
         <div className="flex-1 px-6 py-5">
           <textarea
-            className="h-full min-h-[420px] w-full resize-none rounded-[24px] border border-white/10 bg-[#0b0e12] px-5 py-5 font-mono text-sm leading-7 text-stone-100 outline-none transition focus:border-emerald-300/40"
+            className="h-full min-h-[420px] w-full resize-none rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] px-5 py-5 font-mono text-sm leading-7 text-[#141413] outline-none shadow-[0_0_0_1px_rgba(240,238,230,0.88)] transition focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#141413] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)] dark:focus:border-[#3898ec]"
             onChange={(event) => onChange(event.target.value)}
             spellCheck={false}
             value={value}
           />
         </div>
 
-        <div className="border-t border-white/8 px-6 py-4">
+        <div className="border-t border-[#e8e6dc] px-6 py-4 dark:border-[#30302e]">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-rose-300">{error || '保存后会直接覆盖 task 目录中的对应 Markdown 文件。'}</div>
+            <div className={`text-sm ${error ? 'text-[#b53333]' : 'text-[#87867f] dark:text-[#b0aea5]'}`}>
+              {error || '保存后会直接覆盖 task 目录中的对应 Markdown 文件。'}
+            </div>
             <div className="flex flex-wrap gap-2">
               <button
-                className="rounded-2xl border border-white/10 px-4 py-2.5 text-sm text-stone-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-[12px] border border-[#d1cfc5] bg-[#e8e6dc] px-4 py-2.5 text-sm text-[#4d4c48] transition hover:bg-[#ddd9cc] disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]"
                 disabled={busy}
                 onClick={onClose}
                 type="button"
@@ -94,7 +101,7 @@ export function ArtifactEditorDrawer({
                 取消
               </button>
               <button
-                className="rounded-2xl bg-emerald-400 px-4 py-2.5 text-sm font-semibold text-stone-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-[12px] border border-[#c96442] bg-[#c96442] px-4 py-2.5 text-sm text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] transition hover:bg-[#d97757] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={!canSave || busy}
                 onClick={onSave}
                 type="button"

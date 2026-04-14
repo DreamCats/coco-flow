@@ -1,4 +1,4 @@
-import { startTransition, useMemo, useState } from 'react'
+import { startTransition, useEffect, useMemo, useState } from 'react'
 import type { TaskArtifactName } from '../api'
 
 export function ArtifactViewer({
@@ -31,6 +31,7 @@ export function ArtifactViewer({
   const lines = content.trim() === '' ? 0 : content.split('\n').length
   const normalized = content || '暂无内容'
   const [copyState, setCopyState] = useState<'idle' | 'done' | 'failed'>('idle')
+  const [focusOpen, setFocusOpen] = useState(false)
 
   return (
     <div className="overflow-hidden rounded-[22px] border border-stone-200 bg-[#0d1014] shadow-[0_20px_60px_rgba(17,24,39,0.12)]">
@@ -61,6 +62,15 @@ export function ArtifactViewer({
               type="button"
             >
               {saving ? '保存中...' : '编辑'}
+            </button>
+          ) : null}
+          {isMarkdown ? (
+            <button
+              className="rounded-full border border-white/10 px-3 py-1 text-stone-300 transition hover:border-white/20 hover:text-white"
+              onClick={() => setFocusOpen(true)}
+              type="button"
+            >
+              放大
             </button>
           ) : null}
           <button
@@ -94,55 +104,51 @@ export function ArtifactViewer({
         ) : isJSON ? (
           <JsonArtifact content={normalized} />
         ) : (
-          <MarkdownArtifact content={normalized} />
+          <MarkdownArtifact content={normalized} variant="panel" />
         )}
       </div>
+      {isMarkdown ? (
+        <ArtifactFocusDrawer
+          artifact={artifact}
+          content={normalized}
+          open={focusOpen}
+          onClose={() => setFocusOpen(false)}
+          sourcePath={sourcePath || `task/${taskID}/${artifact}`}
+        />
+      ) : null}
     </div>
   )
 }
 
-function MarkdownArtifact({ content }: { content: string }) {
+function MarkdownArtifact({
+  content,
+  variant,
+}: {
+  content: string
+  variant: 'drawer' | 'panel'
+}) {
   const lines = content.split('\n')
-  const headings = useMemo(() => extractMarkdownHeadings(lines), [lines])
 
   return (
-    <div className="space-y-4">
-      {headings.length > 0 ? (
-        <div className="rounded-[18px] border border-white/8 bg-white/4 px-3 py-3">
-          <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-stone-500">目录导航</div>
-          <div className="flex flex-wrap gap-2">
-            {headings.map((heading) => (
-              <button
-                className={`rounded-full border px-3 py-1 text-xs transition ${
-                  heading.level === 1
-                    ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-100'
-                    : heading.level === 2
-                      ? 'border-sky-300/30 bg-sky-400/10 text-sky-100'
-                      : 'border-amber-300/30 bg-amber-400/10 text-amber-100'
-                }`}
-                key={heading.id}
-                onClick={() => {
-                  document.getElementById(heading.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }}
-                type="button"
-              >
-                {heading.title}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="space-y-2 text-stone-100">
+    <div className={variant === 'drawer' ? 'space-y-3 text-[#141413] dark:text-[#faf9f5]' : 'space-y-2 text-stone-100'}>
+      <div className={variant === 'drawer' ? 'space-y-3' : 'space-y-2'}>
         {lines.map((line, index) => {
           const trimmed = line.trim()
           if (trimmed === '') {
-            return <div className="h-2" key={index} />
+            return <div className={variant === 'drawer' ? 'h-3' : 'h-2'} key={index} />
           }
           if (trimmed.startsWith('### ')) {
             const title = trimmed.slice(4)
             return (
-              <h3 className="mt-4 text-lg font-semibold text-amber-100" id={markdownHeadingID(title)} key={index}>
+              <h3
+                className={
+                  variant === 'drawer'
+                    ? 'mt-6 text-[24px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
+                    : 'mt-4 text-lg font-semibold text-amber-100'
+                }
+                id={markdownHeadingID(title)}
+                key={index}
+              >
                 {title}
               </h3>
             )
@@ -150,7 +156,15 @@ function MarkdownArtifact({ content }: { content: string }) {
           if (trimmed.startsWith('## ')) {
             const title = trimmed.slice(3)
             return (
-              <h2 className="mt-5 text-xl font-semibold text-white" id={markdownHeadingID(title)} key={index}>
+              <h2
+                className={
+                  variant === 'drawer'
+                    ? 'mt-8 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
+                    : 'mt-5 text-xl font-semibold text-white'
+                }
+                id={markdownHeadingID(title)}
+                key={index}
+              >
                 {title}
               </h2>
             )
@@ -158,28 +172,59 @@ function MarkdownArtifact({ content }: { content: string }) {
           if (trimmed.startsWith('# ')) {
             const title = trimmed.slice(2)
             return (
-              <h1 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white" id={markdownHeadingID(title)} key={index}>
+              <h1
+                className={
+                  variant === 'drawer'
+                    ? 'mt-2 text-[42px] leading-[1.1] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
+                    : 'mt-2 text-2xl font-semibold tracking-[-0.03em] text-white'
+                }
+                id={markdownHeadingID(title)}
+                key={index}
+              >
                 {title}
               </h1>
             )
           }
           if (trimmed.startsWith('- ')) {
             return (
-              <div className="flex gap-3 pl-1 text-[13px] leading-7 text-stone-200" key={index}>
-                <span className="mt-[10px] h-1.5 w-1.5 rounded-full bg-emerald-300" />
+              <div
+                className={
+                  variant === 'drawer'
+                    ? 'flex gap-3 pl-1 text-[16px] leading-8 text-[#4d4c48] dark:text-[#b0aea5]'
+                    : 'flex gap-3 pl-1 text-[13px] leading-7 text-stone-200'
+                }
+                key={index}
+              >
+                <span
+                  className={
+                    variant === 'drawer'
+                      ? 'mt-[13px] h-1.5 w-1.5 rounded-full bg-[#c96442] dark:bg-[#d97757]'
+                      : 'mt-[10px] h-1.5 w-1.5 rounded-full bg-emerald-300'
+                  }
+                />
                 <span>{trimmed.slice(2)}</span>
               </div>
             )
           }
           if (trimmed.startsWith('|')) {
             return (
-              <div className="overflow-x-auto rounded-xl border border-white/8 bg-white/3 px-3 py-2 font-mono text-xs text-stone-300" key={index}>
+              <div
+                className={
+                  variant === 'drawer'
+                    ? 'overflow-x-auto rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 font-mono text-xs text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]'
+                    : 'overflow-x-auto rounded-xl border border-white/8 bg-white/3 px-3 py-2 font-mono text-xs text-stone-300'
+                }
+                key={index}
+              >
                 {trimmed}
               </div>
             )
           }
           return (
-            <p className="text-[13px] leading-7 text-stone-200" key={index}>
+            <p
+              className={variant === 'drawer' ? 'text-[17px] leading-[1.8] text-[#4d4c48] dark:text-[#b0aea5]' : 'text-[13px] leading-7 text-stone-200'}
+              key={index}
+            >
               {trimmed}
             </p>
           )
@@ -328,27 +373,83 @@ function summarizeJSON(content: string) {
   }
 }
 
-function extractMarkdownHeadings(lines: string[]) {
-  return lines
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith('#'))
-    .map((line) => {
-      const level = line.startsWith('### ') ? 3 : line.startsWith('## ') ? 2 : line.startsWith('# ') ? 1 : 0
-      const title = level === 3 ? line.slice(4) : level === 2 ? line.slice(3) : level === 1 ? line.slice(2) : line
-      return {
-        level,
-        title,
-        id: markdownHeadingID(title),
-      }
-    })
-    .filter((item) => item.level > 0 && item.title)
-}
-
 function markdownHeadingID(title: string) {
   return `md-${title
     .toLowerCase()
     .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
     .replace(/^-+|-+$/g, '')}`
+}
+
+function ArtifactFocusDrawer({
+  artifact,
+  content,
+  open,
+  onClose,
+  sourcePath,
+}: {
+  artifact: TaskArtifactName
+  content: string
+  open: boolean
+  onClose: () => void
+  sourcePath: string
+}) {
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [onClose, open])
+
+  if (!open) {
+    return null
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-[rgba(20,20,19,0.22)] p-4 backdrop-blur-sm dark:bg-[rgba(20,20,19,0.58)] sm:p-6 lg:p-8"
+      onClick={onClose}
+    >
+      <div
+        className="mx-auto flex h-[calc(100dvh-32px)] w-full max-w-[1180px] flex-col overflow-hidden rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] shadow-[0_0_0_1px_rgba(240,238,230,0.94),0_12px_40px_rgba(20,20,19,0.12)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98),0_12px_40px_rgba(0,0,0,0.28)] sm:h-[calc(100dvh-48px)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-[#e8e6dc] px-6 py-5 dark:border-[#30302e]">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">全景阅读</div>
+            <h3 className="mt-2 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">
+              {artifactLabel(artifact)}
+            </h3>
+            <p className="mt-2 font-mono text-xs text-[#87867f] dark:text-[#b0aea5]">{sourcePath}</p>
+          </div>
+          <button
+            className="rounded-[12px] border border-[#d1cfc5] bg-[#e8e6dc] px-3 py-2 text-xs text-[#4d4c48] transition hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]"
+            onClick={onClose}
+            type="button"
+          >
+            关闭
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          <div className="mx-auto max-w-[860px]">
+            <MarkdownArtifact content={content} variant="drawer" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export function artifactLabel(name: TaskArtifactName) {

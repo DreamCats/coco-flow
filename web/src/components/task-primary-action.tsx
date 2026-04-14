@@ -57,10 +57,10 @@ export function TaskPrimaryAction({
   const dominantFailure = summarizeFailureType(task)
 
   return (
-    <section className="rounded-[28px] border border-emerald-300/18 bg-[linear-gradient(140deg,rgba(16,185,129,0.2),rgba(12,18,18,0.96)_42%,rgba(11,13,17,0.98)_100%)] p-5 shadow-[0_28px_60px_rgba(6,78,59,0.24)]">
-      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200">主行动区</div>
-      <div className="mt-3 text-[28px] font-semibold tracking-[-0.05em] text-white">{primaryHeadline(task)}</div>
-      <p className="mt-3 max-w-[42rem] text-sm leading-6 text-emerald-50/80">{primaryNarrative(task)}</p>
+    <section className="rounded-[20px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+      <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">主行动区</div>
+      <div className="mt-3 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{primaryHeadline(task)}</div>
+      <p className="mt-3 max-w-[42rem] text-[15px] leading-7 text-[#5e5d59] dark:text-[#b0aea5]">{primaryNarrative(task)}</p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <MiniStat label="仓库总数" value={`${repoCount}`} />
@@ -144,7 +144,7 @@ export function TaskPrimaryAction({
         ) : null}
       </div>
 
-      <div className="mt-5 rounded-[22px] border border-white/10 bg-black/25 px-4 py-3 font-mono text-sm text-emerald-100/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="mt-5 rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 font-mono text-sm text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#1a1918] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
         {task.nextAction}
       </div>
     </section>
@@ -153,9 +153,9 @@ export function TaskPrimaryAction({
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[20px] border border-white/10 bg-white/[0.06] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-      <div className="text-[11px] uppercase tracking-[0.2em] text-stone-400/90">{label}</div>
-      <div className="mt-2 text-[22px] font-semibold tracking-[-0.04em] text-white">{value}</div>
+    <div className="rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#1a1918] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+      <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">{label}</div>
+      <div className="mt-2 text-[22px] text-[#141413] dark:text-[#faf9f5]">{value}</div>
     </div>
   )
 }
@@ -169,12 +169,12 @@ function NoticeBox({
 }) {
   const toneClass =
     tone === 'amber'
-      ? 'mt-4 rounded-[20px] border border-amber-300/18 bg-amber-400/10 px-4 py-3 text-sm leading-6 text-amber-100'
+      ? 'mt-4 rounded-[18px] border border-[#d9c9a7] bg-[#fff7e8] px-4 py-3 text-sm leading-6 text-[#7a5b18]'
       : tone === 'sky'
-        ? 'mt-4 rounded-[20px] border border-sky-300/18 bg-sky-400/10 px-4 py-3 text-sm leading-6 text-sky-100'
+        ? 'mt-4 rounded-[18px] border border-[#c8d8e7] bg-[#f2f7fb] px-4 py-3 text-sm leading-6 text-[#3d5b74]'
         : tone === 'rose'
-          ? 'mt-4 rounded-[20px] border border-rose-300/18 bg-rose-400/10 px-4 py-3 text-sm leading-6 text-rose-100'
-          : 'mt-4 rounded-[20px] border border-emerald-300/18 bg-emerald-400/10 px-4 py-3 text-sm leading-6 text-emerald-100'
+          ? 'mt-4 rounded-[18px] border border-[#e1c1bf] bg-[#fbf1f0] px-4 py-3 text-sm leading-6 text-[#b53333]'
+          : 'mt-4 rounded-[18px] border border-[#ccd6c8] bg-[#f3f7f1] px-4 py-3 text-sm leading-6 text-[#4a6b4a]'
 
   return <div className={toneClass}>{children}</div>
 }
@@ -190,7 +190,7 @@ function PrimaryButton({
 }) {
   return (
     <button
-      className="rounded-[20px] border border-emerald-200/36 bg-emerald-500/30 px-4 py-3 text-sm font-semibold text-emerald-50 shadow-[0_12px_24px_rgba(16,185,129,0.16)] transition hover:border-emerald-100/44 hover:bg-emerald-500/42 disabled:cursor-not-allowed disabled:opacity-60"
+      className="rounded-[12px] border border-[#c96442] bg-[#c96442] px-4 py-3 text-sm text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] transition hover:bg-[#d97757] disabled:cursor-not-allowed disabled:opacity-60"
       disabled={disabled}
       onClick={onClick}
       type="button"
@@ -213,10 +213,10 @@ function SecondaryButton({
 }) {
   const toneClass =
     tone === 'rose'
-      ? 'border-rose-200/28 bg-rose-400/14 text-rose-50 hover:border-rose-100/38 hover:bg-rose-400/22'
+      ? 'border-[#e1c1bf] bg-[#fbf1f0] text-[#b53333] hover:bg-[#f7e6e4]'
       : tone === 'sky'
-        ? 'border-sky-200/28 bg-sky-400/14 text-sky-50 hover:border-sky-100/38 hover:bg-sky-400/22'
-        : 'border-white/14 bg-white/[0.06] text-white hover:border-white/22 hover:bg-white/[0.1]'
+        ? 'border-[#c8d8e7] bg-[#f2f7fb] text-[#3d5b74] hover:bg-[#e9f2f8]'
+        : 'border-[#d1cfc5] bg-[#e8e6dc] text-[#4d4c48] hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]'
 
   return (
     <button
@@ -231,7 +231,7 @@ function SecondaryButton({
 }
 
 function InlineHint({ children }: { children: string }) {
-  return <span className="self-center text-xs text-emerald-50/65">{children}</span>
+  return <span className="self-center text-xs text-[#87867f] dark:text-[#b0aea5]">{children}</span>
 }
 
 function RunningStatusCard({
@@ -242,22 +242,22 @@ function RunningStatusCard({
   lastRefreshedAt: string
 }) {
   return (
-    <div className="mt-4 overflow-hidden rounded-[22px] border border-white/12 bg-black/25">
-      <div className="h-1 w-full overflow-hidden bg-white/6">
-        <div className="h-full w-1/3 animate-pulse rounded-full bg-emerald-300/90" />
+    <div className="mt-4 overflow-hidden rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] dark:border-[#30302e] dark:bg-[#1a1918]">
+      <div className="h-1 w-full overflow-hidden bg-[#e8e6dc] dark:bg-[#30302e]">
+        <div className="h-full w-1/3 animate-pulse rounded-full bg-[#c96442]" />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3">
           <span className="relative flex h-3 w-3">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300/70" />
-            <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-300" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#d97757]/70" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-[#c96442]" />
           </span>
           <div>
-            <div className="text-sm font-semibold text-white">{runningHeadline(status)}</div>
-            <div className="mt-1 text-xs text-emerald-50/70">页面正在每 2.5 秒自动刷新任务状态和日志内容。</div>
+            <div className="text-sm text-[#141413] dark:text-[#faf9f5]">{runningHeadline(status)}</div>
+            <div className="mt-1 text-xs text-[#87867f] dark:text-[#b0aea5]">页面正在每 2.5 秒自动刷新任务状态和日志内容。</div>
           </div>
         </div>
-        <div className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-emerald-100/85">
+        <div className="rounded-full border border-[#e8e6dc] bg-[#faf9f5] px-3 py-1 text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
           最近同步 {lastRefreshedAt || '--:--:--'}
         </div>
       </div>

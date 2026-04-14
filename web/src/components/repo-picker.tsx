@@ -161,21 +161,21 @@ export function RepoPicker({
 
   return (
     <div className="space-y-4">
-      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500 dark:text-stone-400">已选仓库</div>
+      <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">已选仓库</div>
 
       <div className="space-y-2">
         {selectedRepos.length > 0 ? (
           selectedRepos.map((repo) => (
             <div
-              className="flex items-start justify-between gap-3 rounded-[18px] border border-stone-200 bg-stone-50 px-3 py-3 dark:border-white/10 dark:bg-white/5"
+              className="flex items-start justify-between gap-3 rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]"
               key={repo.path}
             >
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-stone-950 dark:text-stone-50">{repo.displayName}</div>
-                <div className="mt-1 break-all font-mono text-xs leading-5 text-stone-500 dark:text-stone-400">{repo.path}</div>
+                <div className="text-[17px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{repo.displayName}</div>
+                <div className="mt-1 break-all font-mono text-xs leading-5 text-[#87867f] dark:text-[#b0aea5]">{repo.path}</div>
               </div>
               <button
-                className="rounded-full border border-stone-200 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-stone-500 transition hover:border-stone-300 hover:text-stone-900 dark:border-white/10 dark:text-stone-400 dark:hover:border-white/20 dark:hover:text-stone-100"
+                className="rounded-[12px] border border-[#d1cfc5] bg-[#e8e6dc] px-3 py-1.5 text-xs text-[#4d4c48] transition hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]"
                 onClick={() => removeRepo(repo.path)}
                 type="button"
               >
@@ -184,20 +184,20 @@ export function RepoPicker({
             </div>
           ))
         ) : (
-          <div className="rounded-[18px] border border-dashed border-stone-300 bg-stone-50 px-4 py-4 text-sm text-stone-500 dark:border-white/15 dark:bg-white/5 dark:text-stone-400">
+          <div className="rounded-[16px] border border-dashed border-[#d1cfc5] bg-[#f5f4ed] px-4 py-4 text-sm text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
             还没有选择仓库。可以从最近使用中挑选，或在右侧浏览服务器目录。
           </div>
         )}
       </div>
 
-      {pickerError ? <div className="text-sm text-rose-600">{pickerError}</div> : null}
+      {pickerError ? <div className="text-sm text-[#b53333]">{pickerError}</div> : null}
 
       <div className="grid gap-4 md:grid-cols-[0.95fr_1.05fr]">
-        <section className="rounded-[20px] border border-stone-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
+        <section className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
           <div className="flex items-center justify-between gap-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">最近使用</div>
+            <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">最近使用</div>
             <input
-              className="w-44 rounded-full border border-stone-200 px-3 py-2 text-xs text-stone-700 outline-none focus:border-stone-400 dark:border-white/10 dark:bg-stone-950/70 dark:text-stone-200 dark:placeholder:text-stone-500 dark:focus:border-white/20"
+              className="w-44 rounded-[12px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-2 text-xs text-[#5e5d59] outline-none shadow-[0_0_0_1px_rgba(240,238,230,0.86)] focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)] dark:placeholder:text-[#87867f] dark:focus:border-[#3898ec]"
               onChange={(event) => setQuery(event.target.value)}
               placeholder="搜索仓库"
               type="text"
@@ -206,7 +206,7 @@ export function RepoPicker({
           </div>
           <div className="mt-3 space-y-2">
             {loadingRecent ? (
-              <div className="rounded-[18px] border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-sm text-stone-500 dark:border-white/15 dark:bg-white/5 dark:text-stone-400">
+              <div className="rounded-[16px] border border-dashed border-[#d1cfc5] bg-[#f5f4ed] px-3 py-4 text-sm text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
                 正在加载最近使用的仓库...
               </div>
             ) : filteredRecent.length > 0 ? (
@@ -214,41 +214,41 @@ export function RepoPicker({
                 <button
                   className={`flex w-full items-start justify-between gap-3 rounded-[18px] border px-3 py-3 text-left transition ${
                     selectedPaths.has(repo.path)
-                      ? 'border-emerald-300 bg-emerald-50/80 dark:border-emerald-300/30 dark:bg-emerald-400/10'
-                      : 'border-stone-200 bg-stone-50 hover:border-stone-300 hover:bg-stone-100 dark:border-white/10 dark:bg-white/5 dark:hover:border-white/20 dark:hover:bg-white/10'
+                      ? 'border-[#ccd6c8] bg-[#f3f7f1] dark:border-[#425142] dark:bg-[#263126]'
+                      : 'border-[#e8e6dc] bg-[#f5f4ed] shadow-[0_0_0_1px_rgba(240,238,230,0.84)] hover:bg-[#efede4] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)] dark:hover:bg-[#2a2927]'
                   }`}
                   key={repo.path}
                   onClick={() => addRepo(repo)}
                   type="button"
                 >
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold text-stone-950 dark:text-stone-50">{repo.displayName}</div>
-                    <div className="mt-1 break-all font-mono text-xs leading-5 text-stone-500 dark:text-stone-400">{repo.path}</div>
+                    <div className="text-[17px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{repo.displayName}</div>
+                    <div className="mt-1 break-all font-mono text-xs leading-5 text-[#87867f] dark:text-[#b0aea5]">{repo.path}</div>
                   </div>
-                  <div className="shrink-0 text-right text-[11px] uppercase tracking-[0.18em] text-stone-500 dark:text-stone-400">
+                  <div className="shrink-0 text-right text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">
                     {repo.taskCount ? `${repo.taskCount} 个任务` : '最近使用'}
                     {repo.lastSeenAt ? <div className="mt-1 normal-case tracking-normal">{repo.lastSeenAt}</div> : null}
                   </div>
                 </button>
               ))
             ) : (
-              <div className="rounded-[18px] border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-sm text-stone-500 dark:border-white/15 dark:bg-white/5 dark:text-stone-400">
+              <div className="rounded-[16px] border border-dashed border-[#d1cfc5] bg-[#f5f4ed] px-3 py-4 text-sm text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
                 {query ? '没有找到匹配的仓库。' : '暂时还没有最近使用的仓库。'}
               </div>
             )}
           </div>
         </section>
 
-        <section className="rounded-[20px] border border-stone-200 bg-white p-4 dark:border-white/10 dark:bg-white/6">
+        <section className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">远程目录</div>
+            <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">远程目录</div>
             <div className="flex flex-wrap gap-2">
               {roots.map((root) => (
                 <button
-                  className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition ${
+                  className={`rounded-[12px] border px-3 py-2 text-xs uppercase tracking-[0.5px] transition ${
                     browserPath === root.path
-                      ? 'border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-950'
-                      : 'border-stone-200 text-stone-500 hover:border-stone-300 hover:text-stone-900 dark:border-white/10 dark:text-stone-400 dark:hover:border-white/20 dark:hover:text-stone-100'
+                      ? 'border-[#30302e] bg-[#30302e] text-[#faf9f5] dark:border-[#faf9f5] dark:bg-[#faf9f5] dark:text-[#141413]'
+                      : 'border-[#d1cfc5] bg-[#e8e6dc] text-[#4d4c48] hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]'
                   }`}
                   key={root.path}
                   onClick={() => void loadBrowser(root.path)}
@@ -260,16 +260,16 @@ export function RepoPicker({
             </div>
           </div>
 
-          <div className="mt-3 rounded-[18px] border border-stone-200 bg-stone-50 px-3 py-3 dark:border-white/10 dark:bg-white/5">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-stone-500 dark:text-stone-400">当前位置</div>
-            <div className="mt-2 break-all font-mono text-xs text-stone-700 dark:text-stone-300">{browserPath || '-'}</div>
+          <div className="mt-3 rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
+            <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">当前位置</div>
+            <div className="mt-2 break-all font-mono text-xs text-[#5e5d59] dark:text-[#b0aea5]">{browserPath || '-'}</div>
             <div className="mt-3 flex flex-wrap gap-2">
               {breadcrumbs.map((item) => (
                 <button
-                  className={`rounded-full border px-3 py-2 text-xs transition ${
+                  className={`rounded-[12px] border px-3 py-2 text-xs transition ${
                     browserPath === item.path
-                      ? 'border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-950'
-                      : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:text-stone-900 dark:border-white/10 dark:bg-stone-950/70 dark:text-stone-300 dark:hover:border-white/20 dark:hover:text-stone-100'
+                      ? 'border-[#30302e] bg-[#30302e] text-[#faf9f5] dark:border-[#faf9f5] dark:bg-[#faf9f5] dark:text-[#141413]'
+                      : 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
                   }`}
                   key={item.path}
                   onClick={() => void loadBrowser(item.path)}
@@ -281,7 +281,7 @@ export function RepoPicker({
             </div>
             <div className="mt-3 flex gap-2">
               <button
-                className="rounded-full border border-stone-200 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-stone-500 transition hover:border-stone-300 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-stone-400 dark:hover:border-white/20 dark:hover:text-stone-100"
+                className="rounded-[12px] border border-[#d1cfc5] bg-[#e8e6dc] px-3 py-2 text-xs text-[#4d4c48] transition hover:bg-[#ddd9cc] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]"
                 disabled={!parentPath}
                 onClick={() => void loadBrowser(parentPath)}
                 type="button"
@@ -293,14 +293,14 @@ export function RepoPicker({
 
           <div className="mt-3 flex gap-2">
             <input
-              className="min-w-0 flex-1 rounded-2xl border border-stone-200 px-3 py-3 font-mono text-sm text-stone-900 outline-none focus:border-stone-400 dark:border-white/10 dark:bg-stone-950/70 dark:text-stone-200 dark:placeholder:text-stone-500 dark:focus:border-white/20"
+              className="min-w-0 flex-1 rounded-[12px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-3 font-mono text-sm text-[#141413] outline-none shadow-[0_0_0_1px_rgba(240,238,230,0.86)] focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)] dark:placeholder:text-[#87867f] dark:focus:border-[#3898ec]"
               onChange={(event) => setManualPath(event.target.value)}
               placeholder="输入仓库路径"
               type="text"
               value={manualPath}
             />
             <button
-              className="rounded-2xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-[12px] border border-[#c96442] bg-[#c96442] px-4 py-3 text-sm text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] transition hover:bg-[#d97757] disabled:cursor-not-allowed disabled:opacity-60"
               disabled={validating || !manualPath.trim()}
               onClick={() => void addManualRepo()}
               type="button"
@@ -308,13 +308,13 @@ export function RepoPicker({
               {validating ? '校验中...' : '校验并加入'}
             </button>
           </div>
-          <div className="mt-2 text-xs leading-5 text-stone-500 dark:text-stone-400">
+          <div className="mt-2 text-xs leading-5 text-[#87867f] dark:text-[#b0aea5]">
             这里浏览的是运行 `coco-ext ui serve` 那台机器上的目录。
           </div>
 
           <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
             {loadingBrowser ? (
-              <div className="rounded-[18px] border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-sm text-stone-500 dark:border-white/15 dark:bg-white/5 dark:text-stone-400">
+              <div className="rounded-[16px] border border-dashed border-[#d1cfc5] bg-[#f5f4ed] px-3 py-4 text-sm text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
                 正在加载目录...
               </div>
             ) : entries.length > 0 ? (
@@ -322,8 +322,8 @@ export function RepoPicker({
                 <div
                   className={`flex items-center justify-between gap-3 rounded-[18px] border px-3 py-3 ${
                     selectedPaths.has(entry.path)
-                      ? 'border-emerald-300 bg-emerald-50/80 dark:border-emerald-300/30 dark:bg-emerald-400/10'
-                      : 'border-stone-200 bg-stone-50 dark:border-white/10 dark:bg-white/5'
+                      ? 'border-[#ccd6c8] bg-[#f3f7f1] dark:border-[#425142] dark:bg-[#263126]'
+                      : 'border-[#e8e6dc] bg-[#f5f4ed] shadow-[0_0_0_1px_rgba(240,238,230,0.84)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]'
                   }`}
                   key={entry.path}
                 >
@@ -332,26 +332,26 @@ export function RepoPicker({
                     onClick={() => void loadBrowser(entry.path)}
                     type="button"
                   >
-                    <div className="text-sm font-semibold text-stone-950 dark:text-stone-50">{entry.name}</div>
-                    <div className="mt-1 break-all font-mono text-xs leading-5 text-stone-500 dark:text-stone-400">{entry.path}</div>
+                    <div className="text-[17px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{entry.name}</div>
+                    <div className="mt-1 break-all font-mono text-xs leading-5 text-[#87867f] dark:text-[#b0aea5]">{entry.path}</div>
                   </button>
                   {entry.isGitRepo ? (
                     <button
-                      className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                      className="shrink-0 rounded-[12px] border border-[#c96442] bg-[#c96442] px-3 py-2 text-xs text-[#faf9f5] transition hover:bg-[#d97757]"
                       onClick={() => addBrowserRepo(entry)}
                       type="button"
                     >
                       加入
                     </button>
                   ) : (
-                    <div className="shrink-0 rounded-full border border-stone-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500 dark:border-white/10 dark:text-stone-400">
+                    <div className="shrink-0 rounded-[12px] border border-[#d1cfc5] bg-[#e8e6dc] px-3 py-2 text-[10px] uppercase tracking-[0.5px] text-[#4d4c48] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5]">
                       目录
                     </div>
                   )}
                 </div>
               ))
             ) : (
-              <div className="rounded-[18px] border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-sm text-stone-500 dark:border-white/15 dark:bg-white/5 dark:text-stone-400">
+              <div className="rounded-[16px] border border-dashed border-[#d1cfc5] bg-[#f5f4ed] px-3 py-4 text-sm text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
                 当前目录下没有可用子目录。
               </div>
             )}
