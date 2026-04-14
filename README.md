@@ -14,9 +14,9 @@ Current technical stance:
 The first version focuses on a minimal but usable scaffold:
 
 - `coco-flow tasks list` to inspect task summaries
-- `coco-flow tasks roots` to inspect active and legacy task roots
-- `coco-flow tasks refine <task_id>` to generate a local fallback `prd-refined.md`
-- `coco-flow tasks plan <task_id>` to generate local fallback `design.md` and `plan.md`
+- `coco-flow tasks roots` to inspect the active task root
+- `coco-flow tasks refine <task_id>` to generate `prd-refined.md`
+- `coco-flow tasks plan <task_id>` to generate `design.md` and `plan.md`
 - `coco-flow tasks code <task_id>` to run the code stage
 - `coco-flow tasks reset <task_id>` to roll the task back to planned state
 - `coco-flow tasks archive <task_id>` to archive coded tasks
@@ -24,7 +24,8 @@ The first version focuses on a minimal but usable scaffold:
 - `POST /api/tasks` to create initialized tasks in the new `coco-flow` task root
 - `POST /api/tasks/{task_id}/refine` to move initialized tasks into refined state
 - `POST /api/tasks/{task_id}/plan` to move refined tasks into planned state
-- `POST /api/tasks/{task_id}/code` to run the code stage
+- `POST /api/tasks/{task_id}/code` to start the code stage asynchronously
+- `POST /api/tasks/{task_id}/code-all` to batch-run remaining repos asynchronously
 - `POST /api/tasks/{task_id}/reset` to roll back code-stage state
 - `POST /api/tasks/{task_id}/archive` to archive coded tasks
 - `PUT /api/tasks/{task_id}/artifact?name=...` to edit task-level Markdown artifacts
@@ -75,9 +76,9 @@ uv run coco-flow ui serve --web-dir /absolute/path/to/dist
 Current UI actions:
 
 - create task
-- run local refine
-- run local plan
-- run code stage
+- run refine
+- run plan
+- run code stage asynchronously
 - edit `prd.source.md` / `prd-refined.md` / `design.md` / `plan.md`
 - reset task
 - archive task
@@ -117,6 +118,7 @@ Current endpoints:
 - `POST /api/tasks/{task_id}/refine`
 - `POST /api/tasks/{task_id}/plan`
 - `POST /api/tasks/{task_id}/code`
+- `POST /api/tasks/{task_id}/code-all`
 - `POST /api/tasks/{task_id}/reset`
 - `POST /api/tasks/{task_id}/archive`
 - `GET /api/tasks/{task_id}/artifact?name=...`
@@ -140,7 +142,6 @@ web/
 
 ## Next Steps
 
-- add worktree and repo binding models
-- replace local fallback refine/plan with AI-backed execution
-- expand the migrated Web UI from minimal shell to richer workbench
-- add automated tests for the main workflow chain
+- make `code` retry logic closer to `coco-ext` when build verification fails
+- continue aligning `refine` input sources and `plan` multi-repo research with `coco-ext`
+- expand automated tests for background task execution and multi-repo flows

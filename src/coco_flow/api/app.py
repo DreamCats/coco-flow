@@ -19,12 +19,12 @@ from coco_flow.models import (
     UpdateArtifactResponse,
 )
 from coco_flow.services import TaskStore
-from coco_flow.services.task_background import start_background_plan, start_background_refine
-from coco_flow.services.task_code import code_task
+from coco_flow.services.task_background import start_background_code, start_background_plan, start_background_refine
 from coco_flow.services.task_create import create_task
 from coco_flow.services.task_edit import update_artifact
 from coco_flow.services.fs_tools import list_fs_entries, list_fs_roots
 from coco_flow.services.task_lifecycle import archive_task, reset_task
+from coco_flow.services.task_code import start_coding_task
 from coco_flow.services.task_plan import start_planning_task
 from coco_flow.services.repo_tools import list_recent_repos, validate_repo_path
 from coco_flow.services.task_refine import refine_task
@@ -165,10 +165,11 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
                 raise HTTPException(status_code=404, detail=message) from error
             raise HTTPException(status_code=409, detail=message) from error
 
-    @app.post("/api/tasks/{task_id}/code", response_model=TaskActionResponse)
+    @app.post("/api/tasks/{task_id}/code", response_model=TaskActionResponse, status_code=202)
     def code_task_handler(task_id: str, repo: str = "") -> TaskActionResponse:
         try:
-            status = code_task(task_id, settings=store.settings, repo_id=repo)
+            status = start_coding_task(task_id, settings=store.settings, repo_id=repo)
+            start_background_code(task_id, store.settings, repo_id=repo)
             return TaskActionResponse(task_id=task_id, status=status)
         except ValueError as error:
             message = str(error)
@@ -176,10 +177,11 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
                 raise HTTPException(status_code=404, detail=message) from error
             raise HTTPException(status_code=409, detail=message) from error
 
-    @app.post("/api/tasks/{task_id}/code-all", response_model=TaskActionResponse)
+    @app.post("/api/tasks/{task_id}/code-all", response_model=TaskActionResponse, status_code=202)
     def code_all_task_handler(task_id: str) -> TaskActionResponse:
         try:
-            status = code_task(task_id, settings=store.settings, all_repos=True)
+            status = start_coding_task(task_id, settings=store.settings, all_repos=True)
+            start_background_code(task_id, store.settings, all_repos=True)
             return TaskActionResponse(task_id=task_id, status=status)
         except ValueError as error:
             message = str(error)

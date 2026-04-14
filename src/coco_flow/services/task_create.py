@@ -2,17 +2,37 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from dataclasses import dataclass
 import json
 import re
+import shutil
+import subprocess
+from urllib.parse import urlparse
 
 from coco_flow.config import Settings, load_settings
 
 STATUS_INITIALIZED = "initialized"
 SOURCE_TYPE_TEXT = "text"
+SOURCE_TYPE_FILE = "file"
+SOURCE_TYPE_LARK_DOC = "lark_doc"
 
 _ascii_word = re.compile(r"[a-zA-Z0-9]+")
 _spacing = re.compile(r"[ \t]+")
 _slug_dash = re.compile(r"-+")
+_markdown_title = re.compile(r"(?m)^#\s+(.+?)\s*$")
+_wiki_token = re.compile(r"/wiki/([A-Za-z0-9]+)")
+_doc_token = re.compile(r"/docx?/([A-Za-z0-9]+)")
+
+
+@dataclass
+class ResolvedSource:
+    source_type: str
+    title: str
+    source_value: str
+    content: str
+    path: str = ""
+    url: str = ""
+    doc_token: str = ""
 
 
 def create_task(
@@ -29,13 +49,13 @@ def create_task(
     if not normalized_repos:
         raise ValueError("repos 不能为空")
 
-    resolved_title = normalize_title(title, normalized_input)
+    resolved_source = resolve_source(normalized_input, title)
+    resolved_title = resolved_source.title
     task_id = build_task_id(resolved_title)
     task_dir = cfg.task_root / task_id
     task_dir.mkdir(parents=True, exist_ok=False)
 
     now = datetime.now().astimezone()
-    source_value = normalized_input
 
     write_json(
         task_dir / "task.json",
@@ -45,19 +65,23 @@ def create_task(
             "status": STATUS_INITIALIZED,
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
-            "source_type": SOURCE_TYPE_TEXT,
-            "source_value": source_value,
+            "source_type": resolved_source.source_type,
+            "source_value": resolved_source.source_value,
             "repo_count": len(normalized_repos),
         },
     )
-    write_json(
-        task_dir / "source.json",
-        {
-            "type": SOURCE_TYPE_TEXT,
-            "title": resolved_title,
-            "captured_at": now.isoformat(),
-        },
-    )
+    source_payload: dict[str, object] = {
+        "type": resolved_source.source_type,
+        "title": resolved_title,
+        "captured_at": now.isoformat(),
+    }
+    if resolved_source.path:
+        source_payload["path"] = resolved_source.path
+    if resolved_source.url:
+        source_payload["url"] = resolved_source.url
+    if resolved_source.doc_token:
+        source_payload["doc_token"] = resolved_source.doc_token
+    write_json(task_dir / "source.json", source_payload)
     write_json(
         task_dir / "repos.json",
         {
@@ -71,7 +95,7 @@ def create_task(
             ]
         },
     )
-    (task_dir / "prd.source.md").write_text(build_source_markdown(resolved_title, normalized_input, now))
+    (task_dir / "prd.source.md").write_text(build_source_markdown(resolved_source, now))
     return task_id, STATUS_INITIALIZED
 
 
@@ -94,6 +118,140 @@ def normalize_title(title: str | None, raw_input: str) -> str:
     if first_line:
         return collapse_spacing(first_line[:80])
     return "未命名任务"
+
+
+def resolve_source(raw_input: str, explicit_title: str | None) -> ResolvedSource:
+    file_path = maybe_local_file(raw_input)
+    if file_path is not None:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        title = normalize_title(explicit_title, extract_file_title(content, file_path))
+        return ResolvedSource(
+            source_type=SOURCE_TYPE_FILE,
+            title=title,
+            source_value=str(file_path),
+            content=content.strip(),
+            path=str(file_path),
+        )
+
+    if is_likely_url(raw_input):
+        parsed = urlparse(raw_input)
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError(f"无效的 URL: {raw_input}")
+        if is_lark_doc_url(raw_input):
+            content, fetched_title, doc_token = fetch_lark_doc_content(raw_input)
+            title = normalize_title(explicit_title, fetched_title or infer_title_from_url(raw_input) or "未命名需求")
+            return ResolvedSource(
+                source_type=SOURCE_TYPE_LARK_DOC,
+                title=title,
+                source_value=raw_input,
+                content=content.strip(),
+                url=raw_input,
+                doc_token=doc_token,
+            )
+
+    title = normalize_title(explicit_title, raw_input)
+    return ResolvedSource(
+        source_type=SOURCE_TYPE_TEXT,
+        title=title,
+        source_value=raw_input,
+        content=raw_input.strip(),
+    )
+
+
+def maybe_local_file(raw_input: str) -> Path | None:
+    candidate = Path(raw_input).expanduser()
+    if not candidate.exists() or not candidate.is_file():
+        return None
+    return candidate.resolve()
+
+
+def is_likely_url(raw_input: str) -> bool:
+    return raw_input.startswith("http://") or raw_input.startswith("https://")
+
+
+def is_lark_doc_url(raw_input: str) -> bool:
+    return bool(_wiki_token.search(raw_input) or _doc_token.search(raw_input))
+
+
+def extract_file_title(content: str, path: Path) -> str:
+    match = _markdown_title.search(content)
+    if match:
+        return match.group(1).strip()
+    first_line = next((line.strip() for line in content.splitlines() if line.strip()), "")
+    if first_line:
+        return first_line[:80]
+    return path.stem
+
+
+def infer_title_from_url(raw_input: str) -> str:
+    parsed = urlparse(raw_input)
+    host = parsed.netloc or ""
+    path = parsed.path.strip("/")
+    if host or path:
+        return f"{host}/{path}".strip("/")[:80]
+    return "未命名需求"
+
+
+def fetch_lark_doc_content(raw_url: str) -> tuple[str, str, str]:
+    ensure_lark_cli()
+    doc_token, title = resolve_lark_doc_token(raw_url)
+    content, fetched_title = fetch_lark_doc_markdown(doc_token)
+    if fetched_title:
+        title = fetched_title
+    if not content.strip():
+        raise ValueError(f"飞书文档内容为空，doc_token={doc_token}")
+    return content.strip(), title, doc_token
+
+
+def ensure_lark_cli() -> None:
+    if shutil.which("lark-cli") is None:
+        raise ValueError("lark-cli 不可用，请先安装并完成登录")
+
+
+def resolve_lark_doc_token(raw_url: str) -> tuple[str, str]:
+    wiki_match = _wiki_token.search(raw_url)
+    if wiki_match:
+        return resolve_wiki_node(wiki_match.group(1))
+    doc_match = _doc_token.search(raw_url)
+    if doc_match:
+        return doc_match.group(1), ""
+    raise ValueError(f"无法从链接中提取文档 token: {raw_url}")
+
+
+def resolve_wiki_node(wiki_token: str) -> tuple[str, str]:
+    params = json.dumps({"token": wiki_token}, ensure_ascii=False)
+    result = subprocess.run(
+        ["lark-cli", "wiki", "spaces", "get_node", "--params", params],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"解析 wiki 节点失败: {result.stderr.strip() or result.stdout.strip()}")
+    payload = json.loads(result.stdout or "{}")
+    if int(payload.get("code") or 0) != 0:
+        raise ValueError(f"wiki get_node 返回错误: code={payload.get('code')}, msg={payload.get('msg') or ''}")
+    node = ((payload.get("data") or {}).get("node") or {})
+    doc_token = str(node.get("obj_token") or "").strip()
+    if not doc_token:
+        raise ValueError(f"wiki 节点未返回 obj_token，wiki_token={wiki_token}")
+    return doc_token, str(node.get("title") or "").strip()
+
+
+def fetch_lark_doc_markdown(doc_token: str) -> tuple[str, str]:
+    result = subprocess.run(
+        ["lark-cli", "docs", "+fetch", "--doc", doc_token],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"拉取文档内容失败: {result.stderr.strip() or result.stdout.strip()}")
+    payload = json.loads(result.stdout or "{}")
+    if not bool(payload.get("ok")):
+        raise ValueError(f"docs +fetch 返回失败，doc_token={doc_token}")
+    data = payload.get("data") or {}
+    return str(data.get("markdown") or ""), str(data.get("title") or "").strip()
 
 
 def build_task_id(title: str) -> str:
@@ -120,15 +278,30 @@ def derive_repo_id(path: str) -> str:
     return name or "repo"
 
 
-def build_source_markdown(title: str, raw_input: str, now: datetime) -> str:
-    return (
-        "# PRD Source\n\n"
-        f"- title: {title}\n"
-        f"- source_type: {SOURCE_TYPE_TEXT}\n"
-        f"- captured_at: {now.isoformat()}\n\n"
-        "---\n\n"
-        f"{raw_input.strip()}\n"
+def build_source_markdown(source: ResolvedSource, now: datetime) -> str:
+    lines = [
+        "# PRD Source",
+        "",
+        f"- title: {source.title}",
+        f"- source_type: {source.source_type}",
+    ]
+    if source.path:
+        lines.append(f"- path: {source.path}")
+    if source.url:
+        lines.append(f"- url: {source.url}")
+    if source.doc_token:
+        lines.append(f"- doc_token: {source.doc_token}")
+    lines.extend(
+        [
+            f"- captured_at: {now.isoformat()}",
+            "",
+            "---",
+            "",
+            source.content or "当前未检测到 PRD 正文，请先补充输入内容。",
+            "",
+        ]
     )
+    return "\n".join(lines)
 
 
 def write_json(path: Path, payload: dict[str, object]) -> None:

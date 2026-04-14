@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+from typing import Callable
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings, load_settings
@@ -14,6 +15,7 @@ from coco_flow.services.repo_state import (
     STATUS_CODED,
     STATUS_FAILED,
     STATUS_PLANNED,
+    aggregate_task_status,
     clean_files_written,
     sanitize_repo_name,
     sync_task_status_from_repos,
@@ -27,6 +29,8 @@ from coco_flow.services.task_refine import locate_task_dir
 
 EXECUTOR_NATIVE = "native"
 EXECUTOR_LOCAL = "local"
+MAX_CODE_ATTEMPTS = 3
+LogHandler = Callable[[str], None]
 
 
 def code_task(
@@ -34,6 +38,8 @@ def code_task(
     settings: Settings | None = None,
     repo_id: str = "",
     all_repos: bool = False,
+    on_log: LogHandler | None = None,
+    allow_coding_targets: bool = False,
 ) -> str:
     cfg = settings or load_settings()
     task_dir = locate_task_dir(task_id, cfg)
@@ -49,15 +55,59 @@ def code_task(
     if not isinstance(raw_repos, list) or not raw_repos:
         raise ValueError("task has no bound repos")
 
-    targets = resolve_target_repos(raw_repos, repo_id, all_repos)
+    targets = resolve_target_repos(raw_repos, repo_id, all_repos, allow_coding_targets=allow_coding_targets)
     if not targets:
         raise ValueError("当前没有可继续推进的仓库")
 
     if cfg.code_executor.strip().lower() == EXECUTOR_LOCAL:
-        return code_task_local(task_id, task_dir, task_meta, targets)
+        return code_task_local(task_id, task_dir, task_meta, targets, on_log=on_log)
     if cfg.code_executor.strip().lower() == EXECUTOR_NATIVE:
-        return code_task_native(task_id, task_dir, task_meta, targets, cfg)
+        return code_task_native(task_id, task_dir, task_meta, targets, cfg, on_log=on_log)
     raise ValueError(f"unknown code executor: {cfg.code_executor}")
+
+
+def start_coding_task(
+    task_id: str,
+    settings: Settings | None = None,
+    repo_id: str = "",
+    all_repos: bool = False,
+) -> str:
+    cfg = settings or load_settings()
+    task_dir = locate_task_dir(task_id, cfg)
+    if task_dir is None:
+        raise ValueError(f"task not found: {task_id}")
+
+    task_meta = read_json_file(task_dir / "task.json")
+    if not task_meta:
+        raise ValueError(f"task metadata missing: {task_id}")
+
+    repos_path = task_dir / "repos.json"
+    repos_meta = read_json_file(repos_path)
+    raw_repos = repos_meta.get("repos")
+    if not isinstance(raw_repos, list) or not raw_repos:
+        raise ValueError("task has no bound repos")
+
+    targets = resolve_target_repos(raw_repos, repo_id, all_repos)
+    if not targets:
+        raise ValueError("当前没有可继续推进的仓库")
+
+    target_ids = {str(repo.get("id") or "") for repo in targets}
+    changed = False
+    for repo in raw_repos:
+        if not isinstance(repo, dict):
+            continue
+        if str(repo.get("id") or "") not in target_ids:
+            continue
+        if str(repo.get("status") or "") != STATUS_CODING:
+            repo["status"] = STATUS_CODING
+            changed = True
+    if changed:
+        repos_path.write_text(json.dumps(repos_meta, ensure_ascii=False, indent=2) + "\n")
+
+    task_meta["status"] = aggregate_task_status(str(task_meta.get("status") or ""), repos_meta)
+    task_meta["updated_at"] = datetime.now().astimezone().isoformat()
+    write_json(task_dir / "task.json", task_meta)
+    return str(task_meta["status"])
 
 
 def code_task_local(
@@ -65,18 +115,23 @@ def code_task_local(
     task_dir: Path,
     task_meta: dict[str, object],
     targets: list[dict[str, object]],
+    on_log: LogHandler | None = None,
 ) -> str:
     started_at = datetime.now().astimezone().isoformat()
     reports: list[dict[str, object]] = []
     task_log_lines: list[str] = []
+    event_lines: list[str] = []
+    log = on_log or event_lines.append
 
     for repo in targets:
+        repo_name = str(repo.get("id") or "repo")
+        log(f"repo_start: {repo_name}")
         report, repo_log = prepare_local_repo(task_id, task_dir, repo, started_at)
         reports.append(report)
         task_log_lines.append(repo_log)
         update_repo_binding(
             task_dir,
-            str(repo.get("id") or ""),
+            repo_name,
             lambda current, report=report: current.update(
                 {
                     "status": STATUS_CODING,
@@ -86,9 +141,11 @@ def code_task_local(
                 }
             ),
         )
+        log(f"repo_worktree: {repo_name} branch={report['branch']} worktree={report['worktree']}")
+        log(f"repo_status: {repo_name} prepared")
 
     if reports:
-        write_task_outputs(task_dir, reports[0], task_log_lines)
+        write_task_outputs(task_dir, reports[0], task_log_lines, event_lines)
     task_meta["status"] = sync_task_status_from_repos(task_dir)
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
     write_json(task_dir / "task.json", task_meta)
@@ -101,15 +158,19 @@ def code_task_native(
     task_meta: dict[str, object],
     targets: list[dict[str, object]],
     settings: Settings,
+    on_log: LogHandler | None = None,
 ) -> str:
     started_at = datetime.now().astimezone().isoformat()
     reports: list[dict[str, object]] = []
     task_log_lines: list[str] = []
+    event_lines: list[str] = []
+    log = on_log or event_lines.append
     repos_meta = read_json_file(task_dir / "repos.json")
     multi_repo = len(repos_meta.get("repos") or []) > 1
 
     for repo in targets:
         repo_name = str(repo.get("id") or "repo")
+        log(f"repo_start: {repo_name}")
         try:
             report, repo_log = execute_native_repo(
                 task_id=task_id,
@@ -118,8 +179,10 @@ def code_task_native(
                 settings=settings,
                 started_at=started_at,
                 multi_repo=multi_repo,
+                on_log=log,
             )
         except Exception as error:
+            log(f"repo_error: {repo_name} {error}")
             report = build_failed_report(task_id, task_dir, repo, started_at, error)
             repo_log = build_repo_log(repo_name, report, f"error:\n{error}\n")
             report["log"] = str(task_dir / "code.log")
@@ -140,6 +203,11 @@ def code_task_native(
             task_log_lines.append(repo_log)
             reports.append(report)
             break
+        log(
+            "repo_done: "
+            f"{repo_name} status={report.get('status') or ''} "
+            f"build_ok={report.get('build_ok')} commit={report.get('commit') or '-'}"
+        )
 
         update_repo_binding(
             task_dir,
@@ -162,30 +230,38 @@ def code_task_native(
             break
 
     if reports:
-        write_task_outputs(task_dir, reports[-1], task_log_lines)
+        write_task_outputs(task_dir, reports[-1], task_log_lines, event_lines)
     task_meta["status"] = sync_task_status_from_repos(task_dir)
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
     write_json(task_dir / "task.json", task_meta)
     return str(task_meta["status"])
 
 
-def resolve_target_repos(raw_repos: list[object], repo_id: str, all_repos: bool) -> list[dict[str, object]]:
+def resolve_target_repos(
+    raw_repos: list[object],
+    repo_id: str,
+    all_repos: bool,
+    allow_coding_targets: bool = False,
+) -> list[dict[str, object]]:
     repo_dicts = [repo for repo in raw_repos if isinstance(repo, dict)]
+    allowed_statuses = {STATUS_PLANNED, STATUS_FAILED}
+    if allow_coding_targets:
+        allowed_statuses.add(STATUS_CODING)
     if repo_id.strip():
         for repo in repo_dicts:
             if str(repo.get("id") or "") == repo_id.strip():
-                if str(repo.get("status") or "") not in {STATUS_PLANNED, STATUS_FAILED}:
+                if str(repo.get("status") or "") not in allowed_statuses:
                     raise ValueError(f"repo {repo_id} 当前状态为 {repo.get('status') or ''}，不能开始 code")
                 return [repo]
         options = ", ".join(sorted(str(repo.get("id") or "") for repo in repo_dicts))
         raise ValueError(f"task 未绑定 repo {repo_id}。可选 repo: {options}")
     if len(repo_dicts) == 1:
         repo = repo_dicts[0]
-        if str(repo.get("status") or "") not in {STATUS_PLANNED, STATUS_FAILED}:
+        if str(repo.get("status") or "") not in allowed_statuses:
             raise ValueError(f"repo {repo.get('id') or ''} 当前状态为 {repo.get('status') or ''}，不能开始 code")
         return [repo]
     if all_repos:
-        return [repo for repo in repo_dicts if str(repo.get("status") or "") in {STATUS_PLANNED, STATUS_FAILED}]
+        return [repo for repo in repo_dicts if str(repo.get("status") or "") in allowed_statuses]
     options = ", ".join(sorted(str(repo.get("id") or "") for repo in repo_dicts))
     raise ValueError(f"该 task 关联多个 repo，请显式指定 repo。可选 repo: {options}")
 
@@ -229,6 +305,7 @@ def execute_native_repo(
     settings: Settings,
     started_at: str,
     multi_repo: bool,
+    on_log: LogHandler | None = None,
 ) -> tuple[dict[str, object], str]:
     repo_id = str(repo.get("id") or "").strip() or "repo"
     repo_path = str(repo.get("path") or "").strip()
@@ -245,23 +322,56 @@ def execute_native_repo(
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
-    agent_reply = client.run_agent(
-        build_native_code_prompt(task_id, repo_id),
-        settings.native_code_timeout,
-        worktree,
-    )
-    parsed = parse_native_code_result(agent_reply)
-    changed_files = collect_code_changes(worktree)
-    clean_files = clean_files_written(changed_files, repo_path, worktree)
+    log = on_log or (lambda line: None)
+    prompt = build_native_code_prompt(task_id, repo_id)
+    agent_reply = ""
+    parsed: dict[str, object] = {"status": "failed", "build_ok": False, "summary": ""}
+    clean_files: list[str] = []
+    verification_ok = False
+    verification_output = ""
+
+    for attempt in range(1, MAX_CODE_ATTEMPTS + 1):
+        log(f"repo_attempt: {repo_id} {attempt}/{MAX_CODE_ATTEMPTS}")
+        agent_reply = client.run_agent(
+            prompt,
+            settings.native_code_timeout,
+            worktree,
+        )
+        parsed = parse_native_code_result(agent_reply)
+        changed_files = collect_code_changes(worktree)
+        clean_files = clean_files_written(changed_files, repo_path, worktree)
+        verification_ok, verification_output = verify_repo_changes(worktree, clean_files)
+        for line in verification_output.splitlines():
+            if line.strip():
+                log(f"repo_verify_output: {line}")
+        parsed["build_ok"] = verification_ok
+        if verification_ok or str(parsed.get("status") or "") == "no_change":
+            log(f"repo_verify_ok: {repo_id}")
+            break
+        if attempt >= MAX_CODE_ATTEMPTS:
+            log(f"repo_verify_failed: {repo_id} giving up after {attempt} attempts")
+            break
+        log(f"repo_verify_failed: {repo_id} attempt={attempt}")
+        prompt = build_code_retry_prompt(
+            task_id=task_id,
+            repo_id=repo_id,
+            changed_files=clean_files,
+            verification_output=verification_output,
+        )
+
     commit_hash = ""
     patch = ""
     status = str(parsed["status"])
+    if verification_ok and not clean_files and status == "success":
+        status = "no_change"
 
-    if clean_files:
+    if clean_files and verification_ok:
         patch = stage_and_read_patch(worktree, clean_files)
         commit_hash = commit_code_changes(worktree, task_id)
         write_repo_diff_artifacts(task_dir, repo_id, branch, commit_hash, clean_files, patch)
         repo_status = STATUS_CODED if status in {"success", "no_change"} else STATUS_FAILED
+    elif clean_files and not verification_ok:
+        repo_status = STATUS_FAILED
     else:
         repo_status = STATUS_CODED if status == "no_change" else STATUS_FAILED if status == "failed" else STATUS_CODED
 
@@ -276,14 +386,22 @@ def execute_native_repo(
         "build_ok": bool(parsed["build_ok"]),
         "files_written": clean_files,
         "summary": str(parsed["summary"] or ""),
-        "error": "" if repo_status != STATUS_FAILED else (str(parsed["summary"] or "") or "实现失败"),
+        "error": (
+            ""
+            if repo_status != STATUS_FAILED
+            else (
+                verification_output.strip()
+                or str(parsed["summary"] or "")
+                or "实现失败"
+            )
+        ),
         "log": str(task_dir / "code.log"),
         "started_at": started_at,
         "finished_at": datetime.now().astimezone().isoformat(),
     }
     if repo_status == STATUS_FAILED:
         report["status"] = "failed"
-    repo_log = build_repo_log(repo_id, report, agent_reply)
+    repo_log = build_repo_log(repo_id, report, agent_reply, verification_output=verification_output)
     return report, repo_log
 
 
@@ -316,7 +434,7 @@ def build_failed_report(
     }
 
 
-def build_repo_log(repo_id: str, report: dict[str, object], body: str) -> str:
+def build_repo_log(repo_id: str, report: dict[str, object], body: str, verification_output: str = "") -> str:
     lines = [
         f"[{repo_id}] native code executed",
         f"repo={report.get('repo_path') or ''}",
@@ -326,6 +444,8 @@ def build_repo_log(repo_id: str, report: dict[str, object], body: str) -> str:
         f"build_ok={report.get('build_ok')}",
         f"commit={report.get('commit') or '-'}",
         f"files_written={', '.join([str(item) for item in report.get('files_written') or []]) or '-'}",
+        "verification:",
+        verification_output.strip() or "verification skipped or passed without output",
         "reply:",
         body.strip(),
         "",
@@ -333,9 +453,19 @@ def build_repo_log(repo_id: str, report: dict[str, object], body: str) -> str:
     return "\n".join(lines)
 
 
-def write_task_outputs(task_dir: Path, latest_report: dict[str, object], repo_logs: list[str]) -> None:
+def write_task_outputs(
+    task_dir: Path,
+    latest_report: dict[str, object],
+    repo_logs: list[str],
+    event_lines: list[str] | None = None,
+) -> None:
     write_json(task_dir / "code-result.json", latest_report)
-    (task_dir / "code.log").write_text("\n".join(repo_logs))
+    content_parts: list[str] = []
+    if event_lines:
+        content_parts.append("\n".join(event_lines).strip())
+    if repo_logs:
+        content_parts.append("\n".join(repo_logs).strip())
+    (task_dir / "code.log").write_text("\n\n".join(part for part in content_parts if part).strip() + "\n")
 
 
 def build_branch_name(task_id: str, repo_id: str) -> str:
@@ -437,6 +567,33 @@ files:
 """
 
 
+def build_code_retry_prompt(task_id: str, repo_id: str, changed_files: list[str], verification_output: str) -> str:
+    file_block = "\n".join(f"- {item}" for item in changed_files) or "- 当前未检测到稳定变更文件"
+    return f"""刚才的实现未通过最小验证，请继续在当前 worktree 中直接修复，不要重置已有改动。
+
+任务要求：
+1. 继续围绕 `.coco-flow/tasks/{task_id}/prd-refined.md`、`design.md`、`plan.md` 修复问题。
+2. 仅修改当前 worktree 内与本次任务相关的代码，不要改 `.coco-flow/` 和 `.livecoding/`。
+3. 优先修复下面这些已经变更过的文件：
+{file_block}
+4. 修复后请再次做最小范围验证。
+5. 最后仍然必须输出：
+
+=== CODE RESULT ===
+status: success|no_change|failed
+build: passed|failed|unknown
+summary: 一句话总结
+files:
+- relative/path
+
+最近一次验证失败输出：
+{verification_output.strip() or '无'}
+
+当前 repo_id: {repo_id}
+当前 task_id: {task_id}
+"""
+
+
 def parse_native_code_result(reply: str) -> dict[str, object]:
     status = "success"
     build_ok = False
@@ -515,6 +672,69 @@ def commit_code_changes(repo_root: str, task_id: str) -> str:
         check=True,
     )
     return result.stdout.strip()
+
+
+def verify_repo_changes(repo_root: str, files: list[str]) -> tuple[bool, str]:
+    if not files:
+        return True, "no changed files"
+
+    go_files = [item for item in files if item.endswith(".go")]
+    if go_files:
+        return verify_go_build(repo_root, go_files)
+
+    py_files = [item for item in files if item.endswith(".py")]
+    if py_files:
+        return verify_python_files(repo_root, py_files)
+
+    return True, "no language-specific verification for current changed files"
+
+
+def verify_go_build(repo_root: str, files: list[str]) -> tuple[bool, str]:
+    packages = sorted({go_package_pattern(file_path) for file_path in files if file_path.endswith(".go")})
+    if not packages:
+        return True, "no go packages to build"
+
+    outputs: list[str] = []
+    all_ok = True
+    for package in packages:
+        result = subprocess.run(
+            ["go", "build", package],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            all_ok = False
+            outputs.append(
+                f"go build {package} 失败:\n{result.stdout}{result.stderr}".strip()
+            )
+        elif result.stdout.strip() or result.stderr.strip():
+            outputs.append(f"go build {package} 成功:\n{result.stdout}{result.stderr}".strip())
+    if all_ok and not outputs:
+        outputs.append("go build passed")
+    return all_ok, "\n\n".join(outputs).strip()
+
+
+def go_package_pattern(file_path: str) -> str:
+    directory = str(Path(file_path).parent)
+    if directory in {"", "."}:
+        return "./..."
+    return f"./{directory}/..."
+
+
+def verify_python_files(repo_root: str, files: list[str]) -> tuple[bool, str]:
+    result = subprocess.run(
+        ["python3", "-m", "py_compile", *files],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = f"{result.stdout}{result.stderr}".strip()
+    if result.returncode == 0:
+        return True, output or "python py_compile passed"
+    return False, output or "python py_compile failed"
 
 
 def derive_repo_status(report: dict[str, object]) -> str:

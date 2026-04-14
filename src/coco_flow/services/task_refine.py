@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 import json
 import re
+from typing import Callable
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings, load_settings
@@ -14,9 +15,10 @@ STATUS_REFINED = "refined"
 EXECUTOR_NATIVE = "native"
 EXECUTOR_LOCAL = "local"
 _refined_heading = re.compile(r"(?m)^#\s+PRD Refined\s*$")
+LogHandler = Callable[[str], None]
 
 
-def refine_task(task_id: str, settings: Settings | None = None) -> str:
+def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandler | None = None) -> str:
     cfg = settings or load_settings()
     task_dir = locate_task_dir(task_id, cfg)
     if task_dir is None:
@@ -30,25 +32,61 @@ def refine_task(task_id: str, settings: Settings | None = None) -> str:
     if status not in {STATUS_INITIALIZED, STATUS_REFINED}:
         raise ValueError(f"task status {status} does not allow refine")
 
-    executor = cfg.refine_executor.strip().lower()
+    logger = on_log or (lambda line: append_refine_log(task_dir, line))
+    owns_log_lifecycle = on_log is None
+    started_at = datetime.now().astimezone()
+    if owns_log_lifecycle:
+        logger("=== REFINE START ===")
+        logger(f"task_id: {task_id}")
+        logger(f"task_dir: {task_dir}")
+        logger(f"executor: {cfg.refine_executor}")
+
+    try:
+        return _refine_task_impl(task_dir, task_meta, cfg, logger)
+    except Exception as error:
+        if owns_log_lifecycle:
+            logger(f"error: {error}")
+            logger(f"status: {status}")
+        raise
+    finally:
+        if owns_log_lifecycle:
+            duration = datetime.now().astimezone() - started_at
+            logger(f"duration: {round(duration.total_seconds(), 3)}s")
+            logger("=== REFINE END ===")
+
+
+def _refine_task_impl(task_dir: Path, task_meta: dict[str, object], settings: Settings, on_log: LogHandler) -> str:
+    executor = settings.refine_executor.strip().lower()
     if executor == EXECUTOR_NATIVE:
         try:
-            return refine_task_native(task_dir, task_meta, cfg)
-        except ValueError:
-            return refine_task_local(task_dir, task_meta)
+            return refine_task_native(task_dir, task_meta, settings, on_log=on_log)
+        except ValueError as error:
+            on_log(f"native_refine_error: {error}")
+            return refine_task_local(task_dir, task_meta, on_log=on_log)
     if executor == EXECUTOR_LOCAL:
-        return refine_task_local(task_dir, task_meta)
-    raise ValueError(f"unknown refine executor: {cfg.refine_executor}")
+        return refine_task_local(task_dir, task_meta, on_log=on_log)
+    raise ValueError(f"unknown refine executor: {settings.refine_executor}")
 
 
-def refine_task_local(task_dir: Path, task_meta: dict[str, object]) -> str:
+def refine_task_local(task_dir: Path, task_meta: dict[str, object], on_log: LogHandler) -> str:
     source_markdown = (task_dir / "prd.source.md").read_text() if (task_dir / "prd.source.md").exists() else ""
     source_content = extract_source_content(source_markdown).strip()
     title = str(task_meta.get("title") or task_dir.name)
+    source_meta = read_json_file(task_dir / "source.json")
+    if source_meta:
+        on_log(f"source_type: {source_meta.get('type') or task_meta.get('source_type') or ''}")
+        if source_meta.get("path"):
+            on_log(f"source_path: {source_meta.get('path')}")
+        if source_meta.get("url"):
+            on_log(f"source_url: {source_meta.get('url')}")
+        if source_meta.get("doc_token"):
+            on_log(f"source_doc_token: {source_meta.get('doc_token')}")
+    on_log(f"source_length: {len(source_content)}")
+    on_log("fallback_local_refine: true")
 
     refined = build_fallback_refined_content(title, source_content)
     (task_dir / "prd-refined.md").write_text(refined)
-    append_refine_log(task_dir, f"refined locally at {datetime.now().astimezone().isoformat()}")
+    on_log(f"status: {STATUS_REFINED}")
 
     task_meta["status"] = STATUS_REFINED
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
@@ -56,27 +94,44 @@ def refine_task_local(task_dir: Path, task_meta: dict[str, object]) -> str:
     return STATUS_REFINED
 
 
-def refine_task_native(task_dir: Path, task_meta: dict[str, object], settings: Settings) -> str:
+def refine_task_native(
+    task_dir: Path,
+    task_meta: dict[str, object],
+    settings: Settings,
+    on_log: LogHandler,
+) -> str:
     source_markdown = (task_dir / "prd.source.md").read_text() if (task_dir / "prd.source.md").exists() else ""
     source_content = extract_source_content(source_markdown).strip()
     title = str(task_meta.get("title") or task_dir.name)
     repos_meta = read_json_file(task_dir / "repos.json")
+    source_meta = read_json_file(task_dir / "source.json")
+    if source_meta:
+        on_log(f"source_type: {source_meta.get('type') or task_meta.get('source_type') or ''}")
+        if source_meta.get("path"):
+            on_log(f"source_path: {source_meta.get('path')}")
+        if source_meta.get("url"):
+            on_log(f"source_url: {source_meta.get('url')}")
+        if source_meta.get("doc_token"):
+            on_log(f"source_doc_token: {source_meta.get('doc_token')}")
+    on_log(f"source_length: {len(source_content)}")
 
     client = CocoACPClient(
         settings.coco_bin,
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
+    on_log(f"prompt_start: timeout={settings.native_query_timeout}")
     raw = client.run_prompt_only(
         build_refine_prompt(title, source_content),
         settings.native_query_timeout,
         cwd=resolve_primary_repo_root(repos_meta),
     )
+    on_log(f"prompt_ok: {len(raw)} bytes")
     refined = extract_refined_content(raw)
     if not refined:
         raise ValueError("native refine returned empty content")
     (task_dir / "prd-refined.md").write_text(refined.rstrip() + "\n")
-    append_refine_log(task_dir, f"refined by native coco at {datetime.now().astimezone().isoformat()}")
+    on_log(f"status: {STATUS_REFINED}")
     task_meta["status"] = STATUS_REFINED
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
     (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n")
