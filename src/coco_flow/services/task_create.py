@@ -33,6 +33,7 @@ class ResolvedSource:
     path: str = ""
     url: str = ""
     doc_token: str = ""
+    fetch_error: str = ""
 
 
 def create_task(
@@ -81,6 +82,8 @@ def create_task(
         source_payload["url"] = resolved_source.url
     if resolved_source.doc_token:
         source_payload["doc_token"] = resolved_source.doc_token
+    if resolved_source.fetch_error:
+        source_payload["fetch_error"] = resolved_source.fetch_error
     write_json(task_dir / "source.json", source_payload)
     write_json(
         task_dir / "repos.json",
@@ -138,8 +141,18 @@ def resolve_source(raw_input: str, explicit_title: str | None) -> ResolvedSource
         if not parsed.scheme or not parsed.netloc:
             raise ValueError(f"无效的 URL: {raw_input}")
         if is_lark_doc_url(raw_input):
-            content, fetched_title, doc_token = fetch_lark_doc_content(raw_input)
-            title = normalize_title(explicit_title, fetched_title or infer_title_from_url(raw_input) or "未命名需求")
+            inferred_title = ""
+            doc_token = extract_raw_lark_token(raw_input)
+            content = ""
+            fetch_error = ""
+            try:
+                doc_token, inferred_title = resolve_lark_doc_token(raw_input)
+                content, fetched_title = fetch_lark_doc_markdown(doc_token)
+                if fetched_title:
+                    inferred_title = fetched_title
+            except ValueError as error:
+                fetch_error = str(error)
+            title = normalize_title(explicit_title, inferred_title or infer_title_from_url(raw_input) or "未命名需求")
             return ResolvedSource(
                 source_type=SOURCE_TYPE_LARK_DOC,
                 title=title,
@@ -147,6 +160,7 @@ def resolve_source(raw_input: str, explicit_title: str | None) -> ResolvedSource
                 content=content.strip(),
                 url=raw_input,
                 doc_token=doc_token,
+                fetch_error=fetch_error,
             )
 
     title = normalize_title(explicit_title, raw_input)
@@ -192,17 +206,6 @@ def infer_title_from_url(raw_input: str) -> str:
     return "未命名需求"
 
 
-def fetch_lark_doc_content(raw_url: str) -> tuple[str, str, str]:
-    ensure_lark_cli()
-    doc_token, title = resolve_lark_doc_token(raw_url)
-    content, fetched_title = fetch_lark_doc_markdown(doc_token)
-    if fetched_title:
-        title = fetched_title
-    if not content.strip():
-        raise ValueError(f"飞书文档内容为空，doc_token={doc_token}")
-    return content.strip(), title, doc_token
-
-
 def ensure_lark_cli() -> None:
     if shutil.which("lark-cli") is None:
         raise ValueError("lark-cli 不可用，请先安装并完成登录")
@@ -216,6 +219,16 @@ def resolve_lark_doc_token(raw_url: str) -> tuple[str, str]:
     if doc_match:
         return doc_match.group(1), ""
     raise ValueError(f"无法从链接中提取文档 token: {raw_url}")
+
+
+def extract_raw_lark_token(raw_url: str) -> str:
+    wiki_match = _wiki_token.search(raw_url)
+    if wiki_match:
+        return wiki_match.group(1)
+    doc_match = _doc_token.search(raw_url)
+    if doc_match:
+        return doc_match.group(1)
+    return ""
 
 
 def resolve_wiki_node(wiki_token: str) -> tuple[str, str]:
@@ -239,6 +252,7 @@ def resolve_wiki_node(wiki_token: str) -> tuple[str, str]:
 
 
 def fetch_lark_doc_markdown(doc_token: str) -> tuple[str, str]:
+    ensure_lark_cli()
     result = subprocess.run(
         ["lark-cli", "docs", "+fetch", "--doc", doc_token],
         capture_output=True,
@@ -291,13 +305,19 @@ def build_source_markdown(source: ResolvedSource, now: datetime) -> str:
         lines.append(f"- url: {source.url}")
     if source.doc_token:
         lines.append(f"- doc_token: {source.doc_token}")
+    if source.fetch_error:
+        lines.append(f"- fetch_error: {source.fetch_error}")
     lines.extend(
         [
             f"- captured_at: {now.isoformat()}",
             "",
             "---",
             "",
-            source.content or "当前未检测到 PRD 正文，请先补充输入内容。",
+            source.content
+            or (
+                "当前版本尚未自动拉取该来源的正文内容。\n"
+                "请将 PRD 正文粘贴到本文件后，再重新执行 refine。"
+            ),
             "",
         ]
     )

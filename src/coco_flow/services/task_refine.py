@@ -14,6 +14,7 @@ STATUS_INITIALIZED = "initialized"
 STATUS_REFINED = "refined"
 EXECUTOR_NATIVE = "native"
 EXECUTOR_LOCAL = "local"
+SOURCE_TYPE_LARK_DOC = "lark_doc"
 _refined_heading = re.compile(r"(?m)^#\s+PRD Refined\s*$")
 LogHandler = Callable[[str], None]
 
@@ -56,6 +57,13 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
 
 
 def _refine_task_impl(task_dir: Path, task_meta: dict[str, object], settings: Settings, on_log: LogHandler) -> str:
+    source_meta = read_json_file(task_dir / "source.json")
+    source_markdown = (task_dir / "prd.source.md").read_text() if (task_dir / "prd.source.md").exists() else ""
+    source_content = extract_source_content(source_markdown).strip()
+    source_type = str((source_meta or {}).get("type") or task_meta.get("source_type") or "")
+    if source_type == SOURCE_TYPE_LARK_DOC and is_pending_lark_source(source_meta or {}, source_content):
+        return refine_task_pending(task_dir, task_meta, source_meta or {}, on_log=on_log)
+
     executor = settings.refine_executor.strip().lower()
     if executor == EXECUTOR_NATIVE:
         try:
@@ -66,6 +74,31 @@ def _refine_task_impl(task_dir: Path, task_meta: dict[str, object], settings: Se
     if executor == EXECUTOR_LOCAL:
         return refine_task_local(task_dir, task_meta, on_log=on_log)
     raise ValueError(f"unknown refine executor: {settings.refine_executor}")
+
+
+def refine_task_pending(
+    task_dir: Path,
+    task_meta: dict[str, object],
+    source_meta: dict[str, object],
+    on_log: LogHandler,
+) -> str:
+    title = str(task_meta.get("title") or task_dir.name)
+    refined = build_pending_refined_content(
+        task_id=task_dir.name,
+        title=title,
+        source_url=str(source_meta.get("url") or ""),
+        doc_token=str(source_meta.get("doc_token") or ""),
+        fetch_error=str(source_meta.get("fetch_error") or ""),
+    )
+    (task_dir / "prd-refined.md").write_text(refined)
+    on_log("pending_refine: true")
+    if source_meta.get("fetch_error"):
+        on_log(f"fetch_error: {source_meta.get('fetch_error')}")
+    on_log(f"status: {STATUS_INITIALIZED}")
+    task_meta["status"] = STATUS_INITIALIZED
+    task_meta["updated_at"] = datetime.now().astimezone().isoformat()
+    (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n")
+    return STATUS_INITIALIZED
 
 
 def refine_task_local(task_dir: Path, task_meta: dict[str, object], on_log: LogHandler) -> str:
@@ -186,6 +219,36 @@ def build_fallback_refined_content(title: str, source_content: str) -> str:
         "## 原始 PRD\n\n"
         f"{source_content or '当前未检测到 PRD 正文，请先补充 prd.source.md。'}\n"
     )
+
+
+def build_pending_refined_content(task_id: str, title: str, source_url: str, doc_token: str, fetch_error: str) -> str:
+    reason = fetch_error or "当前未成功拉取飞书文档正文。"
+    return (
+        "# PRD Refined\n\n"
+        "> 状态：待补充源内容\n"
+        f"> task_id: {task_id}\n"
+        f"> source: {source_url or 'unknown'}\n\n"
+        "## 说明\n\n"
+        "当前任务已创建，并已记录飞书文档来源，但暂未获得正文内容。\n\n"
+        "请将 PRD 正文补充到 `prd.source.md` 后，再重新执行 refine。\n\n"
+        "## 来源信息\n\n"
+        f"- 标题：{title}\n"
+        f"- 飞书链接：{source_url or 'unknown'}\n"
+        f"- doc token：{doc_token or 'unknown'}\n"
+        f"- 拉取失败原因：{reason}\n\n"
+        "## 待确认问题\n\n"
+        "- 需要补充 PRD 正文后，才能继续做结构化 refine。\n"
+    )
+
+
+def is_pending_lark_source(source_meta: dict[str, object], source_content: str) -> bool:
+    if str(source_meta.get("type") or "") != SOURCE_TYPE_LARK_DOC:
+        return False
+    if not source_content:
+        return True
+    if source_meta.get("fetch_error") and "尚未自动拉取该来源的正文内容" in source_content:
+        return True
+    return False
 
 
 def build_refine_prompt(title: str, source_content: str) -> str:

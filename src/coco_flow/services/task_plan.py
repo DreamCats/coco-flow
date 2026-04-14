@@ -145,6 +145,20 @@ class PlanTask:
 
 
 @dataclass
+class RepoScope:
+    repo_id: str
+    repo_path: str
+
+
+@dataclass
+class RepoResearch:
+    repo_id: str
+    repo_path: str
+    context: ContextSnapshot
+    finding: ResearchFinding
+
+
+@dataclass
 class PlanBuild:
     task_id: str
     title: str
@@ -152,6 +166,9 @@ class PlanBuild:
     source_markdown: str
     refined_markdown: str
     repo_lines: list[str]
+    repo_scopes: list[RepoScope]
+    repo_researches: list[RepoResearch]
+    repo_ids: set[str]
     repo_root: str | None
     context: ContextSnapshot
     sections: RefinedSections
@@ -288,7 +305,7 @@ def plan_task_native(
         return plan_task_local(task_dir, task_meta, on_log=on_log)
     validate_plan_outputs(build, ai_sections)
 
-    ai_files = parse_ai_candidate_files(ai_sections.candidate_files)
+    ai_files = parse_ai_candidate_files(ai_sections.candidate_files, build)
     if ai_files:
         build.finding.candidate_files = ai_files
         build.finding.candidate_dirs = summarize_dirs(ai_files)
@@ -316,10 +333,12 @@ def prepare_plan_build(task_dir: Path, task_meta: dict[str, object]) -> PlanBuil
     refined_markdown = read_text_if_exists(task_dir / "prd-refined.md")
     repos_meta = read_json_file(task_dir / "repos.json")
     repo_lines = describe_repos(repos_meta)
-    repo_root = resolve_primary_repo_root(repos_meta)
-    context = load_optional_context_snapshot(repo_root)
     sections = parse_refined_sections(refined_markdown)
-    finding = research_codebase(repo_root, title, sections, context)
+    repo_scopes = parse_repo_scopes(repos_meta)
+    repo_researches = build_repo_researches(repo_scopes, title, sections)
+    repo_root = repo_scopes[0].repo_path if repo_scopes else None
+    context = combine_context_snapshots(repo_researches)
+    finding = combine_research_findings(repo_researches, len(repo_scopes))
     assessment = score_complexity(sections, finding)
     return PlanBuild(
         task_id=task_id,
@@ -328,6 +347,9 @@ def prepare_plan_build(task_dir: Path, task_meta: dict[str, object]) -> PlanBuil
         source_markdown=source_markdown,
         refined_markdown=refined_markdown,
         repo_lines=repo_lines,
+        repo_scopes=repo_scopes,
+        repo_researches=repo_researches,
+        repo_ids={scope.repo_id for scope in repo_scopes},
         repo_root=repo_root,
         context=context,
         sections=sections,
@@ -337,6 +359,13 @@ def prepare_plan_build(task_dir: Path, task_meta: dict[str, object]) -> PlanBuil
 
 
 def log_plan_research(build: PlanBuild, on_log: LogHandler) -> None:
+    on_log(f"repo_count: {len(build.repo_scopes)}")
+    for repo in build.repo_researches:
+        on_log(
+            "repo_research: "
+            f"{repo.repo_id} matched={len(repo.finding.matched_terms)} "
+            f"files={len(repo.finding.candidate_files)} dirs={len(repo.finding.candidate_dirs)}"
+        )
     if build.context.missing_files:
         on_log(f"context_missing: {', '.join(build.context.missing_files)}")
     on_log(f"context_available: {build.context.available}")
@@ -401,6 +430,126 @@ def resolve_primary_repo_root(repos_meta: dict[str, object]) -> str | None:
     return path or None
 
 
+def parse_repo_scopes(repos_meta: dict[str, object]) -> list[RepoScope]:
+    repos = repos_meta.get("repos")
+    if not isinstance(repos, list):
+        return []
+    scopes: list[RepoScope] = []
+    for repo in repos:
+        if not isinstance(repo, dict):
+            continue
+        repo_id = str(repo.get("id") or "repo").strip() or "repo"
+        repo_path = str(repo.get("path") or "").strip()
+        if not repo_path:
+            continue
+        scopes.append(RepoScope(repo_id=repo_id, repo_path=repo_path))
+    return scopes
+
+
+def build_repo_researches(repo_scopes: list[RepoScope], title: str, sections: RefinedSections) -> list[RepoResearch]:
+    researches: list[RepoResearch] = []
+    for scope in repo_scopes:
+        context = load_optional_context_snapshot(scope.repo_path)
+        finding = research_codebase(scope.repo_path, title, sections, context)
+        researches.append(
+            RepoResearch(
+                repo_id=scope.repo_id,
+                repo_path=scope.repo_path,
+                context=context,
+                finding=finding,
+            )
+        )
+    return researches
+
+
+def combine_context_snapshots(repo_researches: list[RepoResearch]) -> ContextSnapshot:
+    if not repo_researches:
+        return ContextSnapshot(
+            available=False,
+            glossary_entries=[],
+            missing_files=["glossary.md", "architecture.md", "patterns.md"],
+        )
+
+    glossary_sections: list[str] = []
+    architecture_sections: list[str] = []
+    patterns_sections: list[str] = []
+    gotchas_sections: list[str] = []
+    glossary_entries: list[GlossaryEntry] = []
+    missing_files: list[str] = []
+    available = False
+
+    for repo in repo_researches:
+        context = repo.context
+        available = available or context.available
+        if context.glossary_excerpt:
+            glossary_sections.extend([f"### repo: {repo.repo_id}", context.glossary_excerpt])
+        if context.architecture_excerpt:
+            architecture_sections.extend([f"### repo: {repo.repo_id}", context.architecture_excerpt])
+        if context.patterns_excerpt:
+            patterns_sections.extend([f"### repo: {repo.repo_id}", context.patterns_excerpt])
+        if context.gotchas_excerpt:
+            gotchas_sections.extend([f"### repo: {repo.repo_id}", context.gotchas_excerpt])
+        glossary_entries.extend(context.glossary_entries or [])
+        for name in context.missing_files or []:
+            missing_files.append(f"{repo.repo_id}/{name}")
+
+    return ContextSnapshot(
+        available=available,
+        glossary_excerpt="\n".join(glossary_sections).strip(),
+        architecture_excerpt="\n".join(architecture_sections).strip(),
+        patterns_excerpt="\n".join(patterns_sections).strip(),
+        gotchas_excerpt="\n".join(gotchas_sections).strip(),
+        glossary_entries=dedupe_glossary_entries(glossary_entries),
+        missing_files=dedupe_and_sort(missing_files),
+    )
+
+
+def combine_research_findings(repo_researches: list[RepoResearch], repo_count: int) -> ResearchFinding:
+    matched_terms: list[GlossaryEntry] = []
+    unmatched_terms: list[str] = []
+    candidate_files: list[str] = []
+    candidate_dirs: list[str] = []
+    notes: list[str] = []
+
+    for repo in repo_researches:
+        matched_terms.extend(repo.finding.matched_terms)
+        unmatched_terms.extend(repo.finding.unmatched_terms)
+        qualified_files = [qualify_repo_path(repo.repo_id, file_path, repo_count) for file_path in repo.finding.candidate_files]
+        qualified_dirs = [qualify_repo_path(repo.repo_id, dir_path, repo_count) for dir_path in repo.finding.candidate_dirs]
+        candidate_files.extend(qualified_files)
+        candidate_dirs.extend(qualified_dirs)
+        notes.extend(f"[{repo.repo_id}] {note}" for note in repo.finding.notes)
+
+    return ResearchFinding(
+        matched_terms=dedupe_glossary_entries(matched_terms),
+        unmatched_terms=dedupe_terms(unmatched_terms)[:MAX_UNMATCHED_TERMS],
+        candidate_files=dedupe_and_sort(candidate_files)[: max(MAX_SEARCH_FILES, repo_count * 4 or MAX_SEARCH_FILES)],
+        candidate_dirs=dedupe_and_sort(candidate_dirs),
+        notes=notes,
+    )
+
+
+def qualify_repo_path(repo_id: str, path: str, repo_count: int) -> str:
+    normalized = path.strip().lstrip("./")
+    if not normalized:
+        return normalized
+    if repo_count <= 1:
+        return normalized
+    return f"{repo_id}/{normalized}"
+
+
+def dedupe_glossary_entries(entries: list[GlossaryEntry]) -> list[GlossaryEntry]:
+    seen: set[tuple[str, str, str]] = set()
+    result: list[GlossaryEntry] = []
+    for entry in entries:
+        key = (entry.business.lower(), entry.identifier.lower(), entry.module.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(entry)
+    return result
+
+
 def build_design(build: PlanBuild, ai: PlanAISections | None) -> str:
     repo_section = "\n".join(build.repo_lines) if build.repo_lines else "- current-repo"
     parts = [
@@ -438,8 +587,8 @@ def build_design(build: PlanBuild, ai: PlanAISections | None) -> str:
 
 
 def build_plan(build: PlanBuild, ai: PlanAISections | None) -> str:
-    tasks = build_plan_tasks(build.sections, build.finding, ai)
-    repo_groups = build_plan_repo_groups(build.finding.candidate_files)
+    tasks = build_plan_tasks(build.sections, build.finding, ai, build.repo_ids)
+    repo_groups = build_plan_repo_groups(build.finding.candidate_files, build.repo_ids)
     parts = [
         "# Plan\n\n",
         f"- task_id: {build.task_id}\n",
@@ -581,7 +730,7 @@ def validate_plan_outputs(build: PlanBuild, ai: PlanAISections) -> None:
             raise ValueError(f"AI plan 包含错误命令示例: {bad}")
 
 
-def parse_ai_candidate_files(raw: str) -> list[str]:
+def parse_ai_candidate_files(raw: str, build: PlanBuild) -> list[str]:
     files: list[str] = []
     for line in raw.splitlines():
         current = line.strip().removeprefix("- ").removeprefix("* ").strip()
@@ -595,8 +744,41 @@ def parse_ai_candidate_files(raw: str) -> list[str]:
             first = current.split(" ", 1)[0]
             if "." in first or "/" in first:
                 current = first
-        files.append(current)
+        normalized = normalize_ai_candidate_file(current, build)
+        if normalized:
+            files.append(normalized)
     return dedupe_and_sort(files)[:MAX_SEARCH_FILES]
+
+
+def normalize_ai_candidate_file(raw_path: str, build: PlanBuild) -> str:
+    current = raw_path.strip()
+    if not current:
+        return ""
+    candidate_absolute = ""
+    if Path(current).is_absolute():
+        candidate_absolute = str(Path(current).resolve(strict=False))
+    for scope in build.repo_scopes:
+        repo_prefix = str(Path(scope.repo_path).resolve(strict=False)) + os.sep
+        if candidate_absolute.startswith(repo_prefix):
+            relative = candidate_absolute[len(repo_prefix):].lstrip("/\\")
+            return qualify_repo_path(scope.repo_id, relative, len(build.repo_scopes))
+    normalized = current.lstrip("./")
+    if normalized in build.finding.candidate_files:
+        return normalized
+    repo_id, relative = split_repo_prefixed_path(normalized, build.repo_ids)
+    if repo_id and normalized in build.finding.candidate_files:
+        return normalized
+
+    matched = []
+    for candidate in build.finding.candidate_files:
+        _, candidate_relative = split_repo_prefixed_path(candidate, build.repo_ids)
+        if candidate_relative == relative or candidate_relative.endswith("/" + relative):
+            matched.append(candidate)
+    if len(matched) == 1:
+        return matched[0]
+    if len(matched) > 1 and len(build.repo_ids) > 1:
+        return ""
+    return normalized
 
 
 def normalize_ai_section(content: str) -> str:
@@ -1020,7 +1202,12 @@ def score_complexity(sections: RefinedSections, findings: ResearchFinding) -> Co
     return ComplexityAssessment(dimensions=dimensions, total=total, level=level, conclusion=conclusion)
 
 
-def build_plan_tasks(sections: RefinedSections, findings: ResearchFinding, ai: PlanAISections | None) -> list[PlanTask]:
+def build_plan_tasks(
+    sections: RefinedSections,
+    findings: ResearchFinding,
+    ai: PlanAISections | None,
+    repo_ids: set[str] | None = None,
+) -> list[PlanTask]:
     if not findings.candidate_files:
         return []
 
@@ -1028,7 +1215,12 @@ def build_plan_tasks(sections: RefinedSections, findings: ResearchFinding, ai: P
     dir_files: dict[str, list[str]] = {}
     dir_order: list[str] = []
     for file_path in findings.candidate_files:
-        directory = str(Path(file_path).parent)
+        _, relative_path = split_repo_prefixed_path(file_path, repo_ids or set())
+        directory = str(Path(relative_path).parent)
+        if repo_ids:
+            repo_id = infer_repo_id_from_file(file_path, repo_ids)
+            if repo_id not in {"", "current-repo"}:
+                directory = f"{repo_id}/{directory}" if directory != "." else repo_id
         if directory not in dir_files:
             dir_order.append(directory)
             dir_files[directory] = []
@@ -1053,11 +1245,11 @@ def build_plan_tasks(sections: RefinedSections, findings: ResearchFinding, ai: P
     return tasks
 
 
-def build_plan_repo_groups(files: list[str]) -> list[tuple[str, list[str]]]:
+def build_plan_repo_groups(files: list[str], repo_ids: set[str]) -> list[tuple[str, list[str]]]:
     order: list[str] = []
     groups: dict[str, list[str]] = {}
     for file_path in files:
-        repo_id = infer_repo_id_from_file(file_path)
+        repo_id = infer_repo_id_from_file(file_path, repo_ids)
         if repo_id not in groups:
             groups[repo_id] = []
             order.append(repo_id)
@@ -1065,8 +1257,21 @@ def build_plan_repo_groups(files: list[str]) -> list[tuple[str, list[str]]]:
     return [(repo_id, groups[repo_id]) for repo_id in order]
 
 
-def infer_repo_id_from_file(file_path: str) -> str:
-    first = Path(file_path).parts[0] if Path(file_path).parts else "current-repo"
+def split_repo_prefixed_path(file_path: str, repo_ids: set[str]) -> tuple[str, str]:
+    normalized = file_path.strip().lstrip("./")
+    first = Path(normalized).parts[0] if Path(normalized).parts else ""
+    if first and first in repo_ids:
+        rest_parts = Path(normalized).parts[1:]
+        relative_path = str(Path(*rest_parts)) if rest_parts else ""
+        return first, relative_path or normalized
+    return "", normalized
+
+
+def infer_repo_id_from_file(file_path: str, repo_ids: set[str]) -> str:
+    prefixed_repo, normalized = split_repo_prefixed_path(file_path, repo_ids)
+    if prefixed_repo:
+        return prefixed_repo
+    first = Path(normalized).parts[0] if Path(normalized).parts else "current-repo"
     if first in {"sdk", "client", "clients"}:
         return "shared-sdk"
     if first in {"web", "frontend", "ui"}:

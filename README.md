@@ -15,13 +15,13 @@ The first version focuses on a minimal but usable scaffold:
 
 - `coco-flow tasks list` to inspect task summaries
 - `coco-flow tasks roots` to inspect the active task root
-- `coco-flow tasks refine <task_id>` to generate `prd-refined.md`
+- `coco-flow tasks refine <task_id>` to generate `prd-refined.md` or a pending refine placeholder for incomplete Lark sources
 - `coco-flow tasks plan <task_id>` to generate `design.md` and `plan.md`
 - `coco-flow tasks code <task_id>` to run the code stage
 - `coco-flow tasks reset <task_id>` to roll the task back to planned state
 - `coco-flow tasks archive <task_id>` to archive coded tasks
 - `coco-flow api serve` to run a local FastAPI service
-- `POST /api/tasks` to create initialized tasks in the new `coco-flow` task root
+- `POST /api/tasks` to create initialized tasks from text, local files, or Lark docs in the new `coco-flow` task root
 - `POST /api/tasks/{task_id}/refine` to move initialized tasks into refined state
 - `POST /api/tasks/{task_id}/plan` to move refined tasks into planned state
 - `POST /api/tasks/{task_id}/code` to start the code stage asynchronously
@@ -102,8 +102,9 @@ export COCO_FLOW_CODE_EXECUTOR=local
 Behavior notes:
 
 - `refine` / `plan`: default to native; if native execution fails, `coco-flow` falls back to local template generation
+- `refine` accepts plain text, local file paths, and Lark doc links; when a Lark doc cannot be fetched yet, it creates a pending refine placeholder instead of failing task creation
 - `code`: supports `native` and `local`
-- `code=native` runs `coco --yolo` directly inside the prepared worktree and records commit/code-result artifacts back into the task
+- `code=native` runs through `coco acp serve`, verifies the changed scope, retries once or twice on build failures, and records commit/code-result artifacts back into the task
 
 ## API
 
@@ -142,6 +143,6 @@ web/
 
 ## Next Steps
 
-- make `code` retry logic closer to `coco-ext` when build verification fails
-- continue aligning `refine` input sources and `plan` multi-repo research with `coco-ext`
+- continue aligning `plan` AI candidate-file normalization and repo grouping details with `coco-ext`
+- harden the pending Lark refine flow and surface clearer recovery guidance in the UI
 - expand automated tests for background task execution and multi-repo flows
