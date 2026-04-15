@@ -670,8 +670,8 @@ export function TaskDetailPage() {
     <>
       <div className="space-y-4 lg:h-full lg:overflow-y-auto lg:pr-1">
       <section className="overflow-hidden rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] shadow-[0_0_0_1px_rgba(240,238,230,0.92),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
-        <div className="border-b border-[#e8e6dc] px-5 py-5 dark:border-[#30302e]">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="border-b border-[#e8e6dc] px-5 py-4 dark:border-[#30302e]">
+          <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={task.status} />
             <span className="rounded-full border border-[#e8e6dc] px-3 py-1 text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]">
               {task.sourceType}
@@ -679,11 +679,6 @@ export function TaskDetailPage() {
             <span className="rounded-full border border-[#e8e6dc] px-3 py-1 text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]">
               {task.complexity}
             </span>
-          </div>
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Task Detail</div>
-            <h3 className="mt-2 text-[38px] leading-[1.12] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{task.title}</h3>
-            <p className="mt-3 max-w-3xl text-[15px] leading-7 text-[#5e5d59] dark:text-[#b0aea5]">{taskStatusSummary(currentTask)}</p>
           </div>
         </div>
         <div className="px-5 py-5">
@@ -838,33 +833,6 @@ function hasActionableArtifact(content?: string) {
     return false
   }
   return !content.includes("当前没有") && !content.includes("当前为空")
-}
-
-function taskStatusSummary(task: TaskRecord) {
-  const codedCount = task.repos.filter((repo) => repo.status === 'coded' || repo.status === 'archived').length
-  const failedCount = task.repos.filter((repo) => repo.status === 'failed').length
-  const runningCount = task.repos.filter((repo) => repo.status === 'coding').length
-
-  switch (task.status) {
-    case 'planned':
-      return task.repos.length > 1
-        ? '方案已经准备好。你可以一键推进剩余仓库，或者在下方按仓库逐个处理。'
-        : '方案已经准备好。下一步最适合直接开始实现。'
-    case 'planning':
-      return '系统正在调研代码并生成方案，完成后会自动进入可实现状态。'
-    case 'coding':
-      return runningCount > 0 ? `${runningCount} 个仓库正在执行实现，当前更适合查看日志和等待结果。` : '系统正在后台执行实现。'
-    case 'partially_coded':
-      return `${codedCount} 个仓库已经完成，仍有 ${Math.max(task.repos.length - codedCount, 0)} 个仓库待继续推进。`
-    case 'coded':
-      return '所有关联仓库都已产出结果。现在更适合集中查看结果、Diff，并决定是否归档。'
-    case 'failed':
-      return failedCount > 0 ? `${failedCount} 个仓库在推进中失败。建议先查看日志，再决定重试还是回退。` : '任务推进中断。建议先查看日志，再决定如何继续。'
-    case 'refined':
-      return '需求已经整理完成。下一步最值得做的是生成实施方案。'
-    default:
-      return '在这里集中查看任务进度、实施方案、实现结果和下一步动作。'
-  }
 }
 
 function hasRepoArtifactData(repo: TaskRecord['repos'][number], artifact: TaskArtifactName) {
