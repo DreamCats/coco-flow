@@ -50,30 +50,6 @@ function repoStatusLabel(status: RepoResult['status']) {
   }
 }
 
-export function MetricCard({
-  label,
-  tone,
-  value,
-}: {
-  label: string
-  value: string
-  tone: 'emerald' | 'amber' | 'sky'
-}) {
-  const toneClass =
-    tone === 'emerald'
-      ? 'border-emerald-200 bg-[linear-gradient(180deg,_rgba(16,185,129,0.12),_rgba(236,253,245,0.9))] text-emerald-800 dark:border-emerald-300/20 dark:bg-[linear-gradient(180deg,_rgba(16,185,129,0.18),_rgba(16,24,20,0.92))] dark:text-emerald-100'
-      : tone === 'amber'
-        ? 'border-amber-200 bg-[linear-gradient(180deg,_rgba(245,158,11,0.12),_rgba(255,251,235,0.92))] text-amber-800 dark:border-amber-300/20 dark:bg-[linear-gradient(180deg,_rgba(245,158,11,0.18),_rgba(24,19,12,0.92))] dark:text-amber-100'
-        : 'border-sky-200 bg-[linear-gradient(180deg,_rgba(14,165,233,0.12),_rgba(240,249,255,0.92))] text-sky-800 dark:border-sky-300/20 dark:bg-[linear-gradient(180deg,_rgba(14,165,233,0.18),_rgba(11,18,24,0.92))] dark:text-sky-100'
-
-  return (
-    <div className={`rounded-[22px] border px-4 py-3 shadow-[0_10px_25px_rgba(15,23,42,0.04)] ${toneClass}`}>
-      <div className="text-[11px] uppercase tracking-[0.2em] opacity-70">{label}</div>
-      <div className="mt-2 text-[28px] font-semibold tracking-[-0.04em]">{value}</div>
-    </div>
-  )
-}
-
 export function TopNavItem({
   description,
   isActive,
@@ -87,18 +63,15 @@ export function TopNavItem({
 }) {
   return (
     <Link
-      className={`block min-w-[260px] rounded-[22px] border px-4 py-4 transition ${
+      className={`block min-w-[220px] rounded-[18px] border px-4 py-3 transition ${
         isActive
-          ? 'border-stone-900 bg-stone-900 text-white shadow-[0_16px_30px_rgba(15,23,42,0.14)] dark:border-stone-100 dark:bg-stone-100 dark:text-stone-950'
-          : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50 dark:border-white/10 dark:bg-white/6 dark:text-stone-300 dark:hover:border-white/20 dark:hover:bg-white/10'
+          ? 'border-[#e8e6dc] bg-[#ffffff] text-[#141413] shadow-[0_0_0_1px_rgba(240,238,230,0.95),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#faf9f5] dark:text-[#141413] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]'
+          : 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.92)] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#2a2927] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)] dark:hover:text-[#faf9f5]'
       }`}
       to={to}
     >
-      <div className={`text-[11px] font-semibold uppercase tracking-[0.22em] ${isActive ? 'text-stone-400 dark:text-stone-500' : 'text-stone-500 dark:text-stone-400'}`}>
-        导航
-      </div>
-      <div className="mt-2 text-lg font-semibold tracking-[-0.03em]">{title}</div>
-      <div className={`mt-2 text-xs leading-5 ${isActive ? 'text-stone-300 dark:text-stone-600' : 'text-stone-500 dark:text-stone-400'}`}>{description}</div>
+      <div className="text-[18px] leading-[1.2] font-medium tracking-normal [font-family:Georgia,serif]">{title}</div>
+      <div className={`mt-1.5 text-[13px] leading-5 ${isActive ? 'text-[#5e5d59] dark:text-[#5e5d59]' : 'text-[#87867f] dark:text-[#b0aea5]'}`}>{description}</div>
     </Link>
   )
 }
@@ -146,38 +119,11 @@ export function RepoStatusBadge({ status }: { status: RepoResult['status'] }) {
   return <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${tone}`}>{repoStatusLabel(status)}</span>
 }
 
-export function TimelineCard({
-  detail,
-  label,
-  state,
-}: {
-  label: string
-  detail: string
-  state: 'done' | 'current' | 'pending'
-}) {
-  const tone =
-    state === 'done'
-      ? 'border-emerald-300/20 bg-emerald-400/10'
-      : state === 'current'
-        ? 'border-amber-300/20 bg-amber-400/10'
-        : 'border-white/8 bg-white/4'
-
-  return (
-    <div className={`rounded-[18px] border p-4 ${tone}`}>
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-white">{label}</div>
-        <div className="text-[11px] uppercase tracking-[0.2em] text-stone-400">{state === 'done' ? '已完成' : state === 'current' ? '进行中' : '待开始'}</div>
-      </div>
-      <div className="mt-3 text-sm leading-6 text-stone-300">{detail}</div>
-    </div>
-  )
-}
-
 export function CompactField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[18px] border border-white/8 bg-white/4 px-3 py-3">
-      <div className="text-[11px] uppercase tracking-[0.2em] text-stone-400">{label}</div>
-      <div className="mt-2 text-sm text-white">{value}</div>
+    <div className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+      <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">{label}</div>
+      <div className="mt-2 text-sm text-[#141413] dark:text-[#faf9f5]">{value}</div>
     </div>
   )
 }
@@ -201,7 +147,7 @@ export function MiniMeta({ label, value }: { label: string; value: string }) {
 
 export function PanelMessage({ children }: { children: ReactNode }) {
   return (
-    <section className="flex min-h-[720px] items-center justify-center rounded-[24px] border border-dashed border-stone-300 bg-stone-50 p-8 text-center text-stone-500 dark:border-white/15 dark:bg-white/5 dark:text-stone-400">
+    <section className="flex min-h-[720px] items-center justify-center rounded-[24px] border border-dashed border-[#d1cfc5] bg-[#f5f4ed] p-8 text-center text-[#87867f] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5]">
       {children}
     </section>
   )

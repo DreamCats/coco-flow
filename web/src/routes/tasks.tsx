@@ -17,25 +17,17 @@ import {
   type TaskRecord,
   type TaskStatus,
 } from '../api'
-import { ActionPanel } from '../components/action-panel'
 import { ArtifactEditorDrawer } from '../components/artifact-editor-drawer'
 import { RepoPicker } from '../components/repo-picker'
-import { RepoDeliveryBoard } from '../components/repo-delivery-board'
 import { TaskPrimaryAction } from '../components/task-primary-action'
-import { TaskWorkbench, type WorkbenchPane } from '../components/task-workbench'
-import {
-  CompactField,
-  KeyValue,
-  PanelMessage,
-  RepoStatusBadge,
-  StatusBadge,
-  TimelineCard,
-} from '../components/ui-primitives'
+import { RepoContextPanel, TaskWorkbench, type WorkbenchPane } from '../components/task-workbench'
+import { PanelMessage, StatusBadge } from '../components/ui-primitives'
 import { useAppData } from '../hooks/use-app-data'
 
 export function TasksLayout() {
   const { tasks, loading, error, reload } = useAppData()
   const navigate = useNavigate()
+  const location = useLocation()
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all')
   const [repoFilter, setRepoFilter] = useState('all')
@@ -45,7 +37,6 @@ export function TasksLayout() {
   const [createInput, setCreateInput] = useState('')
   const [createTitle, setCreateTitle] = useState('')
   const [selectedRepos, setSelectedRepos] = useState<RepoCandidate[]>([])
-  const createDialogRef = useRef<HTMLDivElement | null>(null)
 
   const repoOptions = useMemo(() => {
     const set = new Set<string>()
@@ -96,25 +87,6 @@ export function TasksLayout() {
     }
   }, [showCreateForm])
 
-  useEffect(() => {
-    if (!showCreateForm) {
-      return
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      const block = window.matchMedia('(min-width: 640px)').matches ? 'center' : 'end'
-      createDialogRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block,
-        inline: 'nearest',
-      })
-    })
-
-    return () => {
-      window.cancelAnimationFrame(frame)
-    }
-  }, [showCreateForm])
-
   async function submitCreateTask() {
     try {
       setCreating(true)
@@ -143,28 +115,50 @@ export function TasksLayout() {
     setSelectedRepos([])
   }
 
+  async function handleDeleteTaskItem(task: TaskListItem) {
+    const confirmed = window.confirm(`确认删除 task ${task.id}？仅允许删除未进入 code 的 task。`)
+    if (!confirmed) {
+      return
+    }
+    try {
+      await deleteTask(task.id)
+      await reload()
+      if (location.pathname === `/tasks/${task.id}`) {
+        void navigate({ to: '/tasks' })
+      }
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : '删除 task 失败')
+    }
+  }
+
   return (
     <>
-      <div className="grid gap-4 lg:h-[calc(100vh-235px)] lg:min-h-0 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <section className="rounded-[24px] border border-stone-200 bg-stone-50/80 p-2.5 dark:border-white/10 dark:bg-white/5 lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden">
-          <div className="mb-2.5 rounded-[20px] border border-stone-200/80 bg-white/88 p-2.5 shadow-[0_10px_30px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-white/[0.04]">
+      <div className="grid gap-4 lg:h-full lg:min-h-0 lg:grid-cols-[360px_minmax(0,1fr)]">
+        <section className="rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-2.5 shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.94)] lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden">
+          <div className="mb-2.5 rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-500 dark:text-stone-400">任务推进</div>
+                <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">任务推进</div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <h2 className="text-[24px] font-semibold tracking-[-0.05em] text-stone-950 dark:text-stone-50">任务队列</h2>
-                  <span className="text-xs text-stone-500 dark:text-stone-400">
+                  <h2 className="text-[28px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">任务队列</h2>
+                  <span className="text-xs text-[#87867f] dark:text-[#b0aea5]">
                     最近更新 {tasks[0]?.updatedAt ?? '-'}
                   </span>
                 </div>
               </div>
               <div className="shrink-0">
                 <button
-                  className="rounded-2xl bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-stone-800"
+                  aria-label={showCreateForm ? '收起新建任务入口' : '新建任务'}
+                  title={showCreateForm ? '收起新建任务入口' : '新建任务'}
+                  className={`inline-flex h-10 w-10 items-center justify-center rounded-[12px] border transition ${
+                    showCreateForm
+                      ? 'border-[#d1cfc5] bg-[#e8e6dc] text-[#4d4c48] hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]'
+                      : 'border-[#c96442] bg-[#c96442] text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] hover:bg-[#d97757]'
+                  }`}
                   onClick={() => setShowCreateForm((current) => !current)}
                   type="button"
                 >
-                  {showCreateForm ? '收起入口' : '新建任务'}
+                  {showCreateForm ? <CloseIcon /> : <PlusIcon />}
                 </button>
               </div>
             </div>
@@ -183,7 +177,7 @@ export function TasksLayout() {
 
             <div className="mt-2.5 space-y-2">
               <input
-                className="w-full rounded-2xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 focus:border-stone-400 dark:border-white/10 dark:bg-stone-950/70 dark:text-stone-100 dark:placeholder:text-stone-500 dark:focus:border-white/20"
+                className="w-full rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-2 text-sm text-[#141413] outline-none transition placeholder:text-[#87867f] focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#faf9f5] dark:placeholder:text-[#87867f] dark:focus:border-[#3898ec]"
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="搜索标题、仓库或任务编号"
                 type="text"
@@ -191,7 +185,7 @@ export function TasksLayout() {
               />
               <div className="grid grid-cols-2 gap-2">
                 <select
-                  className="rounded-2xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700 outline-none focus:border-stone-400 dark:border-white/10 dark:bg-stone-950/70 dark:text-stone-200 dark:focus:border-white/20"
+                  className="rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-2 text-sm text-[#5e5d59] outline-none focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:focus:border-[#3898ec]"
                   onChange={(event) => setStatusFilter(event.target.value as 'all' | TaskStatus)}
                   value={statusFilter}
                 >
@@ -205,7 +199,7 @@ export function TasksLayout() {
                   <option value="failed">处理中断</option>
                 </select>
                 <select
-                  className="rounded-2xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700 outline-none focus:border-stone-400 dark:border-white/10 dark:bg-stone-950/70 dark:text-stone-200 dark:focus:border-white/20"
+                  className="rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-2 text-sm text-[#5e5d59] outline-none focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:focus:border-[#3898ec]"
                   onChange={(event) => setRepoFilter(event.target.value)}
                   value={repoFilter}
                 >
@@ -236,7 +230,12 @@ export function TasksLayout() {
           ) : (
             <div className="space-y-1.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               {filteredTasks.map((task) => (
-                <TaskListItemCard key={task.id} task={task} />
+                <TaskListItemCard
+                  canDelete={canDeleteTaskStatus(task.status)}
+                  key={task.id}
+                  onDelete={() => void handleDeleteTaskItem(task)}
+                  task={task}
+                />
               ))}
             </div>
           )}
@@ -249,24 +248,25 @@ export function TasksLayout() {
 
       {showCreateForm ? (
         <div
-          className="absolute inset-4 z-50 flex items-end rounded-[28px] bg-stone-950/30 backdrop-blur-sm transition dark:bg-black/55 sm:items-center sm:justify-center lg:inset-5"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[rgba(20,20,19,0.22)] p-4 backdrop-blur-sm transition dark:bg-[rgba(20,20,19,0.58)] sm:p-6 lg:p-8"
           onClick={closeCreateForm}
         >
           <div
-            className="mx-4 my-4 flex max-h-[calc(100%-32px)] w-full flex-col overflow-hidden rounded-[28px] border border-stone-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.18)] transition duration-200 ease-out dark:border-white/10 dark:bg-[#14171c] dark:shadow-[0_30px_80px_rgba(0,0,0,0.35)] sm:mx-6 sm:my-6 sm:max-w-[900px] sm:max-h-[calc(100%-48px)]"
+            className="mx-auto my-0 flex min-h-fit w-full max-w-[960px] flex-col overflow-hidden rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] shadow-[0_0_0_1px_rgba(240,238,230,0.94),0_12px_40px_rgba(20,20,19,0.12)] transition duration-200 ease-out dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98),0_12px_40px_rgba(0,0,0,0.28)] sm:my-8 sm:max-h-[calc(100dvh-48px)]"
             onClick={(event) => event.stopPropagation()}
-            ref={createDialogRef}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-stone-200 px-5 py-5 dark:border-white/10 md:px-6">
+            <div className="flex items-start justify-between gap-4 border-b border-[#e8e6dc] px-5 py-5 dark:border-[#30302e] md:px-6">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">新建任务</div>
-                <h3 className="mt-2 text-[30px] font-semibold tracking-[-0.05em] text-stone-950 dark:text-stone-50">新建需求任务</h3>
-                <p className="mt-2 text-sm leading-6 text-stone-500 dark:text-stone-400">
+                <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">新建任务</div>
+                <h3 className="mt-2 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">
+                  新建需求任务
+                </h3>
+                <p className="mt-2 text-[15px] leading-7 text-[#5e5d59] dark:text-[#b0aea5]">
                   先确认需求内容和涉及仓库，系统会在后台整理需求，生成可继续推进的任务。
                 </p>
               </div>
               <button
-                className="rounded-full border border-stone-200 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-stone-500 transition hover:border-stone-300 hover:text-stone-900 dark:border-white/10 dark:text-stone-400 dark:hover:border-white/20 dark:hover:text-stone-100"
+                className="rounded-[12px] border border-[#d1cfc5] bg-[#e8e6dc] px-3 py-2 text-xs text-[#4d4c48] transition hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]"
                 onClick={closeCreateForm}
                 type="button"
               >
@@ -276,27 +276,27 @@ export function TasksLayout() {
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 md:px-6">
               <div className="space-y-4">
-              <textarea
-                className="min-h-32 w-full rounded-[22px] border border-stone-200 px-4 py-4 text-sm text-stone-900 outline-none focus:border-stone-400 dark:border-white/10 dark:bg-stone-950/70 dark:text-stone-100 dark:placeholder:text-stone-500 dark:focus:border-white/20"
-                onChange={(event) => setCreateInput(event.target.value)}
-                placeholder="输入需求描述、PRD 文本或飞书链接"
-                value={createInput}
-              />
-              <input
-                className="w-full rounded-[22px] border border-stone-200 px-4 py-4 text-sm text-stone-900 outline-none focus:border-stone-400 dark:border-white/10 dark:bg-stone-950/70 dark:text-stone-100 dark:placeholder:text-stone-500 dark:focus:border-white/20"
-                onChange={(event) => setCreateTitle(event.target.value)}
-                placeholder="可选标题"
-                type="text"
-                value={createTitle}
-              />
-              <RepoPicker onChange={setSelectedRepos} selectedRepos={selectedRepos} />
-              {createError ? <div className="text-sm text-rose-600">{createError}</div> : null}
+                <textarea
+                  className="min-h-32 w-full rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-4 text-sm text-[#141413] outline-none shadow-[0_0_0_1px_rgba(240,238,230,0.88)] transition placeholder:text-[#87867f] focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)] dark:placeholder:text-[#87867f] dark:focus:border-[#3898ec]"
+                  onChange={(event) => setCreateInput(event.target.value)}
+                  placeholder="输入需求描述、PRD 文本或飞书链接"
+                  value={createInput}
+                />
+                <input
+                  className="w-full rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-4 text-sm text-[#141413] outline-none shadow-[0_0_0_1px_rgba(240,238,230,0.88)] transition placeholder:text-[#87867f] focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)] dark:placeholder:text-[#87867f] dark:focus:border-[#3898ec]"
+                  onChange={(event) => setCreateTitle(event.target.value)}
+                  placeholder="可选标题"
+                  type="text"
+                  value={createTitle}
+                />
+                <RepoPicker onChange={setSelectedRepos} selectedRepos={selectedRepos} />
+                {createError ? <div className="text-sm text-[#b53333]">{createError}</div> : null}
               </div>
             </div>
-            <div className="border-t border-stone-200 px-5 py-4 dark:border-white/10 md:px-6">
+            <div className="border-t border-[#e8e6dc] px-5 py-4 dark:border-[#30302e] md:px-6">
               <div className="flex flex-wrap gap-2">
                 <button
-                  className="rounded-2xl bg-stone-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-[12px] border border-[#c96442] bg-[#c96442] px-5 py-3 text-sm text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] transition hover:bg-[#d97757] disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={creating || !createInput.trim() || selectedRepos.length === 0}
                   onClick={() => void submitCreateTask()}
                   type="button"
@@ -304,7 +304,7 @@ export function TasksLayout() {
                   {creating ? '创建中...' : '创建任务'}
                 </button>
                 <button
-                  className="rounded-2xl border border-stone-200 px-5 py-3 text-sm text-stone-700 transition hover:border-stone-300 hover:bg-stone-50 dark:border-white/10 dark:text-stone-300 dark:hover:border-white/20 dark:hover:bg-white/10"
+                  className="rounded-[12px] border border-[#d1cfc5] bg-[#e8e6dc] px-5 py-3 text-sm text-[#4d4c48] transition hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]"
                   onClick={closeCreateForm}
                   type="button"
                 >
@@ -334,7 +334,6 @@ export function TasksIndexPage() {
 }
 
 export function TaskDetailPage() {
-  const navigate = useNavigate()
   const { reload } = useAppData()
   const { taskId } = useParams({ from: '/tasks/$taskId' })
   const [task, setTask] = useState<TaskRecord | null>(null)
@@ -493,8 +492,6 @@ export function TaskDetailPage() {
     return <PanelMessage>未找到对应 task。</PanelMessage>
   }
   const hasGeneratedPlan = hasActionableArtifact(task.artifacts['design.md']) && hasActionableArtifact(task.artifacts['plan.md'])
-  const deletableStatuses = new Set<TaskStatus>(['initialized', 'refined', 'planned', 'failed'])
-  const canDelete = deletableStatuses.has(task.status)
   const canStartPlan = task.status === 'refined' || task.status === 'planned' || task.status === 'failed'
   const singleRepo = task.repos.length === 1 ? task.repos[0] : null
   const canStartCode = singleRepo ? canStartCodeForRepo(singleRepo, hasGeneratedPlan) : false
@@ -510,20 +507,6 @@ export function TaskDetailPage() {
   const canEditArtifact = canEditTaskArtifact(task.status, artifact)
   const editorDirty = editorDraft !== editorInitial
   const editorCanSave = editorDraft.trim() !== '' && editorDirty && !editorSaving
-
-  async function handleDeleteTask() {
-    const confirmed = window.confirm(`确认删除 task ${currentTask.id}？仅允许删除未进入 code 的 task。`)
-    if (!confirmed) {
-      return
-    }
-    try {
-      await deleteTask(currentTask.id)
-      await reload()
-      void navigate({ to: '/tasks' })
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : '删除 task 失败')
-    }
-  }
 
   async function handleStartPlan() {
     try {
@@ -686,29 +669,25 @@ export function TaskDetailPage() {
   return (
     <>
       <div className="space-y-4 lg:h-full lg:overflow-y-auto lg:pr-1">
-      <section className="overflow-hidden rounded-[24px] border border-stone-200 bg-[#111317] text-white shadow-[0_30px_80px_rgba(15,23,42,0.18)]">
-        <div className="border-b border-white/8 bg-[linear-gradient(135deg,_rgba(16,185,129,0.18),_transparent_38%),linear-gradient(180deg,_rgba(255,255,255,0.04),_rgba(255,255,255,0))] px-5 py-5">
+      <section className="overflow-hidden rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] shadow-[0_0_0_1px_rgba(240,238,230,0.92),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+        <div className="border-b border-[#e8e6dc] px-5 py-5 dark:border-[#30302e]">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <StatusBadge status={task.status} />
-            <span className="rounded-full border border-white/12 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-300">
+            <span className="rounded-full border border-[#e8e6dc] px-3 py-1 text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]">
               {task.sourceType}
             </span>
-            <span className="rounded-full border border-white/12 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-300">
+            <span className="rounded-full border border-[#e8e6dc] px-3 py-1 text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]">
               {task.complexity}
             </span>
           </div>
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.24em] text-stone-400">Task Detail</div>
-              <h3 className="mt-2 text-[34px] font-semibold tracking-[-0.05em] text-white">{task.title}</h3>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-stone-300">{taskStatusSummary(currentTask)}</p>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <CompactField label="任务编号" value={task.id} />
-                <CompactField label="最近更新" value={task.updatedAt} />
-                <CompactField label="负责人" value={task.owner} />
-                <CompactField label="涉及仓库" value={`${task.repos.length}`} />
-              </div>
-            </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Task Detail</div>
+            <h3 className="mt-2 text-[38px] leading-[1.12] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{task.title}</h3>
+            <p className="mt-3 max-w-3xl text-[15px] leading-7 text-[#5e5d59] dark:text-[#b0aea5]">{taskStatusSummary(currentTask)}</p>
+          </div>
+        </div>
+        <div className="px-5 py-5">
+          <div className="grid gap-5 lg:items-start lg:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
             <TaskPrimaryAction
               actionBusy={actionBusy}
               actionError={actionError}
@@ -734,124 +713,108 @@ export function TaskDetailPage() {
               resetting={Boolean(resettingRepo)}
               task={task}
             />
+            <RepoContextPanel
+              actionBusy={actionBusy}
+              archivingRepo={archivingRepo}
+              codeStartingRepo={codeStartingRepo}
+              hasGeneratedPlan={hasGeneratedPlan}
+              onArchive={async (repoId) => {
+                const confirmed = window.confirm('归档后会清理这次实现产生的分支和 worktree，但会保留结果记录。确认继续吗？')
+                if (!confirmed) {
+                  return
+                }
+                try {
+                  setArchivingRepo(repoId)
+                  setActionError('')
+                  const result = await archiveCode(currentTask.id, repoId)
+                  setTask({
+                    ...currentTask,
+                    status: result.status as TaskStatus,
+                    nextAction: `仓库 ${repoId} 已归档。`,
+                  })
+                  await reload()
+                } catch (err) {
+                  setActionError(err instanceof Error ? err.message : '归档失败')
+                  setArchivingRepo(null)
+                }
+              }}
+              onReset={async (repoId) => {
+                const confirmed = window.confirm('回退后会删除这次生成的分支、worktree、diff 和结果记录。确认继续吗？')
+                if (!confirmed) {
+                  return
+                }
+                try {
+                  setResettingRepo(repoId)
+                  setActionError('')
+                  const result = await resetCode(currentTask.id, repoId)
+                  setTask({
+                    ...currentTask,
+                    status: result.status as TaskStatus,
+                    nextAction: `仓库 ${repoId} 的实现结果已回退。`,
+                  })
+                  setArtifact('plan.md')
+                  setArtifactRepo('')
+                  await reload()
+                } catch (err) {
+                  setActionError(err instanceof Error ? err.message : '回退实现失败')
+                  setResettingRepo(null)
+                }
+              }}
+              onReviewDiff={(repoId) => {
+                handleRepoContextChange(repoId)
+                focusWorkbench('diff')
+              }}
+              onReviewResult={(repoId) => {
+                setArtifact('code-result.json')
+                handleRepoContextChange(repoId)
+                focusWorkbench('result')
+              }}
+              onSelectRepo={handleRepoContextChange}
+              onStartCode={async (repoId) => {
+                try {
+                  setCodeStartingRepo(repoId)
+                  setActionError('')
+                  const result = await startCode(currentTask.id, repoId)
+                  setTask({
+                    ...currentTask,
+                    status: result.status as TaskStatus,
+                    nextAction: `仓库 ${repoId} 正在生成实现，请稍候刷新任务详情。`,
+                  })
+                  setArtifact('code.log')
+                  handleRepoContextChange(repoId)
+                  await reload()
+                } catch (err) {
+                  setActionError(err instanceof Error ? err.message : '启动实现失败')
+                  setCodeStartingRepo(null)
+                }
+              }}
+              resettingRepo={resettingRepo}
+              selectedRepo={selectedDiffRepo || artifactRepo || task.repos[0]?.id || ''}
+              task={task}
+            />
           </div>
         </div>
       </section>
 
-      <section className="rounded-[24px] border border-stone-200 bg-[#15181d] p-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.14)]">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-stone-400">推进阶段</div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {task.timeline.map((step) => (
-            <TimelineCard key={step.label} detail={step.detail} label={step.label} state={step.state} />
-          ))}
-        </div>
-      </section>
-
-      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div ref={workbenchRef}>
-          <TaskWorkbench
-            artifact={artifact}
-            artifactContent={artifactContent}
-            artifactRepo={artifactRepo}
-            artifactSaving={editorSaving}
-            canEditArtifact={canEditArtifact}
-            focusToken={workbenchFocusToken}
-            forcedPane={workbenchForcedPane}
-            lastRefreshedAt={lastRefreshedAt}
-            onArtifactChange={setArtifact}
-            onArtifactRepoChange={setArtifactRepo}
-            onEditArtifact={openArtifactEditor}
-            onPaneChange={setWorkbenchForcedPane}
-            onSelectDiffRepo={handleRepoContextChange}
-            polling={polling}
-            selectedDiffRepo={selectedDiffRepo}
-            task={task}
-          />
-        </div>
-
-        <aside className="space-y-4">
-          <RepoDeliveryBoard
-            actionBusy={actionBusy}
-            archivingRepo={archivingRepo}
-            codeStartingRepo={codeStartingRepo}
-            hasGeneratedPlan={hasGeneratedPlan}
-            polling={polling}
-            onArchive={async (repoId) => {
-              const confirmed = window.confirm('归档后会清理这次实现产生的分支和 worktree，但会保留结果记录。确认继续吗？')
-              if (!confirmed) {
-                return
-              }
-              try {
-                setArchivingRepo(repoId)
-                setActionError('')
-                const result = await archiveCode(currentTask.id, repoId)
-                setTask({
-                  ...currentTask,
-                  status: result.status as TaskStatus,
-                  nextAction: `仓库 ${repoId} 已归档。`,
-                })
-                await reload()
-              } catch (err) {
-                setActionError(err instanceof Error ? err.message : '归档失败')
-                setArchivingRepo(null)
-              }
-            }}
-            onReviewDiff={(repoId) => {
-              handleRepoContextChange(repoId)
-              focusWorkbench('diff')
-            }}
-            onReviewResult={(repoId) => {
-              setArtifact('code-result.json')
-              handleRepoContextChange(repoId)
-              focusWorkbench('result')
-            }}
-            onStartCode={async (repoId) => {
-              try {
-                setCodeStartingRepo(repoId)
-                setActionError('')
-                const result = await startCode(currentTask.id, repoId)
-                setTask({
-                  ...currentTask,
-                  status: result.status as TaskStatus,
-                  nextAction: `仓库 ${repoId} 正在生成实现，请稍候刷新任务详情。`,
-                })
-                setArtifact('code.log')
-                handleRepoContextChange(repoId)
-                await reload()
-              } catch (err) {
-                setActionError(err instanceof Error ? err.message : '启动实现失败')
-                setCodeStartingRepo(null)
-              }
-            }}
-            onReset={async (repoId) => {
-              const confirmed = window.confirm('回退后会删除这次生成的分支、worktree、diff 和结果记录。确认继续吗？')
-              if (!confirmed) {
-                return
-              }
-              try {
-                setResettingRepo(repoId)
-                setActionError('')
-                const result = await resetCode(currentTask.id, repoId)
-                setTask({
-                  ...currentTask,
-                  status: result.status as TaskStatus,
-                  nextAction: `仓库 ${repoId} 的实现结果已回退。`,
-                })
-                setArtifact('plan.md')
-                setArtifactRepo('')
-                await reload()
-              } catch (err) {
-                setActionError(err instanceof Error ? err.message : '回退实现失败')
-                setResettingRepo(null)
-              }
-            }}
-            resettingRepo={resettingRepo}
-            task={task}
-          />
-          <RepoScopeCard task={task} />
-          <ActionPanel task={task} />
-          <DeletePolicyCard canDelete={canDelete} onDelete={canDelete ? handleDeleteTask : undefined} />
-        </aside>
+      <div ref={workbenchRef}>
+        <TaskWorkbench
+          artifact={artifact}
+          artifactContent={artifactContent}
+          artifactRepo={artifactRepo}
+          artifactSaving={editorSaving}
+          canEditArtifact={canEditArtifact}
+          focusToken={workbenchFocusToken}
+          forcedPane={workbenchForcedPane}
+          lastRefreshedAt={lastRefreshedAt}
+          onArtifactChange={setArtifact}
+          onArtifactRepoChange={setArtifactRepo}
+          onEditArtifact={openArtifactEditor}
+          onPaneChange={setWorkbenchForcedPane}
+          onSelectDiffRepo={handleRepoContextChange}
+          polling={polling}
+          selectedDiffRepo={selectedDiffRepo}
+          task={task}
+        />
       </div>
       </div>
       <ArtifactEditorDrawer
@@ -982,39 +945,15 @@ function isPendingRefineTask(task: TaskRecord) {
   return task.status === 'initialized' && task.sourceType === 'lark_doc' && task.artifacts['prd-refined.md']?.includes('状态：待补充源内容')
 }
 
-function DeletePolicyCard({
+function TaskListItemCard({
   canDelete,
   onDelete,
+  task,
 }: {
   canDelete: boolean
-  onDelete?: () => void
+  onDelete: () => void
+  task: TaskListItem
 }) {
-  return (
-    <section className="rounded-[24px] border border-stone-200/70 bg-stone-50/75 p-4 dark:border-white/8 dark:bg-white/[0.028]">
-      <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">Delete Policy</div>
-      {canDelete ? (
-        <div className="rounded-[18px] border border-emerald-200/80 bg-emerald-50/88 px-3 py-3 text-sm leading-6 text-emerald-800 dark:border-emerald-300/16 dark:bg-emerald-400/10 dark:text-emerald-100">
-          <div>当前阶段支持直接删除。如果这条需求不再继续，可以在这里移除。</div>
-          {onDelete ? (
-            <button
-              className="mt-3 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-200/40 hover:bg-rose-400/20 dark:text-rose-100"
-              onClick={onDelete}
-              type="button"
-            >
-              删除任务
-            </button>
-          ) : null}
-        </div>
-      ) : (
-        <div className="rounded-[18px] border border-amber-200/80 bg-amber-50/88 px-3 py-3 text-sm leading-6 text-amber-900 dark:border-amber-300/16 dark:bg-amber-400/10 dark:text-amber-100">
-          当前任务已经进入实现流程。如需回退，建议先处理已有结果后再操作。
-        </div>
-      )}
-    </section>
-  )
-}
-
-function TaskListItemCard({ task }: { task: TaskListItem }) {
   const location = useLocation()
   const active = location.pathname === `/tasks/${task.id}`
   const repoSummary =
@@ -1028,48 +967,100 @@ function TaskListItemCard({ task }: { task: TaskListItem }) {
   const nextStepHint = taskListNextStep(task.status)
 
   return (
-    <Link
+    <div
       className={`block rounded-[18px] border px-3.5 py-3 transition ${
         active
-          ? 'border-stone-900 bg-stone-900 text-white shadow-[0_16px_34px_rgba(15,23,42,0.18)] dark:border-stone-100 dark:bg-stone-100 dark:text-stone-950'
-          : 'border-stone-200 bg-white text-stone-900 hover:border-stone-300 hover:bg-stone-100/80 dark:border-white/10 dark:bg-white/6 dark:text-stone-100 dark:hover:border-white/20 dark:hover:bg-white/10'
+          ? 'border-[#c96442] bg-[#fff7f2] text-[#141413] shadow-[0_0_0_1px_rgba(201,100,66,0.2),0_4px_24px_rgba(20,20,19,0.06)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(217,119,87,0.24)]'
+          : 'border-[#e8e6dc] bg-[#faf9f5] text-[#141413] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] hover:bg-[#f5f4ed] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)] dark:hover:bg-[#2a2927]'
       }`}
-      params={{ taskId: task.id }}
-      resetScroll={false}
-      to="/tasks/$taskId"
     >
-      <div className="flex items-center justify-between gap-3">
-        <StatusBadge status={task.status} />
-        <div className={`text-xs ${active ? 'text-stone-300 dark:text-stone-500' : 'text-stone-500 dark:text-stone-400'}`}>{task.updatedAt}</div>
+      <div className="flex items-start justify-between gap-3">
+        <Link className="min-w-0 flex-1" params={{ taskId: task.id }} resetScroll={false} to="/tasks/$taskId">
+          <div className="flex items-center justify-between gap-3">
+            <StatusBadge status={task.status} />
+            <div className={`text-xs ${active ? 'text-[#87867f] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>{task.updatedAt}</div>
+          </div>
+          <div className="mt-2 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[15px] font-semibold leading-5 tracking-[-0.03em]">{task.title}</div>
+              <div className={`mt-1 text-[11px] font-mono ${active ? 'text-[#87867f] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>{task.id}</div>
+            </div>
+            <div
+              className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.5px] ${
+                active
+                  ? 'border-[#d97757]/40 text-[#c96442] dark:border-[#d97757]/40 dark:text-[#f0c0b0]'
+                  : 'border-[#e8e6dc] text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]'
+              }`}
+            >
+              {task.repoCount} 仓库
+            </div>
+          </div>
+          <div className={`mt-2 flex items-center justify-between gap-3 text-xs ${active ? 'text-[#5e5d59] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>
+            <span className="min-w-0 truncate">{repoSummary}</span>
+            <span className="flex shrink-0 items-center gap-2">
+              <span>{nextStepHint}</span>
+              {canDelete ? (
+                <button
+                  aria-label={`删除任务 ${task.title}`}
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-[#e1c1bf] bg-[#fbf1f0] text-[#b53333] transition hover:bg-[#f7e6e4] dark:border-[#7a3b3b] dark:bg-[#362020] dark:text-[#efb3b3] dark:hover:bg-[#442626]"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onDelete()
+                  }}
+                  title="删除任务"
+                  type="button"
+                >
+                  <TrashIcon />
+                </button>
+              ) : null}
+            </span>
+          </div>
+        </Link>
       </div>
-      <div className="mt-2 flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-[15px] font-semibold leading-5 tracking-[-0.03em]">{task.title}</div>
-          <div className={`mt-1 text-[11px] font-mono ${active ? 'text-stone-400 dark:text-stone-500' : 'text-stone-500 dark:text-stone-400'}`}>{task.id}</div>
-        </div>
-        <div
-          className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-            active
-              ? 'border-white/15 text-stone-200 dark:border-stone-300 dark:text-stone-700'
-              : 'border-stone-200 text-stone-600 dark:border-white/10 dark:text-stone-300'
-          }`}
-        >
-          {task.repoCount} 仓库
-        </div>
-      </div>
-      <div className={`mt-2 flex items-center justify-between gap-3 text-xs ${active ? 'text-stone-300 dark:text-stone-500' : 'text-stone-500 dark:text-stone-400'}`}>
-        <span className="min-w-0 truncate">{repoSummary}</span>
-        <span className="shrink-0">{nextStepHint}</span>
-      </div>
-    </Link>
+    </div>
+  )
+}
+
+function canDeleteTaskStatus(status: TaskStatus) {
+  return new Set<TaskStatus>(['initialized', 'refined', 'planned', 'failed']).has(status)
+}
+
+function PlusIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path
+        d="M9 4.75h6m-8 3h10m-8.25 0l.5 10.5a1.5 1.5 0 001.5 1.43h2.5a1.5 1.5 0 001.5-1.43l.5-10.5m-5.25 2.5v6m3-6v6"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+    </svg>
   )
 }
 
 function QueueSummaryItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-stone-50/90 px-3 py-1.5 dark:border-white/10 dark:bg-white/[0.03]">
-      <span className="text-[11px] uppercase tracking-[0.18em] text-stone-500 dark:text-stone-400">{label}</span>
-      <span className="text-sm font-semibold text-stone-950 dark:text-stone-50">{value}</span>
+    <div className="inline-flex items-center gap-2 rounded-full border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-1.5 shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+      <span className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">{label}</span>
+      <span className="text-sm text-[#141413] dark:text-[#faf9f5]">{value}</span>
     </div>
   )
 }
@@ -1106,30 +1097,4 @@ function taskListNextStep(status: TaskStatus) {
     default:
       return '处理中'
   }
-}
-
-function RepoScopeCard({ task }: { task: TaskRecord }) {
-  return (
-    <section className="rounded-[24px] border border-stone-200/70 bg-stone-50/75 p-4 dark:border-white/8 dark:bg-white/[0.028]">
-      <div className="mb-4 text-xs font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">涉及仓库</div>
-      <div className="space-y-3">
-        <KeyValue label="仓库数量" value={`${task.repos.length}`} />
-        <KeyValue label="仓库标识" value={task.repos.map((repo) => repo.id).join(', ')} />
-      </div>
-
-      <div className="mt-4 space-y-2">
-        {task.repos.map((repo) => (
-          <div className="rounded-[18px] border border-stone-200/80 bg-white/72 px-3 py-3 dark:border-white/8 dark:bg-white/[0.03]" key={repo.id}>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-stone-950 dark:text-stone-50">{repo.displayName}</div>
-                <div className="mt-1 font-mono text-[11px] text-stone-500 dark:text-stone-400">{repo.path}</div>
-              </div>
-              <RepoStatusBadge status={repo.status} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
 }
