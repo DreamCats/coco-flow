@@ -7,10 +7,10 @@ type KnowledgeWorkbenchProps = {
   onUpdateDocument: (id: string, patch: Partial<KnowledgeDocument>) => void
 }
 
-type WorkbenchTab = 'summary' | 'body' | 'evidence' | 'publish'
+type WorkbenchTab = 'summary' | 'body' | 'publish'
 
 export function KnowledgeWorkbench({ document, onUpdateDocument }: KnowledgeWorkbenchProps) {
-  const [tab, setTab] = useState<WorkbenchTab>('evidence')
+  const [tab, setTab] = useState<WorkbenchTab>('summary')
 
   if (!document) {
     return (
@@ -24,7 +24,6 @@ export function KnowledgeWorkbench({ document, onUpdateDocument }: KnowledgeWork
     <section className="rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.92),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Knowledge Workbench</div>
           <h3 className="mt-2 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">
             {document.domainName} · {document.title}
           </h3>
@@ -34,21 +33,19 @@ export function KnowledgeWorkbench({ document, onUpdateDocument }: KnowledgeWork
             <KnowledgeConfidenceBadge confidence={document.confidence} />
           </div>
         </div>
-        <div className="text-sm text-[#87867f] dark:text-[#b0aea5]">先看证据，再决定是否修改和发布。</div>
+        <div className="text-sm text-[#87867f] dark:text-[#b0aea5]">先确认 metainfo，再编辑正文和发布状态。</div>
       </div>
 
       <div className="mb-4 rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] p-2 shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
         <div className="flex flex-wrap gap-2">
           <TabButton active={tab === 'summary'} label="摘要" onClick={() => setTab('summary')} />
           <TabButton active={tab === 'body'} label="正文" onClick={() => setTab('body')} />
-          <TabButton active={tab === 'evidence'} label="证据" onClick={() => setTab('evidence')} />
           <TabButton active={tab === 'publish'} label="发布" onClick={() => setTab('publish')} />
         </div>
       </div>
 
       {tab === 'summary' ? <SummaryTab document={document} onUpdateDocument={onUpdateDocument} /> : null}
       {tab === 'body' ? <BodyTab document={document} onUpdateDocument={onUpdateDocument} /> : null}
-      {tab === 'evidence' ? <EvidenceTab document={document} /> : null}
       {tab === 'publish' ? <PublishTab document={document} onUpdateDocument={onUpdateDocument} /> : null}
     </section>
   )
@@ -146,35 +143,7 @@ function BodyTab({
       </section>
       <section className="space-y-4">
         <MetaCard label="编辑提示" value="第一版先直接编辑 Markdown；后续再拆成结构化 section editor。" />
-        <MetaCard label="推荐顺序" value="先看证据，再改正文；正文里不确定的地方继续保留 Open Questions。" />
-      </section>
-    </div>
-  )
-}
-
-function EvidenceTab({ document }: { document: KnowledgeDocument }) {
-  const { evidence } = document
-  return (
-    <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-      <section className="space-y-4">
-        <EvidenceCard title="输入与命中">
-          <EvidenceLine label="输入描述" value={evidence.inputDescription} />
-          <EvidenceList label="命中 repo" items={evidence.repoMatches} />
-          <EvidenceList label="命中关键词" items={evidence.keywordMatches} />
-          <EvidenceList label="命中路径" items={evidence.pathMatches} />
-        </EvidenceCard>
-        <EvidenceCard title="代码证据">
-          <EvidenceList label="候选文件" items={evidence.candidateFiles} mono />
-          <EvidenceList label=".livecoding/context 命中" items={evidence.contextHits} />
-        </EvidenceCard>
-      </section>
-      <section className="space-y-4">
-        <EvidenceCard title="系统解释">
-          <EvidenceList label="检索说明" items={evidence.retrievalNotes} />
-        </EvidenceCard>
-        <EvidenceCard title="待确认问题">
-          <EvidenceList label="Open Questions" items={evidence.openQuestions} />
-        </EvidenceCard>
+        <MetaCard label="推荐顺序" value="先确认摘要里的 metainfo，再改正文；正文里不确定的地方继续保留 Open Questions。" />
       </section>
     </div>
   )
@@ -222,7 +191,7 @@ function PublishTab({
 
       <section className="space-y-4">
         <MetaCard label="发布规则" value="draft 不进入主链路；approved 默认参与 refine / plan；archived 只保留历史记录。" />
-        <MetaCard label="当前建议" value={document.status === 'draft' ? '先补证据和 Open Questions，再发布。' : document.status === 'approved' ? '已可作为默认知识输入参与引擎。' : '已归档，仅保留历史参考。'} />
+        <MetaCard label="当前建议" value={document.status === 'draft' ? '先补 metainfo 和正文中的待确认项，再发布。' : document.status === 'approved' ? '已可作为默认知识输入参与引擎。' : '已归档，仅保留历史参考。'} />
       </section>
     </div>
   )
@@ -266,43 +235,6 @@ function MetaCard({ label, value, mono = false }: { label: string; value: string
     <div className="rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
       <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">{label}</div>
       <div className={`mt-2 text-sm text-[#141413] dark:text-[#faf9f5] ${mono ? 'font-mono text-xs' : ''}`}>{value}</div>
-    </div>
-  )
-}
-
-function EvidenceCard({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
-      <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">{title}</div>
-      <div className="space-y-3">{children}</div>
-    </section>
-  )
-}
-
-function EvidenceLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-[11px] uppercase tracking-[0.18em] text-stone-500 dark:text-stone-400">{label}</div>
-      <div className="mt-1 text-sm text-[#141413] dark:text-[#faf9f5]">{value}</div>
-    </div>
-  )
-}
-
-function EvidenceList({ label, items, mono = false }: { label: string; items: string[]; mono?: boolean }) {
-  return (
-    <div>
-      <div className="text-[11px] uppercase tracking-[0.18em] text-stone-500 dark:text-stone-400">{label}</div>
-      <div className="mt-2 space-y-2">
-        {items.length === 0 ? <div className="text-sm text-stone-500 dark:text-stone-400">-</div> : null}
-        {items.map((item) => (
-          <div
-            className={`rounded-[14px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-2 text-sm text-[#141413] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#faf9f5] ${mono ? 'font-mono text-xs' : ''}`}
-            key={`${label}-${item}`}
-          >
-            {item}
-          </div>
-        ))}
-      </div>
     </div>
   )
 }

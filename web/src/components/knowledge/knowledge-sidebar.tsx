@@ -60,7 +60,6 @@ export function KnowledgeSidebar({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-[28px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">知识列表</h2>
-            <div className="mt-1 text-xs text-[#87867f] dark:text-[#b0aea5]">默认按 domain 聚合，并固定展示 domain / flow / rule / anchor 四类槽位。</div>
           </div>
           <button
             aria-label="新建知识草稿"

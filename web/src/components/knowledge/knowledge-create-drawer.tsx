@@ -42,13 +42,13 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-[rgba(20,20,19,0.42)] backdrop-blur-sm">
-      <div className="h-full w-full max-w-[620px] overflow-y-auto border-l border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[-12px_0_40px_rgba(20,20,19,0.12)] dark:border-[#30302e] dark:bg-[#1d1c1a]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(20,20,19,0.42)] p-4 backdrop-blur-sm">
+      <div className="max-h-[min(860px,calc(100vh-32px))] w-full max-w-[720px] overflow-y-auto rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_24px_80px_rgba(20,20,19,0.18)] dark:border-[#30302e] dark:bg-[#1d1c1a]">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Create Draft</div>
             <h3 className="mt-2 text-[30px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">新建知识草稿</h3>
-            <div className="mt-2 text-sm text-[#87867f] dark:text-[#b0aea5]">第一版默认从描述和 repo 生成 `flow + anchor`，强调 evidence first。</div>
+            <div className="mt-2 text-sm text-[#87867f] dark:text-[#b0aea5]">第一版默认从描述和 repo 生成 `flow + anchor` 草稿。</div>
           </div>
           <button
             className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] border border-[#e8e6dc] text-[#5e5d59] transition hover:text-[#141413] dark:border-[#30302e] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]"
