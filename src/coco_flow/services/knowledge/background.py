@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from json import JSONDecodeError
 from pathlib import Path
 import json
 import threading
@@ -42,7 +43,7 @@ def get_generation_job(job_id: str, settings: Settings) -> KnowledgeGenerationJo
     job_path = _job_path(settings, job_id)
     if not job_path.is_file():
         raise ValueError(f"knowledge generation job not found: {job_id}")
-    payload = json.loads(job_path.read_text(encoding="utf-8"))
+    payload = _load_json_file(job_path)
     return KnowledgeGenerationJob(**payload["job"])
 
 
@@ -102,22 +103,18 @@ def _run_generation_job(settings: Settings, job_id: str) -> None:
 def _write_job(settings: Settings, job: KnowledgeGenerationJob, payload: KnowledgeDraftInput) -> None:
     target = _job_path(settings, job.job_id)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(
-            {
-                "job": job.model_dump(),
-                "payload": {
-                    "description": payload.description,
-                    "selected_paths": payload.selected_paths,
-                    "kinds": payload.kinds,
-                    "notes": payload.notes,
-                },
+    _write_json_atomic(
+        target,
+        {
+            "job": job.model_dump(),
+            "payload": {
+                "title": payload.title,
+                "description": payload.description,
+                "selected_paths": payload.selected_paths,
+                "kinds": payload.kinds,
+                "notes": payload.notes,
             },
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+        },
     )
 
 
@@ -125,7 +122,7 @@ def _read_job_payload(settings: Settings, job_id: str) -> dict[str, object]:
     path = _job_path(settings, job_id)
     if not path.is_file():
         raise ValueError(f"knowledge generation job not found: {job_id}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return _load_json_file(path)
 
 
 def _update_job(
@@ -157,11 +154,24 @@ def _update_job(
         }
     )
     payload["job"] = updated.model_dump()
-    _job_path(settings, job_id).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_json_atomic(_job_path(settings, job_id), payload)
 
 
 def _job_path(settings: Settings, job_id: str) -> Path:
     return settings.knowledge_root / JOB_DIR_NAME / f"{job_id}.json"
+
+
+def _load_json_file(path: Path) -> dict[str, object]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except JSONDecodeError as error:
+        raise ValueError(f"knowledge generation job is not readable yet: {path.stem}") from error
+
+
+def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
 
 
 def _stage_label(status: str) -> str:
@@ -169,7 +179,9 @@ def _stage_label(status: str) -> str:
         "queued": "排队中",
         "running": "准备中",
         "intent_normalizing": "意图收敛",
+        "term_mapping": "术语映射",
         "repo_discovering": "Repo 发现",
+        "anchor_selecting": "锚点筛选",
         "repo_researching": "Repo 研究",
         "synthesizing": "草稿生成",
         "validating": "结果校验",

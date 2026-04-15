@@ -13,6 +13,7 @@ type KnowledgeCreateDrawerProps = {
 const defaultKinds: KnowledgeKind[] = ['flow']
 
 export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: KnowledgeCreateDrawerProps) {
+  const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [selectedRepos, setSelectedRepos] = useState<RepoCandidate[]>([])
   const [selectedKinds, setSelectedKinds] = useState<KnowledgeKind[]>(defaultKinds)
@@ -23,6 +24,7 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
     if (!open) {
       return
     }
+    setTitle('')
     setDescription('')
     setSelectedRepos([])
     setSelectedKinds(defaultKinds)
@@ -55,11 +57,21 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
         </div>
 
         <div className="mt-5 space-y-4">
+          <FormBlock label="标题">
+            <input
+              className={fieldClassName}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="例如：竞拍讲解卡表达层"
+              type="text"
+              value={title}
+            />
+          </FormBlock>
+
           <FormBlock label="描述">
             <textarea
               className={`${fieldClassName} min-h-[120px] resize-y`}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="例如：竞拍讲解卡表达层"
+              placeholder="例如：这是竞拍讲解卡表达层相关业务，涉及卡片渲染、讲解状态和模板切换。我想生成一份系统链路知识，用来帮助定位入口和依赖模块。"
               value={description}
             />
           </FormBlock>
@@ -128,7 +140,8 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
           <section className="rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
             <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">预览</div>
             <div className="mt-3 space-y-2 text-sm text-[#141413] dark:text-[#faf9f5]">
-              <div>domain：{description.trim() || '未填写描述'}</div>
+              <div>标题：{title.trim() || '未填写标题'}</div>
+              <div>描述：{description.trim() || '未填写描述'}</div>
               <div>repo：{repoPaths.length > 0 ? repoPaths.join(', ') : '未选择路径'}</div>
               <div>生成：{selectedKinds.length > 0 ? selectedKinds.join(', ') : '未选择生成类型'}</div>
             </div>
@@ -144,9 +157,10 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
             </button>
             <button
               className="rounded-[12px] border border-[#c96442] bg-[#c96442] px-4 py-2 text-sm font-semibold text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] transition hover:bg-[#d97757] disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!description.trim() || repoPaths.length === 0 || selectedKinds.length === 0 || creating}
+              disabled={!title.trim() || !description.trim() || repoPaths.length === 0 || selectedKinds.length === 0 || creating}
               onClick={() =>
                 onSubmit({
+                  title,
                   description,
                   selected_paths: repoPaths,
                   repos: repoPaths,

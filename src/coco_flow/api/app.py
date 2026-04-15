@@ -125,6 +125,7 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         try:
             job = start_background_generation(
                 KnowledgeDraftInput(
+                    title=payload.title,
                     description=payload.description,
                     selected_paths=payload.selected_paths or payload.repos,
                     kinds=payload.kinds,

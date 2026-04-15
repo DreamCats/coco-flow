@@ -187,8 +187,10 @@ Current endpoints:
 `POST /api/knowledge/drafts` now starts a background knowledge-generation job for the first-stage flow from
 [`docs/knowledge-generation-engine.md`](docs/knowledge-generation-engine.md):
 
-- normalize `description + selected_paths + kinds`
-- run lightweight repo discovery against `AGENTS.md`, `.livecoding/context/`, directory structure, and filename matches
+- normalize `title + description + selected_paths + kinds`
+- map user terms to repo terms before discovery
+- run lightweight repo discovery against `AGENTS.md`, `.livecoding/context/`, directory structure, filenames, symbol hits, and recent commit titles
+- select repo anchors (`strongest_terms / entry_files / business_symbols / discarded_noise`) before repo research
 - run repo research and knowledge synthesis via `COCO_FLOW_KNOWLEDGE_EXECUTOR` (`native` uses readonly ACP for research and prompt-only synthesis; `local` keeps rule-based fallback)
 - generate draft markdown documents, validate them, and write trace artifacts
 

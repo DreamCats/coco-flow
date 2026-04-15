@@ -337,7 +337,7 @@ function KnowledgeGenerationStatus({
           style={{ width: `${Math.max(4, job.progress)}%` }}
         />
       </div>
-      <div className="mt-3 grid gap-2 md:grid-cols-5">
+      <div className="mt-3 grid gap-2 md:grid-cols-6">
         {stageItems.map((stage) => {
           const active = stage.status === job.status
           const done = job.progress >= stage.progress && job.status !== 'failed'
@@ -369,9 +369,11 @@ function KnowledgeGenerationStatus({
 
 const stageItems = [
   { status: 'intent_normalizing', label: '意图收敛', progress: 10 },
-  { status: 'repo_discovering', label: 'Repo 发现', progress: 35 },
-  { status: 'repo_researching', label: 'Repo 研究', progress: 60 },
-  { status: 'synthesizing', label: '草稿生成', progress: 80 },
+  { status: 'term_mapping', label: '术语映射', progress: 24 },
+  { status: 'repo_discovering', label: 'Repo 发现', progress: 40 },
+  { status: 'anchor_selecting', label: '锚点筛选', progress: 54 },
+  { status: 'repo_researching', label: 'Repo 研究', progress: 66 },
+  { status: 'synthesizing', label: '草稿生成', progress: 82 },
   { status: 'validating', label: '结果校验', progress: 92 },
 ]
 
@@ -388,7 +390,9 @@ function formatJobStatus(status: string): string {
     queued: '排队中',
     running: '准备中',
     intent_normalizing: '执行中',
+    term_mapping: '执行中',
     repo_discovering: '执行中',
+    anchor_selecting: '执行中',
     repo_researching: '执行中',
     synthesizing: '执行中',
     validating: '执行中',
@@ -400,6 +404,7 @@ function formatJobStatus(status: string): string {
 
 function buildRegeneratePayload(document: KnowledgeDocument): KnowledgeDraftInput {
   return {
+    title: document.domainName || document.title,
     description: document.evidence.inputDescription || `${document.domainName}${document.title}`,
     selected_paths: document.evidence.pathMatches,
     repos: document.evidence.pathMatches,

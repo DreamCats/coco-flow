@@ -126,6 +126,8 @@ class KnowledgeStore:
             trace_id=trace_id,
             files=files,
             intent=_read_trace_json(trace_root / "intent.json"),
+            term_mapping=_read_trace_json(trace_root / "term-mapping.json"),
+            anchor_selection=_read_trace_json(trace_root / "anchor-selection.json"),
             repo_discovery=_read_trace_json(trace_root / "repo-discovery.json"),
             repo_research=repo_research,
             knowledge_draft=_read_trace_json(trace_root / "knowledge-draft.json"),
@@ -234,6 +236,7 @@ def parse_frontmatter_value(raw: str) -> object:
 def build_evidence(payload: object) -> KnowledgeEvidence:
     if isinstance(payload, dict):
         return KnowledgeEvidence(
+            inputTitle=str(payload.get("inputTitle") or ""),
             inputDescription=str(payload.get("inputDescription") or ""),
             repoMatches=_as_string_list(payload.get("repoMatches"), []),
             keywordMatches=_as_string_list(payload.get("keywordMatches"), []),
@@ -244,6 +247,7 @@ def build_evidence(payload: object) -> KnowledgeEvidence:
             openQuestions=_as_string_list(payload.get("openQuestions"), []),
         )
     return KnowledgeEvidence(
+        inputTitle="",
         inputDescription="",
         repoMatches=[],
         keywordMatches=[],

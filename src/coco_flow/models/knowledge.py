@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class KnowledgeEvidence(BaseModel):
+    inputTitle: str = ""
     inputDescription: str
     repoMatches: list[str]
     keywordMatches: list[str]
@@ -43,6 +44,8 @@ class KnowledgeTraceResponse(BaseModel):
     trace_id: str
     files: list[str]
     intent: dict[str, object]
+    term_mapping: dict[str, object]
+    anchor_selection: dict[str, object]
     repo_discovery: dict[str, object]
     repo_research: dict[str, dict[str, object]]
     knowledge_draft: dict[str, object]
@@ -64,6 +67,7 @@ class KnowledgeGenerationJob(BaseModel):
 
 
 class CreateKnowledgeDraftsRequest(BaseModel):
+    title: str
     description: str
     selected_paths: list[str] = Field(default_factory=list)
     repos: list[str] = Field(default_factory=list)

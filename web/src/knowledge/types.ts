@@ -37,6 +37,7 @@ export type KnowledgeDocument = {
 }
 
 export type KnowledgeDraftInput = {
+  title: string
   description: string
   selected_paths?: string[]
   repos: string[]

@@ -108,6 +108,7 @@ def knowledge_list_cmd(
 
 @knowledge_app.command("generate")
 def knowledge_generate_cmd(
+    title: str = typer.Option(..., "--title", help="Knowledge title shown in the UI and used for intent normalization."),
     description: str = typer.Option(..., "--description", "-d", help="Knowledge description to normalize and generate from."),
     path: list[str] = typer.Option(None, "--path", help="Selected repo or workspace paths."),
     kind: list[str] = typer.Option(None, "--kind", help="Knowledge kinds to generate. Defaults to flow."),
@@ -120,6 +121,7 @@ def knowledge_generate_cmd(
     try:
         result = store.create_drafts(
             KnowledgeDraftInput(
+                title=title,
                 description=description,
                 selected_paths=selected_paths,
                 kinds=requested_kinds,

@@ -158,8 +158,10 @@ export COCO_FLOW_CODE_EXECUTOR=local
 [`docs/knowledge-generation-engine.md`](docs/knowledge-generation-engine.md)
 的第一阶段实现运行：
 
-- 根据 `description + selected_paths + kinds` 做 intent normalize
-- 对选中路径执行轻量 repo discovery，读取 `AGENTS.md`、`.livecoding/context/`、目录结构和文件名命中
+- 根据 `title + description + selected_paths + kinds` 做 intent normalize
+- 在 discovery 前先做术语映射，把用户语言对齐到 repo 内真实术语
+- 对选中路径执行轻量 repo discovery，读取 `AGENTS.md`、`.livecoding/context/`、目录结构、文件名、符号命中和最近提交标题
+- 在 repo research 前再做一轮锚点筛选，提炼 `strongest_terms / entry_files / business_symbols / discarded_noise`
 - repo research 和 knowledge synthesis 通过 `COCO_FLOW_KNOWLEDGE_EXECUTOR` 执行；`native` 分别走 readonly ACP 与 prompt-only synthesis，`local` 保持规则兜底
 - 生成草稿、执行静态校验，并把 trace 写到本地 knowledge 目录
 
