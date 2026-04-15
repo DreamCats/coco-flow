@@ -107,6 +107,9 @@ class KnowledgeGenerationTest(unittest.TestCase):
             self.assertIn("auction-live", trace.repo_research)
             self.assertEqual(trace.validation["ok"], True)
             self.assertEqual(trace.repo_research["auction-live"]["executor"], "local")
+            self.assertEqual(result.documents[0].title, "系统链路")
+            self.assertEqual(result.documents[0].evidence.pathMatches, [str(repo_root)])
+            self.assertIn("auction-live:/", result.documents[0].body)
 
     def test_native_repo_research_uses_llm_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -155,8 +158,10 @@ class KnowledgeGenerationTest(unittest.TestCase):
             self.assertEqual(research["likely_modules"], ["llm/app", "llm/service"])
             self.assertEqual(research["facts"], ["llm fact"])
             self.assertEqual(research["inferences"], ["llm inference"])
-            self.assertEqual(result.documents[0].title, "LLM 系统链路")
+            self.assertEqual(result.documents[0].title, "系统链路")
             self.assertIn("LLM summary", result.documents[0].body)
+            self.assertIn("auction-live:/", result.documents[0].body)
+            self.assertNotIn(str(repo_root), result.documents[0].body)
             self.assertIn("knowledge synthesis executor: native", result.documents[0].evidence.retrievalNotes[1])
 
     def test_native_repo_research_falls_back_to_local(self) -> None:

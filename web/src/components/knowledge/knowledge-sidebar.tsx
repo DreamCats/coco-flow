@@ -18,7 +18,6 @@ type KnowledgeSidebarProps = {
   domainFilter: string
   onDomainFilterChange: (value: string) => void
   onDeleteDomain: (domainName: string, documents: KnowledgeDocument[]) => void
-  onDeleteDocument: (document: KnowledgeDocument) => void
   onSelectDocument: (id: string) => void
   onOpenCreate: () => void
 }
@@ -33,7 +32,6 @@ export function KnowledgeSidebar({
   domainFilter,
   onDomainFilterChange,
   onDeleteDomain,
-  onDeleteDocument,
   onSelectDocument,
   onOpenCreate,
 }: KnowledgeSidebarProps) {
@@ -44,6 +42,9 @@ export function KnowledgeSidebar({
   }, {})
   const orderedDomains = Object.keys(groupedByDomain).sort((left, right) => left.localeCompare(right))
   const showCompletenessSlots = statusFilter === 'all'
+  const visibleItemCount = showCompletenessSlots
+    ? orderedDomains.length * knowledgeKindOrder.length
+    : documents.length
 
   return (
     <section className="rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-2.5 shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.94)] lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden">
@@ -101,7 +102,7 @@ export function KnowledgeSidebar({
 
       <div className="mb-2 flex items-center justify-between px-1">
         <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">知识列表</div>
-        <div className="text-xs text-stone-500 dark:text-stone-400">{documents.length} 条</div>
+        <div className="text-xs text-stone-500 dark:text-stone-400">{visibleItemCount} 条</div>
       </div>
 
       <div className="space-y-1.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
@@ -110,76 +111,71 @@ export function KnowledgeSidebar({
             当前筛选条件下没有知识文件。
           </div>
         ) : (
-          orderedDomains.map((domainName) => (
-            (() => {
-              const domainDocuments = groupedByDomain[domainName]
-              const completedKinds = new Set(domainDocuments.map((document) => document.kind)).size
-              const latestUpdatedAt =
-                domainDocuments
-                  .map((document) => document.updatedAt)
-                  .sort((left, right) => right.localeCompare(left))[0] ?? '-'
-              return (
-                <section
-                  className="group rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]"
-                  key={domainName}
-                >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-[18px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{domainName}</div>
-                  <div className="mt-1 text-xs text-[#87867f] dark:text-[#b0aea5]">
-                    {completedKinds}/3 已补齐 · 最近更新 {latestUpdatedAt}
-                  </div>
-                </div>
-                <button
-                  aria-label={`删除领域 ${domainName}`}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-[#e1c1bf] bg-[#fbf1f0] text-[#b53333] opacity-0 transition hover:bg-[#f7e6e4] group-hover:opacity-100 focus:opacity-100 dark:border-[#7a3b3b] dark:bg-[#362020] dark:text-[#efb3b3] dark:hover:bg-[#442626]"
-                  onClick={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onDeleteDomain(domainName, groupedByDomain[domainName])
-                  }}
-                  title="删除整个领域卡片"
-                  type="button"
-                >
-                  <TrashIcon />
-                </button>
-              </div>
-                )
-              })()}
+          orderedDomains.map((domainName) => {
+            const domainDocuments = groupedByDomain[domainName]
+            const completedKinds = new Set(domainDocuments.map((document) => document.kind)).size
+            const latestUpdatedAt =
+              domainDocuments
+                .map((document) => document.updatedAt)
+                .sort((left, right) => right.localeCompare(left))[0] ?? '-'
 
-              <div className="mt-3 space-y-2">
-                {showCompletenessSlots
-                  ? knowledgeKindOrder.map((kind) => {
-                      const document = groupedByDomain[domainName].find((item) => item.kind === kind)
-                      if (!document) {
-                        return <KnowledgePlaceholderRow domainName={domainName} key={`${domainName}-${kind}`} kind={kind} />
-                      }
-                      return (
-                        <KnowledgeRow
-                          document={document}
-                          key={document.id}
-                          onDelete={onDeleteDocument}
-                          selected={document.id === selectedDocumentId}
-                          onSelect={onSelectDocument}
-                        />
-                      )
-                    })
-                  : groupedByDomain[domainName]
-                      .sort((left, right) => left.title.localeCompare(right.title))
-                      .map((document) => (
-                        <KnowledgeRow
-                          document={document}
-                          key={document.id}
-                          onDelete={onDeleteDocument}
-                          selected={document.id === selectedDocumentId}
-                          onSelect={onSelectDocument}
-                        />
-                      ))}
-              </div>
-                </section>
-              )
-            })()
-          ))
+            return (
+              <section
+                className="group rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]"
+                key={domainName}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[18px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{domainName}</div>
+                    <div className="mt-1 text-xs text-[#87867f] dark:text-[#b0aea5]">
+                      {completedKinds}/3 已补齐 · 最近更新 {latestUpdatedAt}
+                    </div>
+                  </div>
+                  <button
+                    aria-label={`删除领域 ${domainName}`}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-[#e1c1bf] bg-[#fbf1f0] text-[#b53333] opacity-0 transition hover:bg-[#f7e6e4] group-hover:opacity-100 focus:opacity-100 dark:border-[#7a3b3b] dark:bg-[#362020] dark:text-[#efb3b3] dark:hover:bg-[#442626]"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      onDeleteDomain(domainName, groupedByDomain[domainName])
+                    }}
+                    title="删除整个领域卡片"
+                    type="button"
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {showCompletenessSlots
+                    ? knowledgeKindOrder.map((kind) => {
+                        const document = groupedByDomain[domainName].find((item) => item.kind === kind)
+                        if (!document) {
+                          return <KnowledgePlaceholderRow domainName={domainName} key={`${domainName}-${kind}`} kind={kind} />
+                        }
+                        return (
+                          <KnowledgeRow
+                            document={document}
+                            key={document.id}
+                            selected={document.id === selectedDocumentId}
+                            onSelect={onSelectDocument}
+                          />
+                        )
+                      })
+                    : groupedByDomain[domainName]
+                        .sort((left, right) => left.title.localeCompare(right.title))
+                        .map((document) => (
+                          <KnowledgeRow
+                            document={document}
+                            key={document.id}
+                            selected={document.id === selectedDocumentId}
+                            onSelect={onSelectDocument}
+                          />
+                        ))}
+                </div>
+              </section>
+            )
+          })
         )}
       </div>
     </section>
@@ -188,12 +184,10 @@ export function KnowledgeSidebar({
 
 function KnowledgeRow({
   document,
-  onDelete,
   selected,
   onSelect,
 }: {
   document: KnowledgeDocument
-  onDelete: (document: KnowledgeDocument) => void
   selected: boolean
   onSelect: (id: string) => void
 }) {
@@ -207,27 +201,14 @@ function KnowledgeRow({
       onClick={() => onSelect(document.id)}
       type="button"
     >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-[#141413] dark:text-[#faf9f5]">{document.title}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="line-clamp-2 text-sm font-semibold text-[#141413] dark:text-[#faf9f5]">{document.title}</div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <KnowledgeKindBadge kind={document.kind} />
-          <KnowledgeStatusBadge status={document.status} />
-          <button
-            aria-label={`删除知识 ${document.title}`}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-[#e1c1bf] bg-[#fbf1f0] text-[#b53333] opacity-0 transition hover:bg-[#f7e6e4] group-hover:opacity-100 focus:opacity-100 dark:border-[#7a3b3b] dark:bg-[#362020] dark:text-[#efb3b3] dark:hover:bg-[#442626]"
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              onDelete(document)
-            }}
-            title="删除知识卡片"
-            type="button"
-          >
-            <TrashIcon />
-          </button>
-        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <KnowledgeKindBadge kind={document.kind} />
+        <KnowledgeStatusBadge status={document.status} />
       </div>
       <div className="mt-2 text-xs text-[#87867f] dark:text-[#b0aea5]">{document.updatedAt}</div>
     </button>

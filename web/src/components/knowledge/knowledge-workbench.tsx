@@ -25,9 +25,10 @@ export function KnowledgeWorkbench({ creating, document, onRegenerate, onUpdateD
   return (
     <section className="rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.92),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="mt-2 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">
-            {document.domainName} · {document.title}
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">{document.domainName}</div>
+          <h3 className="mt-2 truncate text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]" title={document.title}>
+            {document.title}
           </h3>
           <div className="mt-2 flex flex-wrap gap-2">
             <KnowledgeKindBadge kind={document.kind} />
@@ -35,7 +36,7 @@ export function KnowledgeWorkbench({ creating, document, onRegenerate, onUpdateD
             <KnowledgeConfidenceBadge confidence={document.confidence} />
           </div>
         </div>
-        <div className="flex flex-col items-end gap-3">
+        <div className="flex shrink-0 flex-col items-end gap-3">
           <button
             className="rounded-[12px] border border-[#c96442] bg-[#fff7f2] px-4 py-2 text-sm font-semibold text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] transition hover:bg-[#fff0e2] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0] dark:hover:bg-[#4a3129]"
             disabled={creating}

@@ -233,21 +233,6 @@ export function KnowledgePage() {
     createDrafts(buildRegeneratePayload(document))
   }
 
-  function handleDeleteDocument(document: KnowledgeDocument) {
-    const confirmed = window.confirm(`确认删除知识 ${document.title}？`)
-    if (!confirmed) {
-      return
-    }
-    void deleteKnowledgeDocument(document.id)
-      .then(() => {
-        setDocuments((current) => current.filter((item) => item.id !== document.id))
-        setError('')
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : '删除知识失败')
-      })
-  }
-
   function handleDeleteDomain(domainName: string, items: KnowledgeDocument[]) {
     const confirmed = window.confirm(`确认删除领域 ${domainName} 及其下 ${items.length} 个知识文件？`)
     if (!confirmed) {
@@ -284,7 +269,6 @@ export function KnowledgePage() {
             domainFilter={domainFilter}
             onDomainFilterChange={setDomainFilter}
             onDeleteDomain={handleDeleteDomain}
-            onDeleteDocument={handleDeleteDocument}
             onOpenCreate={() => setShowCreateDrawer(true)}
             onQueryChange={setQuery}
             onSelectDocument={setSelectedDocumentId}

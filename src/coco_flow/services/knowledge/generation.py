@@ -413,6 +413,7 @@ def build_documents_local(
     domain_id = str(intent_payload["domain_candidate"])
     repo_ids = [str(item["repo_id"]) for item in repo_research_payloads]
     repo_paths = [str(item["repo_path"]) for item in repo_research_payloads]
+    display_paths = build_display_paths(selected_paths, repo_research_payloads)
     keyword_matches = unique_strings(
         [str(keyword) for item in repo_research_payloads for keyword in item["matched_keywords"]]
     )
@@ -444,7 +445,7 @@ def build_documents_local(
             confidence="medium" if candidate_files else "low",
             updatedAt=timestamp,
             owner="Maifeng",
-            body=build_body(kind, intent_payload, repo_research_payloads, selected_paths, open_questions),
+            body=build_body(kind, intent_payload, repo_research_payloads, display_paths, open_questions),
             evidence=KnowledgeEvidence(
                 inputDescription=str(intent_payload["description"]),
                 repoMatches=repo_ids,
@@ -476,6 +477,7 @@ def build_documents_native(
     settings: Settings,
     fallback_documents: list[KnowledgeDocument],
 ) -> list[KnowledgeDocument]:
+    display_paths = build_display_paths(selected_paths, repo_research_payloads)
     client = CocoACPClient(
         settings.coco_bin,
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
@@ -483,12 +485,12 @@ def build_documents_native(
     )
     cwd = str(repo_research_payloads[0]["repo_path"]) if repo_research_payloads else None
     raw = client.run_prompt_only(
-        build_knowledge_synthesis_prompt(intent_payload, repo_research_payloads, selected_paths, requested_kinds),
+        build_knowledge_synthesis_prompt(intent_payload, repo_research_payloads, display_paths, requested_kinds),
         settings.native_query_timeout,
         cwd=cwd,
     )
     outputs = extract_knowledge_synthesis_output(raw, requested_kinds)
-    documents = apply_synthesis_outputs(fallback_documents, outputs)
+    documents = apply_synthesis_outputs(fallback_documents, outputs, display_paths)
     documents = annotate_documents(
         documents,
         requested_executor=EXECUTOR_NATIVE,
@@ -720,6 +722,7 @@ def annotate_documents(
     return [
         document.model_copy(
             update={
+                "title": build_title(document.kind),
                 "evidence": document.evidence.model_copy(
                     update={
                         "retrievalNotes": retrieval_notes,
@@ -804,7 +807,7 @@ def extract_repo_research_output(raw: str) -> dict[str, list[str] | str]:
 def build_knowledge_synthesis_prompt(
     intent_payload: dict[str, object],
     repo_research_payloads: list[dict[str, object]],
-    selected_paths: list[str],
+    display_paths: list[str],
     requested_kinds: list[str],
 ) -> str:
     synthesis_input = {
@@ -812,7 +815,7 @@ def build_knowledge_synthesis_prompt(
         "domain_candidate": intent_payload["domain_candidate"],
         "domain_name": intent_payload["domain_name"],
         "requested_kinds": requested_kinds,
-        "selected_paths": selected_paths,
+        "selected_paths": display_paths,
         "notes": intent_payload["notes"],
         "repo_research": repo_research_payloads,
     }
@@ -882,6 +885,7 @@ def extract_knowledge_synthesis_output(raw: str, requested_kinds: list[str]) -> 
 def apply_synthesis_outputs(
     fallback_documents: list[KnowledgeDocument],
     outputs: dict[str, dict[str, object]],
+    display_paths: list[str],
 ) -> list[KnowledgeDocument]:
     documents: list[KnowledgeDocument] = []
     for document in fallback_documents:
@@ -891,12 +895,14 @@ def apply_synthesis_outputs(
         open_questions = unique_strings(
             [*output["open_questions"], *document.evidence.openQuestions]
         )
+        body = str(output["body"] or document.body)
+        body = normalize_selected_paths_section(body, display_paths)
         documents.append(
             document.model_copy(
                 update={
-                    "title": str(output["title"] or document.title),
+                    "title": build_title(document.kind),
                     "desc": str(output["desc"] or document.desc),
-                    "body": str(output["body"] or document.body),
+                    "body": body,
                     "evidence": document.evidence.model_copy(
                         update={
                             "openQuestions": open_questions,
@@ -927,6 +933,63 @@ def _as_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return unique_strings([str(item) for item in value if str(item).strip()])
+
+
+def build_display_paths(
+    selected_paths: list[str],
+    repo_research_payloads: list[dict[str, object]],
+) -> list[str]:
+    display_paths: list[str] = []
+    for raw_path in selected_paths:
+        current = str(raw_path).strip()
+        if not current:
+            continue
+        display_paths.append(format_display_path(current, repo_research_payloads))
+    return unique_strings(display_paths)
+
+
+def format_display_path(path: str, repo_research_payloads: list[dict[str, object]]) -> str:
+    target = Path(path).expanduser()
+    try:
+        resolved = target.resolve()
+    except OSError:
+        resolved = target
+
+    best_match: tuple[int, str] | None = None
+    for item in repo_research_payloads:
+        repo_path = str(item.get("repo_path") or "").strip()
+        repo_id = str(item.get("repo_id") or "").strip() or "repo"
+        if not repo_path:
+            continue
+        repo_root = Path(repo_path).expanduser()
+        try:
+            relative = resolved.relative_to(repo_root.resolve())
+        except (OSError, ValueError):
+            continue
+        rendered = f"{repo_id}:/" if str(relative) == "." else f"{repo_id}/{relative.as_posix()}"
+        score = len(repo_root.as_posix())
+        if best_match is None or score > best_match[0]:
+            best_match = (score, rendered)
+    if best_match is not None:
+        return best_match[1]
+    return resolved.name or path
+
+
+def normalize_selected_paths_section(body: str, display_paths: list[str]) -> str:
+    marker = "## Selected Paths"
+    next_marker = "\n## "
+    if marker not in body:
+        return body
+    start = body.find(marker)
+    content_start = body.find("\n\n", start)
+    if content_start == -1:
+        return body
+    content_start += 2
+    next_section = body.find(next_marker, content_start)
+    if next_section == -1:
+        next_section = len(body)
+    rendered_paths = "\n".join(f"- `{path}`" for path in display_paths) if display_paths else "- 待补充"
+    return body[:content_start] + rendered_paths + body[next_section:]
 
 
 def infer_domain_name(description: str) -> str:
