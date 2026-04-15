@@ -49,6 +49,8 @@ def build_task_detail(
         updated_at=_optional_str(metadata.get("updated_at")),
         source_type=_optional_str(metadata.get("source_type") or source_meta.get("type")),
         source_value=_optional_str(metadata.get("source_value")),
+        source_fetch_error=_optional_str(source_meta.get("fetch_error")),
+        source_fetch_error_code=_optional_str(source_meta.get("fetch_error_code")),
         repo_count=int(metadata.get("repo_count") or len(repos)),
         task_dir=str(task_dir),
         source_label=source_label,

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from coco_flow.config import Settings
-from coco_flow.services.task_refine import refine_task
+from coco_flow.services.tasks.refine import refine_task
 
 
 def make_settings(root: Path) -> Settings:
@@ -84,6 +84,8 @@ class RefineTaskTest(unittest.TestCase):
             refined = (task_dir / "prd-refined.md").read_text()
             self.assertIn("状态：待补充源内容", refined)
             self.assertIn("lark-cli 不可用", refined)
+            self.assertIn("npm install -g @larksuite/cli", refined)
+            self.assertIn("lark-cli auth login --recommend", refined)
             task_meta = json.loads((task_dir / "task.json").read_text())
             self.assertEqual(task_meta["status"], "initialized")
 
