@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { knowledgeRepoOptions } from '../../knowledge/mock-data'
+import type { RepoCandidate } from '../../api'
+import { KnowledgePathPicker } from './knowledge-path-picker'
 import type { KnowledgeDraftInput, KnowledgeKind } from '../../knowledge/types'
 
 type KnowledgeCreateDrawerProps = {
@@ -13,29 +14,23 @@ const defaultKinds: KnowledgeKind[] = ['flow']
 
 export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: KnowledgeCreateDrawerProps) {
   const [description, setDescription] = useState('')
-  const [selectedRepos, setSelectedRepos] = useState<string[]>(['live_pack', 'live_sdk'])
-  const [manualRepos, setManualRepos] = useState('')
+  const [selectedRepos, setSelectedRepos] = useState<RepoCandidate[]>([])
   const [selectedKinds, setSelectedKinds] = useState<KnowledgeKind[]>(defaultKinds)
   const [notes, setNotes] = useState('')
+  const [showPathPicker, setShowPathPicker] = useState(false)
 
   useEffect(() => {
     if (!open) {
       return
     }
     setDescription('')
-    setSelectedRepos(['live_pack', 'live_sdk'])
-    setManualRepos('')
+    setSelectedRepos([])
     setSelectedKinds(defaultKinds)
     setNotes('')
+    setShowPathPicker(false)
   }, [open])
 
-  const mergedRepos = useMemo(() => {
-    const items = manualRepos
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-    return Array.from(new Set([...selectedRepos, ...items]))
-  }, [manualRepos, selectedRepos])
+  const repoPaths = useMemo(() => selectedRepos.map((repo) => repo.path), [selectedRepos])
 
   if (!open) {
     return null
@@ -70,22 +65,41 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
           </FormBlock>
 
           <FormBlock label="相关 repo">
-            <div className="flex flex-wrap gap-2">
-              {knowledgeRepoOptions.map((repo) => (
-                <ToggleChip
-                  active={selectedRepos.includes(repo)}
-                  key={repo}
-                  label={repo}
-                  onClick={() => toggleRepo(repo, selectedRepos, setSelectedRepos)}
-                />
-              ))}
+            <div className="space-y-2">
+              {selectedRepos.length === 0 ? (
+                <div className="rounded-[16px] border border-dashed border-[#d1cfc5] bg-[#faf9f5] px-4 py-4 text-sm text-[#87867f] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5]">
+                  还没有选择路径。
+                </div>
+              ) : (
+                selectedRepos.map((repo) => (
+                  <div
+                    className="flex items-start justify-between gap-3 rounded-[16px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-3 dark:border-[#30302e] dark:bg-[#1d1c1a]"
+                    key={repo.path}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-[#141413] dark:text-[#faf9f5]">{repo.displayName}</div>
+                      <div className="mt-1 break-all font-mono text-xs leading-5 text-[#87867f] dark:text-[#b0aea5]">{repo.path}</div>
+                    </div>
+                    <button
+                      className="rounded-[12px] border border-[#d1cfc5] bg-[#e8e6dc] px-3 py-1.5 text-xs text-[#4d4c48] transition hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]"
+                      onClick={() => removeRepo(repo.path, selectedRepos, setSelectedRepos)}
+                      type="button"
+                    >
+                      移除
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
-            <textarea
-              className={`${fieldClassName} mt-3 min-h-[88px] resize-y`}
-              onChange={(event) => setManualRepos(event.target.value)}
-              placeholder="补充 repo，逗号分隔"
-              value={manualRepos}
-            />
+            <div className="mt-3 flex justify-end">
+              <button
+                className="rounded-[12px] border border-[#c96442] bg-[#fff7f2] px-4 py-2 text-sm font-semibold text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] transition hover:bg-[#fff0e2] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0] dark:hover:bg-[#4a3129]"
+                onClick={() => setShowPathPicker(true)}
+                type="button"
+              >
+                选择路径
+              </button>
+            </div>
           </FormBlock>
 
           <FormBlock label="生成类型">
@@ -115,7 +129,7 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
             <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">预览</div>
             <div className="mt-3 space-y-2 text-sm text-[#141413] dark:text-[#faf9f5]">
               <div>domain：{description.trim() || '未填写描述'}</div>
-              <div>repo：{mergedRepos.length > 0 ? mergedRepos.join(', ') : '未选择 repo'}</div>
+              <div>repo：{repoPaths.length > 0 ? repoPaths.join(', ') : '未选择路径'}</div>
               <div>生成：{selectedKinds.length > 0 ? selectedKinds.join(', ') : '未选择生成类型'}</div>
             </div>
           </section>
@@ -130,11 +144,11 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
             </button>
             <button
               className="rounded-[12px] border border-[#c96442] bg-[#c96442] px-4 py-2 text-sm font-semibold text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] transition hover:bg-[#d97757] disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!description.trim() || mergedRepos.length === 0 || selectedKinds.length === 0 || creating}
+              disabled={!description.trim() || repoPaths.length === 0 || selectedKinds.length === 0 || creating}
               onClick={() =>
                 onSubmit({
                   description,
-                  repos: mergedRepos,
+                  repos: repoPaths,
                   kinds: selectedKinds,
                   notes,
                 })
@@ -146,6 +160,13 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
           </div>
         </div>
       </div>
+
+      <KnowledgePathPicker
+        onAddPath={(repo) => addRepo(repo, selectedRepos, setSelectedRepos)}
+        onClose={() => setShowPathPicker(false)}
+        open={showPathPicker}
+        selectedPaths={repoPaths}
+      />
     </div>
   )
 }
@@ -183,12 +204,15 @@ function ToggleChip({
   )
 }
 
-function toggleRepo(repo: string, selectedRepos: string[], setSelectedRepos: (value: string[]) => void) {
-  if (selectedRepos.includes(repo)) {
-    setSelectedRepos(selectedRepos.filter((item) => item !== repo))
+function addRepo(repo: RepoCandidate, selectedRepos: RepoCandidate[], setSelectedRepos: (value: RepoCandidate[]) => void) {
+  if (selectedRepos.some((item) => item.path === repo.path)) {
     return
   }
   setSelectedRepos([...selectedRepos, repo])
+}
+
+function removeRepo(path: string, selectedRepos: RepoCandidate[], setSelectedRepos: (value: RepoCandidate[]) => void) {
+  setSelectedRepos(selectedRepos.filter((item) => item.path !== path))
 }
 
 function toggleKind(kind: KnowledgeKind, selectedKinds: KnowledgeKind[], setSelectedKinds: (value: KnowledgeKind[]) => void) {

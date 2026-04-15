@@ -327,10 +327,10 @@ def infer_candidate_files(paths: list[str]) -> list[str]:
 
 def build_draft_title(kind: str, description: str) -> str:
     if kind == "flow":
-        return description if "链路" in description else f"{description}链路"
+        return "系统链路"
     if kind == "rule":
-        return description if "规则" in description else f"{description}业务规则"
-    return description if "概览" in description else f"{infer_domain_name(description)}业务方向概览"
+        return "业务规则"
+    return "业务方向概览"
 
 
 def build_draft_description(kind: str, description: str) -> str:
@@ -397,4 +397,3 @@ def build_open_questions(kind: str, description: str) -> list[str]:
 
 def format_now() -> str:
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
-
