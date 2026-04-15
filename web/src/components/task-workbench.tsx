@@ -332,7 +332,21 @@ export function RepoContextPanel({
         {activeRepo.path}
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      {activeRepo.failureHint ? (
+        <div className="mt-4 rounded-[18px] border border-[#e1c1bf] bg-[#fbf1f0] px-4 py-3 text-sm leading-6 text-[#b53333]">
+          <div className="text-[10px] uppercase tracking-[0.5px] opacity-80">失败摘要</div>
+          <div className="mt-2 font-mono text-xs leading-6">{activeRepo.failureHint}</div>
+          {activeRepo.failureAction ? <div className="mt-2 text-xs leading-5">建议：{activeRepo.failureAction}</div> : null}
+        </div>
+      ) : null}
+
+      <div className="mt-4 text-xs text-[#87867f] dark:text-[#b0aea5]">
+        {activeRepo.filesWritten && activeRepo.filesWritten.length > 0
+          ? `已写入 ${activeRepo.filesWritten.length} 个文件`
+          : '当前还没有写入结果'}
+      </div>
+
+      <div className="mt-auto flex flex-wrap gap-2 pt-4">
         {canStartCode ? (
           <RepoActionButton
             disabled={actionBusy}
@@ -387,20 +401,6 @@ export function RepoContextPanel({
             查看 Diff
           </RepoActionButton>
         ) : null}
-      </div>
-
-      {activeRepo.failureHint ? (
-        <div className="mt-4 rounded-[18px] border border-[#e1c1bf] bg-[#fbf1f0] px-4 py-3 text-sm leading-6 text-[#b53333]">
-          <div className="text-[10px] uppercase tracking-[0.5px] opacity-80">失败摘要</div>
-          <div className="mt-2 font-mono text-xs leading-6">{activeRepo.failureHint}</div>
-          {activeRepo.failureAction ? <div className="mt-2 text-xs leading-5">建议：{activeRepo.failureAction}</div> : null}
-        </div>
-      ) : null}
-
-      <div className="mt-4 text-xs text-[#87867f] dark:text-[#b0aea5]">
-        {activeRepo.filesWritten && activeRepo.filesWritten.length > 0
-          ? `已写入 ${activeRepo.filesWritten.length} 个文件`
-          : '当前还没有写入结果'}
       </div>
     </section>
   )
