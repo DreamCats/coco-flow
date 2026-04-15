@@ -287,6 +287,9 @@ export function RepoContextPanel({
   const canArchiveCode = canArchiveCodeForRepo(activeRepo)
   const hasResult = hasRepoResult(activeRepo)
   const hasDiff = Boolean(activeRepo.diffSummary)
+  const repoSummary = repoWorkbenchSummary(activeRepo)
+  const resultSummary =
+    activeRepo.filesWritten && activeRepo.filesWritten.length > 0 ? `已写入 ${activeRepo.filesWritten.length} 个文件。` : '当前还没有写入结果。'
 
   return (
     <section className="flex h-full flex-col rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
@@ -319,8 +322,6 @@ export function RepoContextPanel({
         </div>
       ) : null}
 
-      <div className="mt-4 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">{repoWorkbenchSummary(activeRepo)}</div>
-
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <MetaTile label="仓库标识" value={activeRepo.id} />
         <MetaTile label="构建结果" value={buildLabel(activeRepo.build)} />
@@ -340,12 +341,6 @@ export function RepoContextPanel({
         </div>
       ) : null}
 
-      <div className="mt-4 text-xs text-[#87867f] dark:text-[#b0aea5]">
-        {activeRepo.filesWritten && activeRepo.filesWritten.length > 0
-          ? `已写入 ${activeRepo.filesWritten.length} 个文件`
-          : '当前还没有写入结果'}
-      </div>
-
       <div className="mt-auto flex flex-wrap gap-2 pt-4">
         {canStartCode ? (
           <RepoActionButton
@@ -353,8 +348,8 @@ export function RepoContextPanel({
             onClick={() => void onStartCode(activeRepo.id)}
             title={
               activeRepo.status === 'failed'
-                ? '会在这个仓库重试实现，重新生成改动并再次执行构建验证。'
-                : '会在这个仓库创建隔离工作区，生成改动并尝试完成构建验证。'
+                ? `${repoSummary} ${resultSummary} 会在这个仓库重试实现，重新生成改动并再次执行构建验证。`
+                : `${repoSummary} ${resultSummary} 会在这个仓库创建隔离工作区，生成改动并尝试完成构建验证。`
             }
             tone="brand"
           >
@@ -365,7 +360,7 @@ export function RepoContextPanel({
           <RepoActionButton
             disabled={actionBusy}
             onClick={() => void onReset(activeRepo.id)}
-            title="会删除这个仓库本次生成的分支、worktree、diff 与结果记录。"
+            title={`${repoSummary} ${resultSummary} 会删除这个仓库本次生成的分支、worktree、diff 与结果记录。`}
             tone="danger"
           >
             {resettingRepo === activeRepo.id ? '回退中...' : '回退实现'}
@@ -375,7 +370,7 @@ export function RepoContextPanel({
           <RepoActionButton
             disabled={actionBusy}
             onClick={() => void onArchive(activeRepo.id)}
-            title="会清理这个仓库的分支和工作区，并把结果保留下来供后续查看。"
+            title={`${repoSummary} ${resultSummary} 会清理这个仓库的分支和工作区，并把结果保留下来供后续查看。`}
             tone="neutral"
           >
             {archivingRepo === activeRepo.id ? '归档中...' : '归档任务'}
@@ -385,7 +380,7 @@ export function RepoContextPanel({
           <RepoActionButton
             disabled={false}
             onClick={() => onReviewResult(activeRepo.id)}
-            title="打开结果面板，查看这个仓库的 code-result.json。"
+            title={`${repoSummary} ${resultSummary} 打开结果面板，查看这个仓库的 code-result.json。`}
             tone="neutral"
           >
             查看结果
@@ -395,7 +390,7 @@ export function RepoContextPanel({
           <RepoActionButton
             disabled={false}
             onClick={() => onReviewDiff(activeRepo.id)}
-            title="切换到 Diff 面板，查看这个仓库的改动详情。"
+            title={`${repoSummary} ${resultSummary} 切换到 Diff 面板，查看这个仓库的改动详情。`}
             tone="neutral"
           >
             查看 Diff
