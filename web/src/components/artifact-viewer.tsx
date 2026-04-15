@@ -98,7 +98,7 @@ export function ArtifactViewer({
           正在后台运行，内容会随轮询自动刷新。最近同步 {lastRefreshedAt || '--:--:--'}。
         </div>
       ) : null}
-      <div className="max-h-[520px] overflow-auto px-4 py-4">
+      <div className="h-[520px] overflow-auto px-4 py-4 lg:h-[640px]">
         {isLog || isPatch ? (
           <LogArtifact content={normalized} />
         ) : isJSON ? (
