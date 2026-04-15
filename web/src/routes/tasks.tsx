@@ -682,7 +682,7 @@ export function TaskDetailPage() {
           </div>
         </div>
         <div className="px-5 py-5">
-          <div className="grid gap-5 lg:items-start lg:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
+          <div className="grid gap-5 lg:items-stretch lg:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
             <TaskPrimaryAction
               actionBusy={actionBusy}
               actionError={actionError}

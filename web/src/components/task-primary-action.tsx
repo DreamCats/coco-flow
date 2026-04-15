@@ -57,7 +57,7 @@ export function TaskPrimaryAction({
   const dominantFailure = summarizeFailureType(task)
 
   return (
-    <section className="rounded-[20px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+    <section className="flex h-full flex-col rounded-[20px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
       <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">主行动区</div>
       <div className="mt-3 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{primaryHeadline(task)}</div>
       <p className="mt-3 max-w-[42rem] text-[15px] leading-7 text-[#5e5d59] dark:text-[#b0aea5]">{primaryNarrative(task)}</p>
@@ -95,57 +95,41 @@ export function TaskPrimaryAction({
       ) : null}
       {actionError ? <NoticeBox tone="rose">{actionError}</NoticeBox> : null}
 
-      <div className="mt-5 flex flex-wrap gap-3">
+      <div className="mt-5 flex flex-wrap items-center gap-3 lg:mt-auto lg:pt-5">
         {canStartRemainingCode ? (
-          <>
-            <PrimaryButton disabled={actionBusy} onClick={onStartRemainingCode}>
-              {batchCodeStarting ? '批量推进中...' : `依次推进剩余仓库 (${remainingReposCount})`}
-            </PrimaryButton>
-            <InlineHint>会按仓库顺序逐个执行，某个仓库失败后立即停止。</InlineHint>
-          </>
+          <PrimaryButton disabled={actionBusy} onClick={onStartRemainingCode} title="会按仓库顺序逐个执行，某个仓库失败后立即停止。">
+            {batchCodeStarting ? '批量推进中...' : `依次推进剩余仓库 (${remainingReposCount})`}
+          </PrimaryButton>
         ) : null}
 
         {canStartCode ? (
-          <>
-            <PrimaryButton disabled={actionBusy} onClick={onStartCode}>
-              {codeStarting ? '实现进行中...' : codeActionLabel}
-            </PrimaryButton>
-            <InlineHint>会创建隔离工作区、生成改动并尝试完成构建验证。</InlineHint>
-          </>
+          <PrimaryButton disabled={actionBusy} onClick={onStartCode} title="会创建隔离工作区，生成改动并尝试完成构建验证。">
+            {codeStarting ? '实现进行中...' : codeActionLabel}
+          </PrimaryButton>
         ) : null}
 
         {canResetCode ? (
-          <>
-            <SecondaryButton disabled={actionBusy} onClick={onReset} tone="rose">
-              {resetting ? '回退中...' : '回退实现'}
-            </SecondaryButton>
-            <InlineHint>会删除本次生成的分支、worktree、diff 与结果记录。</InlineHint>
-          </>
+          <SecondaryButton disabled={actionBusy} onClick={onReset} title="会删除本次生成的分支、worktree、diff 与结果记录。" tone="rose">
+            {resetting ? '回退中...' : '回退实现'}
+          </SecondaryButton>
         ) : null}
 
         {canArchiveCode ? (
-          <>
-            <SecondaryButton disabled={actionBusy} onClick={onArchive} tone="sky">
-              {archiving ? '归档中...' : '归档任务'}
-            </SecondaryButton>
-            <InlineHint>会清理分支和工作区，并把任务标记为已归档。</InlineHint>
-          </>
+          <SecondaryButton disabled={actionBusy} onClick={onArchive} title="会清理分支和工作区，并把任务标记为已归档。" tone="sky">
+            {archiving ? '归档中...' : '归档任务'}
+          </SecondaryButton>
         ) : null}
 
         {canStartPlan ? (
-          <>
-            <SecondaryButton disabled={actionBusy} onClick={onStartPlan} tone="neutral">
-              {planStarting ? '方案生成中...' : planActionLabel}
-            </SecondaryButton>
-            <InlineHint>
-              {task.status === 'planned' ? '会重新分析代码，并覆盖 `design.md` / `plan.md`。' : '会在后台生成 `design.md` / `plan.md`。'}
-            </InlineHint>
-          </>
+          <SecondaryButton
+            disabled={actionBusy}
+            onClick={onStartPlan}
+            title={task.status === 'planned' ? '会重新分析代码，并覆盖 design.md / plan.md。' : '会在后台生成 design.md / plan.md。'}
+            tone="neutral"
+          >
+            {planStarting ? '方案生成中...' : planActionLabel}
+          </SecondaryButton>
         ) : null}
-      </div>
-
-      <div className="mt-5 rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 font-mono text-sm text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#1a1918] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
-        {task.nextAction}
       </div>
     </section>
   )
@@ -183,16 +167,19 @@ function PrimaryButton({
   children,
   disabled,
   onClick,
+  title,
 }: {
   children: string
   disabled?: boolean
   onClick: () => void
+  title?: string
 }) {
   return (
     <button
       className="rounded-[12px] border border-[#c96442] bg-[#c96442] px-4 py-3 text-sm text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] transition hover:bg-[#d97757] disabled:cursor-not-allowed disabled:opacity-60"
       disabled={disabled}
       onClick={onClick}
+      title={title}
       type="button"
     >
       {children}
@@ -205,11 +192,13 @@ function SecondaryButton({
   disabled,
   onClick,
   tone,
+  title,
 }: {
   children: string
   disabled?: boolean
   onClick: () => void
   tone: 'neutral' | 'rose' | 'sky'
+  title?: string
 }) {
   const toneClass =
     tone === 'rose'
@@ -223,15 +212,12 @@ function SecondaryButton({
       className={`rounded-[20px] border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${toneClass}`}
       disabled={disabled}
       onClick={onClick}
+      title={title}
       type="button"
     >
       {children}
     </button>
   )
-}
-
-function InlineHint({ children }: { children: string }) {
-  return <span className="self-center text-xs text-[#87867f] dark:text-[#b0aea5]">{children}</span>
 }
 
 function RunningStatusCard({

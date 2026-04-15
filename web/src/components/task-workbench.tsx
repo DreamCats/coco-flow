@@ -289,7 +289,7 @@ export function RepoContextPanel({
   const hasDiff = Boolean(activeRepo.diffSummary)
 
   return (
-    <section className="rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+    <section className="flex h-full flex-col rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">仓库上下文</div>
@@ -334,27 +334,56 @@ export function RepoContextPanel({
 
       <div className="mt-4 flex flex-wrap gap-2">
         {canStartCode ? (
-          <RepoActionButton disabled={actionBusy} onClick={() => void onStartCode(activeRepo.id)} tone="brand">
+          <RepoActionButton
+            disabled={actionBusy}
+            onClick={() => void onStartCode(activeRepo.id)}
+            title={
+              activeRepo.status === 'failed'
+                ? '会在这个仓库重试实现，重新生成改动并再次执行构建验证。'
+                : '会在这个仓库创建隔离工作区，生成改动并尝试完成构建验证。'
+            }
+            tone="brand"
+          >
             {codeStartingRepo === activeRepo.id ? '实现进行中...' : activeRepo.status === 'failed' ? '重试实现' : '开始实现'}
           </RepoActionButton>
         ) : null}
         {canResetCode ? (
-          <RepoActionButton disabled={actionBusy} onClick={() => void onReset(activeRepo.id)} tone="danger">
+          <RepoActionButton
+            disabled={actionBusy}
+            onClick={() => void onReset(activeRepo.id)}
+            title="会删除这个仓库本次生成的分支、worktree、diff 与结果记录。"
+            tone="danger"
+          >
             {resettingRepo === activeRepo.id ? '回退中...' : '回退实现'}
           </RepoActionButton>
         ) : null}
         {canArchiveCode ? (
-          <RepoActionButton disabled={actionBusy} onClick={() => void onArchive(activeRepo.id)} tone="neutral">
+          <RepoActionButton
+            disabled={actionBusy}
+            onClick={() => void onArchive(activeRepo.id)}
+            title="会清理这个仓库的分支和工作区，并把结果保留下来供后续查看。"
+            tone="neutral"
+          >
             {archivingRepo === activeRepo.id ? '归档中...' : '归档任务'}
           </RepoActionButton>
         ) : null}
         {hasResult ? (
-          <RepoActionButton disabled={false} onClick={() => onReviewResult(activeRepo.id)} tone="neutral">
+          <RepoActionButton
+            disabled={false}
+            onClick={() => onReviewResult(activeRepo.id)}
+            title="打开结果面板，查看这个仓库的 code-result.json。"
+            tone="neutral"
+          >
             查看结果
           </RepoActionButton>
         ) : null}
         {hasDiff ? (
-          <RepoActionButton disabled={false} onClick={() => onReviewDiff(activeRepo.id)} tone="neutral">
+          <RepoActionButton
+            disabled={false}
+            onClick={() => onReviewDiff(activeRepo.id)}
+            title="切换到 Diff 面板，查看这个仓库的改动详情。"
+            tone="neutral"
+          >
             查看 Diff
           </RepoActionButton>
         ) : null}
@@ -399,11 +428,13 @@ function RepoActionButton({
   disabled,
   onClick,
   tone,
+  title,
 }: {
   children: string
   disabled?: boolean
   onClick: () => void
   tone: 'brand' | 'danger' | 'neutral'
+  title?: string
 }) {
   const toneClass =
     tone === 'brand'
@@ -417,6 +448,7 @@ function RepoActionButton({
       className={`rounded-[12px] border px-4 py-2.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${toneClass}`}
       disabled={disabled}
       onClick={onClick}
+      title={title}
       type="button"
     >
       {children}
