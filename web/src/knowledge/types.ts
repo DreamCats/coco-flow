@@ -17,6 +17,7 @@ export type KnowledgeEvidence = {
 
 export type KnowledgeDocument = {
   id: string
+  traceId: string
   kind: KnowledgeKind
   status: KnowledgeStatus
   title: string
@@ -37,7 +38,22 @@ export type KnowledgeDocument = {
 
 export type KnowledgeDraftInput = {
   description: string
+  selected_paths?: string[]
   repos: string[]
   kinds: KnowledgeKind[]
   notes: string
+}
+
+export type KnowledgeGenerationJob = {
+  job_id: string
+  status: string
+  progress: number
+  stage_label: string
+  message: string
+  created_at: string
+  updated_at: string
+  trace_id: string
+  document_ids: string[]
+  open_questions: string[]
+  error: string
 }

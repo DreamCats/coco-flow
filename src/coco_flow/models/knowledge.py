@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 class KnowledgeEvidence(BaseModel):
@@ -16,6 +16,7 @@ class KnowledgeEvidence(BaseModel):
 
 class KnowledgeDocument(BaseModel):
     id: str
+    traceId: str = ""
     kind: str
     status: str
     title: str
@@ -38,15 +39,48 @@ class KnowledgeListResponse(BaseModel):
     documents: list[KnowledgeDocument]
 
 
+class KnowledgeTraceResponse(BaseModel):
+    trace_id: str
+    files: list[str]
+    intent: dict[str, object]
+    repo_discovery: dict[str, object]
+    repo_research: dict[str, dict[str, object]]
+    knowledge_draft: dict[str, object]
+    validation: dict[str, object]
+
+
+class KnowledgeGenerationJob(BaseModel):
+    job_id: str
+    status: str
+    progress: int
+    stage_label: str
+    message: str
+    created_at: str
+    updated_at: str
+    trace_id: str = ""
+    document_ids: list[str] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+    error: str = ""
+
+
 class CreateKnowledgeDraftsRequest(BaseModel):
     description: str
-    repos: list[str]
-    kinds: list[str]
+    selected_paths: list[str] = Field(default_factory=list)
+    repos: list[str] = Field(default_factory=list)
+    kinds: list[str] = Field(default_factory=lambda: ["flow"])
     notes: str = ""
+
+    @model_validator(mode="after")
+    def normalize_paths(self) -> "CreateKnowledgeDraftsRequest":
+        if not self.selected_paths and self.repos:
+            self.selected_paths = list(self.repos)
+        if not self.repos and self.selected_paths:
+            self.repos = list(self.selected_paths)
+        return self
 
 
 class CreateKnowledgeDraftsResponse(BaseModel):
-    documents: list[KnowledgeDocument]
+    job: KnowledgeGenerationJob
 
 
 class UpdateKnowledgeDocumentRequest(BaseModel):
@@ -60,4 +94,3 @@ class UpdateKnowledgeDocumentRequest(BaseModel):
     priority: str
     confidence: str
     body: str
-

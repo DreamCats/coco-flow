@@ -148,6 +148,7 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
               onClick={() =>
                 onSubmit({
                   description,
+                  selected_paths: repoPaths,
                   repos: repoPaths,
                   kinds: selectedKinds,
                   notes,

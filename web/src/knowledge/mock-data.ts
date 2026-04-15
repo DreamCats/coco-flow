@@ -5,6 +5,7 @@ export const knowledgeRepoOptions = ['live_pack', 'live_sdk', 'growth_pack', 'au
 export const knowledgeMockDocuments: KnowledgeDocument[] = [
   {
     id: 'flow-auction-explain-card-render',
+    traceId: 'knowledge-20260415-demo1',
     kind: 'flow',
     status: 'draft',
     title: '表达层链路',
@@ -65,6 +66,7 @@ export const knowledgeMockDocuments: KnowledgeDocument[] = [
   },
   {
     id: 'rule-auction-explain-card-defaults',
+    traceId: 'knowledge-20260415-demo2',
     kind: 'rule',
     status: 'draft',
     title: '默认业务规则',
@@ -108,6 +110,7 @@ export const knowledgeMockDocuments: KnowledgeDocument[] = [
   },
   {
     id: 'domain-auction-shopping-bag',
+    traceId: '',
     kind: 'domain',
     status: 'approved',
     title: '业务方向概览',
@@ -212,6 +215,7 @@ function buildDraftDocument({
   const id = `${kind}-${domainId}-${Date.now()}-${sequence}`
   return {
     id,
+    traceId: '',
     kind,
     status: 'draft',
     title: buildDraftTitle(kind, description),

@@ -10,6 +10,7 @@ class Settings:
     config_root: Path
     task_root: Path
     knowledge_root: Path
+    knowledge_executor: str
     refine_executor: str
     plan_executor: str
     code_executor: str
@@ -32,6 +33,7 @@ def load_settings() -> Settings:
     knowledge_root = Path(
         os.getenv("COCO_FLOW_KNOWLEDGE_ROOT", config_root / "knowledge")
     ).expanduser()
+    knowledge_executor = os.getenv("COCO_FLOW_KNOWLEDGE_EXECUTOR", "native").strip() or "native"
     refine_executor = os.getenv("COCO_FLOW_REFINE_EXECUTOR", "native").strip() or "native"
     plan_executor = os.getenv("COCO_FLOW_PLAN_EXECUTOR", "native").strip() or "native"
     code_executor = os.getenv("COCO_FLOW_CODE_EXECUTOR", "native").strip() or "native"
@@ -45,6 +47,7 @@ def load_settings() -> Settings:
         config_root=config_root,
         task_root=task_root,
         knowledge_root=knowledge_root,
+        knowledge_executor=knowledge_executor,
         refine_executor=refine_executor,
         plan_executor=plan_executor,
         code_executor=code_executor,

@@ -3,13 +3,15 @@ import type { KnowledgeConfidence, KnowledgeDocument, KnowledgeEngine, Knowledge
 import { KnowledgeConfidenceBadge, KnowledgeKindBadge, KnowledgeStatusBadge } from './knowledge-badges'
 
 type KnowledgeWorkbenchProps = {
+  creating: boolean
   document: KnowledgeDocument | null
+  onRegenerate: (document: KnowledgeDocument) => void
   onUpdateDocument: (id: string, patch: Partial<KnowledgeDocument>) => void
 }
 
 type WorkbenchTab = 'summary' | 'body' | 'publish'
 
-export function KnowledgeWorkbench({ document, onUpdateDocument }: KnowledgeWorkbenchProps) {
+export function KnowledgeWorkbench({ creating, document, onRegenerate, onUpdateDocument }: KnowledgeWorkbenchProps) {
   const [tab, setTab] = useState<WorkbenchTab>('summary')
 
   if (!document) {
@@ -33,7 +35,17 @@ export function KnowledgeWorkbench({ document, onUpdateDocument }: KnowledgeWork
             <KnowledgeConfidenceBadge confidence={document.confidence} />
           </div>
         </div>
-        <div className="text-sm text-[#87867f] dark:text-[#b0aea5]">先确认 metainfo，再编辑正文和发布状态。</div>
+        <div className="flex flex-col items-end gap-3">
+          <button
+            className="rounded-[12px] border border-[#c96442] bg-[#fff7f2] px-4 py-2 text-sm font-semibold text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] transition hover:bg-[#fff0e2] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0] dark:hover:bg-[#4a3129]"
+            disabled={creating}
+            onClick={() => onRegenerate(document)}
+            type="button"
+          >
+            {creating ? '生成中...' : '重新生成'}
+          </button>
+          <div className="text-sm text-[#87867f] dark:text-[#b0aea5]">先确认 metainfo，再编辑正文和发布状态。</div>
+        </div>
       </div>
 
       <div className="mb-4 rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] p-2 shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
@@ -144,6 +156,7 @@ function BodyTab({
       <section className="space-y-4">
         <MetaCard label="编辑提示" value="第一版先直接编辑 Markdown；后续再拆成结构化 section editor。" />
         <MetaCard label="推荐顺序" value="先确认摘要里的 metainfo，再改正文；正文里不确定的地方继续保留 Open Questions。" />
+        <MetaCard label="open_questions" value={formatList(document.evidence.openQuestions)} />
       </section>
     </div>
   )
@@ -302,6 +315,10 @@ function parseLineList(value: string): string[] {
     .split('\n')
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function formatList(values: string[]): string {
+  return values.length > 0 ? values.join('；') : '无'
 }
 
 const fieldClassName =

@@ -3,7 +3,9 @@ from .knowledge import (
     CreateKnowledgeDraftsResponse,
     KnowledgeDocument,
     KnowledgeEvidence,
+    KnowledgeGenerationJob,
     KnowledgeListResponse,
+    KnowledgeTraceResponse,
     UpdateKnowledgeDocumentRequest,
 )
 from .task import (
@@ -31,7 +33,9 @@ __all__ = [
     "CreateTaskResponse",
     "KnowledgeDocument",
     "KnowledgeEvidence",
+    "KnowledgeGenerationJob",
     "KnowledgeListResponse",
+    "KnowledgeTraceResponse",
     "RepoBinding",
     "TaskActionResponse",
     "TaskDetail",

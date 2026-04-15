@@ -111,15 +111,23 @@ export function KnowledgeSidebar({
           </div>
         ) : (
           orderedDomains.map((domainName) => (
-            <section
-              className="group rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]"
-              key={domainName}
-            >
+            (() => {
+              const domainDocuments = groupedByDomain[domainName]
+              const completedKinds = new Set(domainDocuments.map((document) => document.kind)).size
+              const latestUpdatedAt =
+                domainDocuments
+                  .map((document) => document.updatedAt)
+                  .sort((left, right) => right.localeCompare(left))[0] ?? '-'
+              return (
+                <section
+                  className="group rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]"
+                  key={domainName}
+                >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-[18px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{domainName}</div>
                   <div className="mt-1 text-xs text-[#87867f] dark:text-[#b0aea5]">
-                    {groupedByDomain[domainName].length}/3 已补齐 · 最近更新 {groupedByDomain[domainName][0]?.updatedAt ?? '-'}
+                    {completedKinds}/3 已补齐 · 最近更新 {latestUpdatedAt}
                   </div>
                 </div>
                 <button
@@ -136,6 +144,8 @@ export function KnowledgeSidebar({
                   <TrashIcon />
                 </button>
               </div>
+                )
+              })()}
 
               <div className="mt-3 space-y-2">
                 {showCompletenessSlots
@@ -166,7 +176,9 @@ export function KnowledgeSidebar({
                         />
                       ))}
               </div>
-            </section>
+                </section>
+              )
+            })()
           ))
         )}
       </div>

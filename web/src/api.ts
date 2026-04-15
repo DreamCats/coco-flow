@@ -1,4 +1,4 @@
-import type { KnowledgeDocument, KnowledgeDraftInput } from './knowledge/types'
+import type { KnowledgeDocument, KnowledgeDraftInput, KnowledgeGenerationJob } from './knowledge/types'
 
 export type TaskStatus =
   | 'initialized'
@@ -163,16 +163,33 @@ export async function getKnowledge(documentId: string) {
   return fetchJSON<KnowledgeDocument>(`/api/knowledge/${documentId}`)
 }
 
-export async function createKnowledgeDrafts(input: KnowledgeDraftInput) {
-  const response = await fetch('/api/knowledge/drafts', {
+export async function getKnowledgeGenerationJob(jobId: string) {
+  return fetchJSON<KnowledgeGenerationJob>(`/api/knowledge/jobs/${jobId}`)
+}
+
+export async function retryKnowledgeGenerationJob(jobId: string) {
+  const response = await fetch(`/api/knowledge/jobs/${jobId}/retry`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
   })
   if (!response.ok) {
     throw new Error(await response.text())
   }
-  return response.json() as Promise<{ documents: KnowledgeDocument[] }>
+  return response.json() as Promise<{ job: KnowledgeGenerationJob }>
+}
+
+export async function createKnowledgeDrafts(input: KnowledgeDraftInput) {
+  const response = await fetch('/api/knowledge/drafts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...input,
+      selected_paths: input.selected_paths ?? input.repos,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<{ job: KnowledgeGenerationJob }>
 }
 
 export async function updateKnowledgeDocument(documentId: string, input: Partial<KnowledgeDocument>) {

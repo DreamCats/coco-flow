@@ -32,6 +32,7 @@
 - `POST /api/tasks` 从文本、本地文件或飞书文档创建 task
 - `POST /api/tasks/{task_id}/code-all` 顺序推进剩余 repo
 - `GET /api/tasks/{task_id}/artifact?name=diff.patch&repo=...` / `diff.json` 查看 repo 级 diff artifact
+- `POST /api/knowledge/drafts` 生成 `flow / domain / rule` 知识草稿，并写出 trace 中间产物
 
 默认 task 目录：
 
@@ -45,12 +46,14 @@ uv run coco-flow --help
 
 uv run coco-flow tasks roots
 uv run coco-flow tasks list
+uv run coco-flow knowledge list
 uv run coco-flow prd list
 
 uv run coco-flow prd refine --prd "需求描述"
 uv run coco-flow prd plan --task <task_id>
 uv run coco-flow prd code --task <task_id>
 uv run coco-flow prd run -i "需求描述"
+uv run coco-flow knowledge generate -d "竞拍讲解卡表达层" --path /path/to/repo
 
 uv run coco-flow api serve --host 127.0.0.1 --port 4318
 uv run coco-flow ui serve
@@ -104,6 +107,7 @@ uv run coco-flow ui serve --web-dir /absolute/path/to/dist
 
 ```bash
 export COCO_FLOW_COCO_BIN=/path/to/coco
+export COCO_FLOW_KNOWLEDGE_EXECUTOR=local
 export COCO_FLOW_REFINE_EXECUTOR=local
 export COCO_FLOW_PLAN_EXECUTOR=local
 export COCO_FLOW_CODE_EXECUTOR=local
@@ -112,6 +116,7 @@ export COCO_FLOW_CODE_EXECUTOR=local
 当前行为说明：
 
 - `refine` / `plan` 默认优先 `native`，失败时回退到本地模板
+- `knowledge` 支持 `native / local`；当前 `native` 会提升 repo research 和正文 synthesis，结构化输出失败时会自动回退到 `local`
 - `refine` 支持：
   - 纯文本
   - 本地文件路径
@@ -128,6 +133,13 @@ export COCO_FLOW_CODE_EXECUTOR=local
 - `GET /`
 - `GET /healthz`
 - `GET /api/workspace`
+- `GET /api/knowledge`
+- `GET /api/knowledge/{document_id}`
+- `GET /api/knowledge/jobs/{job_id}`
+- `GET /api/knowledge/traces/{trace_id}`
+- `POST /api/knowledge/drafts`
+- `PUT /api/knowledge/{document_id}`
+- `DELETE /api/knowledge/{document_id}`
 - `GET /api/tasks`
 - `POST /api/tasks`
 - `GET /api/tasks/{task_id}`
@@ -139,6 +151,23 @@ export COCO_FLOW_CODE_EXECUTOR=local
 - `POST /api/tasks/{task_id}/archive`
 - `GET /api/tasks/{task_id}/artifact?name=...`
 - `PUT /api/tasks/{task_id}/artifact?name=...`
+
+## Knowledge Draft
+
+`POST /api/knowledge/drafts` 现在会先启动后台 knowledge generation job，再按
+[`docs/knowledge-generation-engine.md`](docs/knowledge-generation-engine.md)
+的第一阶段实现运行：
+
+- 根据 `description + selected_paths + kinds` 做 intent normalize
+- 对选中路径执行轻量 repo discovery，读取 `AGENTS.md`、`.livecoding/context/`、目录结构和文件名命中
+- repo research 和 knowledge synthesis 通过 `COCO_FLOW_KNOWLEDGE_EXECUTOR` 执行；`native` 分别走 readonly ACP 与 prompt-only synthesis，`local` 保持规则兜底
+- 生成草稿、执行静态校验，并把 trace 写到本地 knowledge 目录
+
+接口返回的是带 `stage/status/progress` 的 job。
+前端或脚本可通过 `GET /api/knowledge/jobs/{job_id}` 轮询进度和最终结果。
+
+为了兼容现有 UI，请求体同时支持新的 `selected_paths` 和旧的 `repos` 字段。
+trace 默认落盘到 `~/.config/coco-flow/knowledge/trace/<trace_id>/`。
 
 ## 目录结构
 
