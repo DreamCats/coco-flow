@@ -86,6 +86,15 @@ class KnowledgeStore:
         write_knowledge_document(self.settings.knowledge_root / KIND_DIRS[updated.kind] / f"{updated.id}.md", updated)
         return updated
 
+    def delete_document(self, document_id: str) -> None:
+        self.ensure_root()
+        for kind in KNOWLEDGE_KIND_ORDER:
+            candidate = self.settings.knowledge_root / KIND_DIRS[kind] / f"{document_id}.md"
+            if candidate.is_file():
+                candidate.unlink()
+                return
+        raise ValueError(f"knowledge document not found: {document_id}")
+
 
 def read_knowledge_document(path: Path) -> KnowledgeDocument:
     content = path.read_text(encoding="utf-8")

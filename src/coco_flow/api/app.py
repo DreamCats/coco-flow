@@ -114,6 +114,14 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
+    @app.delete("/api/knowledge/{document_id}", response_model=TaskActionResponse)
+    def delete_knowledge_document(document_id: str) -> TaskActionResponse:
+        try:
+            knowledge_store.delete_document(document_id)
+            return TaskActionResponse(task_id=document_id, status="deleted")
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
     @app.post("/api/tasks", response_model=CreateTaskResponse, status_code=202)
     def create_task_handler(payload: CreateTaskRequest) -> CreateTaskResponse:
         try:

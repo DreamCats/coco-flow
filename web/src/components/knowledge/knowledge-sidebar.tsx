@@ -17,6 +17,8 @@ type KnowledgeSidebarProps = {
   onStatusFilterChange: (value: KnowledgeStatus | 'all') => void
   domainFilter: string
   onDomainFilterChange: (value: string) => void
+  onDeleteDomain: (domainName: string, documents: KnowledgeDocument[]) => void
+  onDeleteDocument: (document: KnowledgeDocument) => void
   onSelectDocument: (id: string) => void
   onOpenCreate: () => void
 }
@@ -30,6 +32,8 @@ export function KnowledgeSidebar({
   onStatusFilterChange,
   domainFilter,
   onDomainFilterChange,
+  onDeleteDomain,
+  onDeleteDocument,
   onSelectDocument,
   onOpenCreate,
 }: KnowledgeSidebarProps) {
@@ -108,7 +112,7 @@ export function KnowledgeSidebar({
         ) : (
           orderedDomains.map((domainName) => (
             <section
-              className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]"
+              className="group rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]"
               key={domainName}
             >
               <div className="flex items-start justify-between gap-3">
@@ -118,6 +122,19 @@ export function KnowledgeSidebar({
                     {groupedByDomain[domainName].length}/3 已补齐 · 最近更新 {groupedByDomain[domainName][0]?.updatedAt ?? '-'}
                   </div>
                 </div>
+                <button
+                  aria-label={`删除领域 ${domainName}`}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-[#e1c1bf] bg-[#fbf1f0] text-[#b53333] opacity-0 transition hover:bg-[#f7e6e4] group-hover:opacity-100 focus:opacity-100 dark:border-[#7a3b3b] dark:bg-[#362020] dark:text-[#efb3b3] dark:hover:bg-[#442626]"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onDeleteDomain(domainName, groupedByDomain[domainName])
+                  }}
+                  title="删除整个领域卡片"
+                  type="button"
+                >
+                  <TrashIcon />
+                </button>
               </div>
 
               <div className="mt-3 space-y-2">
@@ -131,6 +148,7 @@ export function KnowledgeSidebar({
                         <KnowledgeRow
                           document={document}
                           key={document.id}
+                          onDelete={onDeleteDocument}
                           selected={document.id === selectedDocumentId}
                           onSelect={onSelectDocument}
                         />
@@ -142,6 +160,7 @@ export function KnowledgeSidebar({
                         <KnowledgeRow
                           document={document}
                           key={document.id}
+                          onDelete={onDeleteDocument}
                           selected={document.id === selectedDocumentId}
                           onSelect={onSelectDocument}
                         />
@@ -157,16 +176,18 @@ export function KnowledgeSidebar({
 
 function KnowledgeRow({
   document,
+  onDelete,
   selected,
   onSelect,
 }: {
   document: KnowledgeDocument
+  onDelete: (document: KnowledgeDocument) => void
   selected: boolean
   onSelect: (id: string) => void
 }) {
   return (
     <button
-      className={`w-full rounded-[16px] border px-3 py-3 text-left transition ${
+      className={`group w-full rounded-[16px] border px-3 py-3 text-left transition ${
         selected
           ? 'border-[#c96442] bg-[#fff7f2] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620]'
           : 'border-[#e8e6dc] bg-[#faf9f5] hover:border-[#d1cfc5] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:hover:border-[#3a3937]'
@@ -178,9 +199,22 @@ function KnowledgeRow({
         <div className="min-w-0">
           <div className="text-sm font-semibold text-[#141413] dark:text-[#faf9f5]">{document.title}</div>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <KnowledgeKindBadge kind={document.kind} />
           <KnowledgeStatusBadge status={document.status} />
+          <button
+            aria-label={`删除知识 ${document.title}`}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-[#e1c1bf] bg-[#fbf1f0] text-[#b53333] opacity-0 transition hover:bg-[#f7e6e4] group-hover:opacity-100 focus:opacity-100 dark:border-[#7a3b3b] dark:bg-[#362020] dark:text-[#efb3b3] dark:hover:bg-[#442626]"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              onDelete(document)
+            }}
+            title="删除知识卡片"
+            type="button"
+          >
+            <TrashIcon />
+          </button>
         </div>
       </div>
       <div className="mt-2 text-xs text-[#87867f] dark:text-[#b0aea5]">{document.updatedAt}</div>
@@ -217,6 +251,14 @@ function PlusIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
       <path d="M8 3.333v9.334M3.333 8h9.334" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M5 7h14M10 11v6M14 11v6M9 4h6l1 2H8l1-2zm-1 3h8l-.7 11a2 2 0 0 1-2 2H10.7a2 2 0 0 1-2-2L8 7z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
     </svg>
   )
 }

@@ -198,6 +198,16 @@ export async function updateKnowledgeDocument(documentId: string, input: Partial
   return response.json() as Promise<KnowledgeDocument>
 }
 
+export async function deleteKnowledgeDocument(documentId: string) {
+  const response = await fetch(`/api/knowledge/${documentId}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
+}
+
 export async function createTask(input: CreateTaskRequest) {
   const response = await fetch('/api/tasks', {
     method: 'POST',
