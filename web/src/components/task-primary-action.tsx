@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { TaskRecord } from '../api'
 
 export function TaskPrimaryAction({
@@ -54,6 +55,7 @@ export function TaskPrimaryAction({
   const failedCount = task.repos.filter((repo) => repo.status === 'failed').length
   const runningCount = task.repos.filter((repo) => repo.status === 'coding').length
   const pendingRefine = isPendingRefineTask(task)
+  const missingLarkCli = pendingRefine && task.sourceFetchErrorCode === 'missing_lark_cli'
   const dominantFailure = summarizeFailureType(task)
 
   return (
@@ -76,6 +78,10 @@ export function TaskPrimaryAction({
             ? '飞书正文尚未拉取成功。请先补充 `prd.source.md` 的正文，再重新执行 refine。'
             : '需求正在整理中。若停留时间过长，可先查看 `refine.log`。'}
         </NoticeBox>
+      ) : null}
+      {missingLarkCli ? <LarkCliSetupCard /> : null}
+      {pendingRefine && task.sourceFetchError && !missingLarkCli ? (
+        <NoticeBox tone="amber">当前飞书正文拉取失败：{task.sourceFetchError}</NoticeBox>
       ) : null}
       {task.status === 'planning' ? (
         <NoticeBox tone="sky">正在分析代码并生成方案。若停留时间过长，可先查看 `plan.log`。</NoticeBox>
@@ -148,7 +154,7 @@ function NoticeBox({
   children,
   tone,
 }: {
-  children: string
+  children: ReactNode
   tone: 'amber' | 'emerald' | 'rose' | 'sky'
 }) {
   const toneClass =
@@ -161,6 +167,29 @@ function NoticeBox({
           : 'mt-4 rounded-[18px] border border-[#ccd6c8] bg-[#f3f7f1] px-4 py-3 text-sm leading-6 text-[#4a6b4a]'
 
   return <div className={toneClass}>{children}</div>
+}
+
+function LarkCliSetupCard() {
+  return (
+    <div className="mt-4 rounded-[18px] border border-[#d9c9a7] bg-[#fff7e8] px-4 py-4 text-sm leading-6 text-[#7a5b18]">
+      <div className="text-[10px] uppercase tracking-[0.5px] opacity-80">缺少依赖</div>
+      <div className="mt-2">检测到当前环境未安装 `lark-cli`。先完成安装和登录，再重新执行 refine。</div>
+      <pre className="mt-3 overflow-x-auto rounded-[14px] border border-[#e7d7b2] bg-[#fffaf0] px-3 py-3 font-mono text-xs leading-6 text-[#7a5b18]">
+        <code>{`npm install -g @larksuite/cli
+npx skills add larksuite/cli -y -g
+lark-cli config init
+lark-cli auth login --recommend`}</code>
+      </pre>
+      <a
+        className="mt-3 inline-flex text-xs underline underline-offset-2 hover:text-[#5f4514]"
+        href="https://github.com/larksuite/cli"
+        rel="noreferrer"
+        target="_blank"
+      >
+        查看安装说明
+      </a>
+    </div>
+  )
 }
 
 function PrimaryButton({

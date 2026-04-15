@@ -69,6 +69,8 @@ export type TaskRecord = {
   title: string
   status: TaskStatus
   sourceType: SourceType
+  sourceFetchError: string
+  sourceFetchErrorCode: string
   updatedAt: string
   owner: string
   complexity: string

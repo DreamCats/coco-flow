@@ -55,6 +55,8 @@ class TaskDetail(BaseModel):
     updated_at: str | None = None
     source_type: str | None = None
     source_value: str | None = None
+    source_fetch_error: str | None = None
+    source_fetch_error_code: str | None = None
     repo_count: int = 0
     task_dir: str
     source_label: str

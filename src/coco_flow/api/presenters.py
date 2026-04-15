@@ -37,6 +37,8 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
         "title": detail.title,
         "status": detail.status,
         "sourceType": detail.source_type or "text",
+        "sourceFetchError": detail.source_fetch_error or "",
+        "sourceFetchErrorCode": detail.source_fetch_error_code or "",
         "updatedAt": format_timestamp(detail.updated_at or detail.created_at),
         "owner": "local",
         "complexity": read_task_complexity(Path(detail.task_dir)),

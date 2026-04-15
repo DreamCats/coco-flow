@@ -14,6 +14,7 @@ from coco_flow.engines.business_memory import (
     render_business_memory_context,
 )
 from coco_flow.services.queries.task_detail import read_json_file
+from coco_flow.services.tasks.create import classify_source_fetch_error
 
 STATUS_INITIALIZED = "initialized"
 STATUS_REFINED = "refined"
@@ -86,6 +87,7 @@ def refine_task_pending(
         source_url=str(source_meta.get("url") or ""),
         doc_token=str(source_meta.get("doc_token") or ""),
         fetch_error=str(source_meta.get("fetch_error") or ""),
+        fetch_error_code=str(source_meta.get("fetch_error_code") or ""),
     )
     on_log("pending_refine: true")
     if source_meta.get("fetch_error"):
@@ -229,8 +231,32 @@ def build_fallback_refined_content(title: str, source_content: str, memory: Busi
     )
 
 
-def build_pending_refined_content(task_id: str, title: str, source_url: str, doc_token: str, fetch_error: str) -> str:
+def build_pending_refined_content(
+    task_id: str,
+    title: str,
+    source_url: str,
+    doc_token: str,
+    fetch_error: str,
+    fetch_error_code: str = "",
+) -> str:
     reason = fetch_error or "当前未成功拉取飞书文档正文。"
+    reason_code = fetch_error_code or classify_source_fetch_error(reason)
+    install_guide = (
+        "## 安装 lark-cli\n\n"
+        "检测到当前环境缺少 `lark-cli`。请先按下面步骤安装并登录，再重新执行 refine。\n\n"
+        "```bash\n"
+        "# Install CLI\n"
+        "npm install -g @larksuite/cli\n\n"
+        "# Install CLI SKILL (required)\n"
+        "npx skills add larksuite/cli -y -g\n\n"
+        "# Configure & login\n"
+        "lark-cli config init\n"
+        "lark-cli auth login --recommend\n"
+        "```\n\n"
+        "- 文档：[larksuite/cli](https://github.com/larksuite/cli)\n\n"
+        if reason_code == "missing_lark_cli"
+        else ""
+    )
     return (
         "# PRD Refined\n\n"
         "> 状态：待补充源内容\n"
@@ -243,7 +269,9 @@ def build_pending_refined_content(task_id: str, title: str, source_url: str, doc
         f"- 标题：{title}\n"
         f"- 飞书链接：{source_url or 'unknown'}\n"
         f"- doc token：{doc_token or 'unknown'}\n"
-        f"- 拉取失败原因：{reason}\n\n"
+        f"- 拉取失败原因：{reason}\n"
+        f"- 错误码：{reason_code or 'unknown'}\n\n"
+        f"{install_guide}"
         "## 待确认问题\n\n"
         "- 需要补充 PRD 正文后，才能继续做结构化 refine。\n"
     )

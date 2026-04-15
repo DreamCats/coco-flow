@@ -34,6 +34,7 @@ class ResolvedSource:
     url: str = ""
     doc_token: str = ""
     fetch_error: str = ""
+    fetch_error_code: str = ""
 
 
 def create_task(
@@ -84,6 +85,8 @@ def create_task(
         source_payload["doc_token"] = resolved_source.doc_token
     if resolved_source.fetch_error:
         source_payload["fetch_error"] = resolved_source.fetch_error
+    if resolved_source.fetch_error_code:
+        source_payload["fetch_error_code"] = resolved_source.fetch_error_code
     write_json(task_dir / "source.json", source_payload)
     write_json(
         task_dir / "repos.json",
@@ -145,6 +148,7 @@ def resolve_source(raw_input: str, explicit_title: str | None) -> ResolvedSource
             doc_token = extract_raw_lark_token(raw_input)
             content = ""
             fetch_error = ""
+            fetch_error_code = ""
             try:
                 doc_token, inferred_title = resolve_lark_doc_token(raw_input)
                 content, fetched_title = fetch_lark_doc_markdown(doc_token)
@@ -152,6 +156,7 @@ def resolve_source(raw_input: str, explicit_title: str | None) -> ResolvedSource
                     inferred_title = fetched_title
             except ValueError as error:
                 fetch_error = str(error)
+                fetch_error_code = classify_source_fetch_error(fetch_error)
             title = normalize_title(explicit_title, inferred_title or infer_title_from_url(raw_input) or "未命名需求")
             return ResolvedSource(
                 source_type=SOURCE_TYPE_LARK_DOC,
@@ -161,6 +166,7 @@ def resolve_source(raw_input: str, explicit_title: str | None) -> ResolvedSource
                 url=raw_input,
                 doc_token=doc_token,
                 fetch_error=fetch_error,
+                fetch_error_code=fetch_error_code,
             )
 
     title = normalize_title(explicit_title, raw_input)
@@ -209,6 +215,13 @@ def infer_title_from_url(raw_input: str) -> str:
 def ensure_lark_cli() -> None:
     if shutil.which("lark-cli") is None:
         raise ValueError("lark-cli 不可用，请先安装并完成登录")
+
+
+def classify_source_fetch_error(message: str) -> str:
+    normalized = message.strip().lower()
+    if "lark-cli" in normalized and "不可用" in message:
+        return "missing_lark_cli"
+    return ""
 
 
 def resolve_lark_doc_token(raw_url: str) -> tuple[str, str]:
@@ -307,6 +320,8 @@ def build_source_markdown(source: ResolvedSource, now: datetime) -> str:
         lines.append(f"- doc_token: {source.doc_token}")
     if source.fetch_error:
         lines.append(f"- fetch_error: {source.fetch_error}")
+    if source.fetch_error_code:
+        lines.append(f"- fetch_error_code: {source.fetch_error_code}")
     lines.extend(
         [
             f"- captured_at: {now.isoformat()}",
