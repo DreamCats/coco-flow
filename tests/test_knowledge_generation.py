@@ -14,6 +14,7 @@ from coco_flow.config import Settings
 from coco_flow.models.knowledge import CreateKnowledgeDraftsRequest
 from coco_flow.services.knowledge.background import get_generation_job, retry_background_generation, start_background_generation
 from coco_flow.services.knowledge import KnowledgeDraftInput
+from coco_flow.services.knowledge.generation import soften_weak_claims, unique_questions
 from coco_flow.services.queries.knowledge import KnowledgeStore
 
 
@@ -41,6 +42,26 @@ def make_settings(root: Path, knowledge_executor: str = "local") -> Settings:
 
 
 class KnowledgeGenerationTest(unittest.TestCase):
+    def test_question_dedupe_and_soften_helpers(self) -> None:
+        questions = unique_questions(
+            [
+                "Launch/Deactivate 动作对应的具体 API 子路径是什么？",
+                "Launch/Deactivate 动作对应的具体 API 子路径是什么?",
+                "是否以 `biz/service/flash_sale` 为第一跳入口目录。",
+                "是否以 biz/service/flash_sale 为第一跳入口目录。",
+            ]
+        )
+        self.assertEqual(
+            questions,
+            [
+                "Launch/Deactivate 动作对应的具体 API 子路径是什么？",
+                "是否以 `biz/service/flash_sale` 为第一跳入口目录。",
+            ],
+        )
+        softened = soften_weak_claims("涉及分布式事务场景时，`live-promotion-api` 的 `infra/tcc` 模块可能参与处理。")
+        self.assertIn("当前线索显示", softened)
+        self.assertIn("仍需进一步确认", softened)
+
     def test_create_drafts_writes_documents_and_trace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -67,6 +88,7 @@ class KnowledgeGenerationTest(unittest.TestCase):
             store = KnowledgeStore(settings)
             result = store.create_drafts(
                 KnowledgeDraftInput(
+                    title="竞拍讲解卡表达层",
                     description="竞拍讲解卡表达层",
                     selected_paths=[str(repo_root)],
                     kinds=["flow"],
@@ -78,6 +100,7 @@ class KnowledgeGenerationTest(unittest.TestCase):
             self.assertEqual(result.documents[0].kind, "flow")
             self.assertTrue(result.trace_id.startswith("knowledge-"))
             self.assertEqual(result.documents[0].traceId, result.trace_id)
+            self.assertEqual(result.documents[0].evidence.inputTitle, "竞拍讲解卡表达层")
 
             flow_path = settings.knowledge_root / "flows" / f"{result.documents[0].id}.md"
             self.assertTrue(flow_path.is_file())
@@ -103,8 +126,11 @@ class KnowledgeGenerationTest(unittest.TestCase):
             trace = store.get_trace(result.trace_id)
             self.assertEqual(trace.trace_id, result.trace_id)
             self.assertIn("intent.json", trace.files)
+            self.assertIn("term-mapping.json", trace.files)
+            self.assertIn("anchor-selection.json", trace.files)
             self.assertIn("repo-discovery.json", trace.files)
             self.assertIn("auction-live", trace.repo_research)
+            self.assertIn("repos", trace.anchor_selection)
             self.assertEqual(trace.validation["ok"], True)
             self.assertEqual(trace.repo_research["auction-live"]["executor"], "local")
             self.assertEqual(result.documents[0].title, "系统链路")
@@ -134,16 +160,31 @@ class KnowledgeGenerationTest(unittest.TestCase):
                 ),
             ), patch(
                 "coco_flow.services.knowledge.generation.CocoACPClient.run_prompt_only",
-                return_value=(
-                    '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
-                    '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. LLM step\\n\\n'
-                    '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `auction-live`: role=primary\\n\\n'
-                    '## Repo Hints\\n\\n### `auction-live`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
-                    '"open_questions":["LLM open question"]}]}'  # noqa: E501
-                ),
+                side_effect=[
+                    (
+                        '{"mapped_terms":[{"user_term":"竞拍讲解卡","repo_terms":["ExplainCard","render_handler"],'
+                        '"repo_ids":["auction-live"],"confidence":"high","reason":"命中 repo 符号"}],'
+                        '"search_terms":["ExplainCard","render_handler","knowledge","pipeline","talent"],"open_questions":["LLM term question"]}'
+                    ),
+                    (
+                        '{"strongest_terms":["ExplainCard","render_handler"],'
+                        '"entry_files":["app/explain_card/render_handler.go"],'
+                        '"business_symbols":["ExplainCardHandler"],'
+                        '"route_signals":[],"discarded_noise":["README.md"],'
+                        '"reason":"render_handler.go 直接承接讲解卡表达层动作。","open_questions":[]}'
+                    ),
+                    (
+                        '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
+                        '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. LLM step\\n\\n'
+                        '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `auction-live`: role=primary\\n\\n'
+                        '## Repo Hints\\n\\n### `auction-live`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
+                        '"open_questions":["LLM open question"]}]}'  # noqa: E501
+                    ),
+                ],
             ):
                 result = store.create_drafts(
                     KnowledgeDraftInput(
+                        title="竞拍讲解卡表达层",
                         description="竞拍讲解卡表达层",
                         selected_paths=[str(repo_root)],
                         kinds=["flow"],
@@ -162,7 +203,11 @@ class KnowledgeGenerationTest(unittest.TestCase):
             self.assertIn("LLM summary", result.documents[0].body)
             self.assertIn("auction-live:/", result.documents[0].body)
             self.assertNotIn(str(repo_root), result.documents[0].body)
-            self.assertIn("knowledge synthesis executor: native", result.documents[0].evidence.retrievalNotes[1])
+            self.assertEqual(trace.intent["title"], "竞拍讲解卡表达层")
+            self.assertIn("render_handler", trace.repo_discovery["search_terms"])
+            self.assertNotIn("knowledge", trace.repo_discovery["search_terms"])
+            self.assertNotIn("pipeline", trace.repo_discovery["search_terms"])
+            self.assertIn("knowledge synthesis executor: native", result.documents[0].evidence.retrievalNotes[3])
 
     def test_native_repo_research_falls_back_to_local(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,16 +228,30 @@ class KnowledgeGenerationTest(unittest.TestCase):
                 side_effect=ValueError("native repo research exploded"),
             ), patch(
                 "coco_flow.services.knowledge.generation.CocoACPClient.run_prompt_only",
-                return_value=(
-                    '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
-                    '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. LLM step\\n\\n'
-                    '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `auction-live`: role=primary\\n\\n'
-                    '## Repo Hints\\n\\n### `auction-live`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
-                    '"open_questions":["LLM open question"]}]}'  # noqa: E501
-                ),
+                side_effect=[
+                    (
+                        '{"mapped_terms":[{"user_term":"竞拍讲解卡","repo_terms":["ExplainCard"],'
+                        '"repo_ids":["auction-live"],"confidence":"high","reason":"命中 repo 符号"}],'
+                        '"search_terms":["ExplainCard"],"open_questions":[]}'
+                    ),
+                    (
+                        '{"strongest_terms":["ExplainCard"],'
+                        '"entry_files":["app/explain_card/render_handler.go"],'
+                        '"business_symbols":["ExplainCardHandler"],'
+                        '"route_signals":[],"discarded_noise":[],"reason":"命中入口文件。","open_questions":[]}'
+                    ),
+                    (
+                        '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
+                        '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. LLM step\\n\\n'
+                        '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `auction-live`: role=primary\\n\\n'
+                        '## Repo Hints\\n\\n### `auction-live`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
+                        '"open_questions":["LLM open question"]}]}'  # noqa: E501
+                    ),
+                ],
             ):
                 result = store.create_drafts(
                     KnowledgeDraftInput(
+                        title="竞拍讲解卡表达层",
                         description="竞拍讲解卡表达层",
                         selected_paths=[str(repo_root)],
                         kinds=["flow"],
@@ -229,10 +288,24 @@ class KnowledgeGenerationTest(unittest.TestCase):
                 ),
             ), patch(
                 "coco_flow.services.knowledge.generation.CocoACPClient.run_prompt_only",
-                side_effect=ValueError("native synthesis exploded"),
+                side_effect=[
+                    (
+                        '{"mapped_terms":[{"user_term":"竞拍讲解卡","repo_terms":["ExplainCard"],'
+                        '"repo_ids":["auction-live"],"confidence":"high","reason":"命中 repo 符号"}],'
+                        '"search_terms":["ExplainCard"],"open_questions":[]}'
+                    ),
+                    (
+                        '{"strongest_terms":["ExplainCard"],'
+                        '"entry_files":["app/explain_card/render_handler.go"],'
+                        '"business_symbols":["ExplainCardHandler"],'
+                        '"route_signals":[],"discarded_noise":[],"reason":"命中入口文件。","open_questions":[]}'
+                    ),
+                    ValueError("native synthesis exploded"),
+                ],
             ):
                 result = store.create_drafts(
                     KnowledgeDraftInput(
+                        title="竞拍讲解卡表达层",
                         description="竞拍讲解卡表达层",
                         selected_paths=[str(repo_root)],
                         kinds=["flow"],
@@ -246,8 +319,139 @@ class KnowledgeGenerationTest(unittest.TestCase):
                 any("knowledge synthesis fallback: native synthesis exploded" in item for item in result.documents[0].evidence.retrievalNotes)
             )
 
+    def test_native_term_mapping_falls_back_to_local(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root, knowledge_executor="native")
+            repo_root = root / "auction-live"
+            (repo_root / ".git").mkdir(parents=True)
+            (repo_root / "AGENTS.md").write_text("# Repo Guide\n", encoding="utf-8")
+            (repo_root / "biz" / "service").mkdir(parents=True)
+            (repo_root / "biz" / "service" / "create_promotion.go").write_text(
+                "package service\nconst PromotionTypeExclusiveFlashSale = 1\n",
+                encoding="utf-8",
+            )
+
+            store = KnowledgeStore(settings)
+            with patch(
+                "coco_flow.services.knowledge.generation.CocoACPClient.run_prompt_only",
+                side_effect=[
+                    ValueError("native term mapping exploded"),
+                    (
+                        '{"strongest_terms":["PromotionTypeExclusiveFlashSale"],'
+                        '"entry_files":["biz/service/create_promotion.go"],'
+                        '"business_symbols":["PromotionTypeExclusiveFlashSale"],'
+                        '"route_signals":[],"discarded_noise":[],"reason":"命中业务常量。","open_questions":[]}'
+                    ),
+                    (
+                        '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
+                        '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. LLM step\\n\\n'
+                        '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `auction-live`: role=primary\\n\\n'
+                        '## Repo Hints\\n\\n### `auction-live`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
+                        '"open_questions":["LLM open question"]}]}'  # noqa: E501
+                    ),
+                ],
+            ), patch(
+                "coco_flow.services.knowledge.generation.CocoACPClient.run_readonly_agent",
+                return_value=(
+                    '{"role":"primary","likely_modules":["biz/service"],'
+                    '"risks":["llm risk"],"facts":["llm fact"],'
+                    '"inferences":["llm inference"],"open_questions":["llm question"]}'
+                ),
+            ):
+                result = store.create_drafts(
+                    KnowledgeDraftInput(
+                        title="达人秒杀链路",
+                        description="达人秒杀相关链路",
+                        selected_paths=[str(repo_root)],
+                        kinds=["flow"],
+                        notes="",
+                    )
+                )
+
+            trace = store.get_trace(result.trace_id)
+            self.assertTrue(any("达人秒杀" in item for item in trace.repo_discovery["search_terms"]))
+            term_mapping = json.loads((settings.knowledge_root / "trace" / result.trace_id / "term-mapping.json").read_text(encoding="utf-8"))
+            self.assertEqual(term_mapping["executor"], "local")
+            self.assertEqual(term_mapping["requested_executor"], "native")
+            self.assertEqual(term_mapping["fallback_reason"], "native term mapping exploded")
+            self.assertTrue(
+                any("term mapping fallback: native term mapping exploded" in item for item in result.documents[0].evidence.retrievalNotes)
+            )
+
+    def test_discovery_uses_mapped_symbol_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root, knowledge_executor="native")
+            repo_root = root / "promotion-core"
+            (repo_root / ".git").mkdir(parents=True)
+            (repo_root / "AGENTS.md").write_text("# Repo Guide\n", encoding="utf-8")
+            (repo_root / "biz" / "service").mkdir(parents=True)
+            (repo_root / "biz" / "router").mkdir(parents=True)
+            (repo_root / "biz" / "service" / "entry.go").write_text(
+                "package service\nconst PromotionTypeExclusiveFlashSale = 1\nfunc CreateCreatorPromotion() {}\n",
+                encoding="utf-8",
+            )
+            (repo_root / "biz" / "router" / "live_promotion.go").write_text(
+                'package router\nvar route = "/api/v1/live_promotion/flash_sale/create"\n',
+                encoding="utf-8",
+            )
+
+            store = KnowledgeStore(settings)
+            with patch(
+                "coco_flow.services.knowledge.generation.CocoACPClient.run_prompt_only",
+                side_effect=[
+                    (
+                        '{"mapped_terms":[{"user_term":"达人秒杀","repo_terms":["ExclusiveFlashSale","CreatorPromotion"],'
+                        '"repo_ids":["promotion-core"],"confidence":"high","reason":"命中业务枚举和服务名"}],'
+                        '"search_terms":["ExclusiveFlashSale","CreatorPromotion"],"open_questions":[]}'
+                    ),
+                    (
+                        '{"strongest_terms":["ExclusiveFlashSale","CreatorPromotion"],'
+                        '"entry_files":["biz/router/live_promotion.go","biz/service/entry.go"],'
+                        '"business_symbols":["PromotionTypeExclusiveFlashSale","CreateCreatorPromotion"],'
+                        '"route_signals":["biz/router/live_promotion.go#/api/v1/live_promotion/flash_sale/create","biz/router/live_promotion.go#/save_template"],'
+                        '"discarded_noise":[],"reason":"route 和业务常量共同构成主锚点。","open_questions":[]}'
+                    ),
+                    (
+                        '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
+                        '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. LLM step\\n\\n'
+                        '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `promotion-core`: role=primary\\n\\n'
+                        '## Repo Hints\\n\\n### `promotion-core`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
+                        '"open_questions":["LLM open question"]}]}'  # noqa: E501
+                    ),
+                ],
+            ), patch(
+                "coco_flow.services.knowledge.generation.CocoACPClient.run_readonly_agent",
+                return_value=(
+                    '{"role":"primary","likely_modules":["biz/service"],'
+                    '"risks":["llm risk"],"facts":["llm fact"],'
+                    '"inferences":["llm inference"],"open_questions":["llm question"]}'
+                ),
+            ):
+                result = store.create_drafts(
+                    KnowledgeDraftInput(
+                        title="达人秒杀链路",
+                        description="我想要一份达人秒杀系统链路知识",
+                        selected_paths=[str(repo_root)],
+                        kinds=["flow"],
+                        notes="",
+                    )
+                )
+
+            trace = store.get_trace(result.trace_id)
+            repo_discovery = trace.repo_discovery["repos"][0]
+            self.assertIn("ExclusiveFlashSale", trace.repo_discovery["search_terms"])
+            self.assertTrue(repo_discovery["symbol_hits"], msg=json.dumps(repo_discovery, ensure_ascii=False))
+            self.assertTrue(any("ExclusiveFlashSale" in item for item in repo_discovery["symbol_hits"]))
+            self.assertTrue(repo_discovery["route_hits"], msg=json.dumps(repo_discovery, ensure_ascii=False))
+            repo_research = trace.repo_research["promotion-core"]
+            self.assertTrue(repo_research["anchors"]["entry_files"], msg=json.dumps(repo_research, ensure_ascii=False))
+            self.assertTrue(all("/save_template" not in item for item in repo_research["anchors"]["route_signals"]))
+
     def test_request_model_accepts_legacy_repos_field(self) -> None:
         payload = CreateKnowledgeDraftsRequest(
+            title="竞拍讲解卡表达层",
             description="竞拍讲解卡表达层",
             repos=["/tmp/demo"],
             kinds=["flow"],
@@ -276,6 +480,8 @@ class KnowledgeGenerationTest(unittest.TestCase):
                     [
                         "knowledge",
                         "generate",
+                        "--title",
+                        "竞拍讲解卡表达层",
                         "--description",
                         "竞拍讲解卡表达层",
                         "--path",
@@ -302,6 +508,7 @@ class KnowledgeGenerationTest(unittest.TestCase):
 
             job = start_background_generation(
                 KnowledgeDraftInput(
+                    title="竞拍讲解卡表达层",
                     description="竞拍讲解卡表达层",
                     selected_paths=[str(repo_root)],
                     kinds=["flow"],
@@ -338,6 +545,7 @@ class KnowledgeGenerationTest(unittest.TestCase):
 
             job = start_background_generation(
                 KnowledgeDraftInput(
+                    title="竞拍讲解卡表达层",
                     description="竞拍讲解卡表达层",
                     selected_paths=[str(repo_root)],
                     kinds=["flow"],
