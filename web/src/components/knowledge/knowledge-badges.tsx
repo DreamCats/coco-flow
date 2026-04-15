@@ -5,7 +5,6 @@ export function KnowledgeKindBadge({ kind }: { kind: KnowledgeKind }) {
     domain: 'border-[#cbb691] bg-[#f5ecdc] text-[#765d2a]',
     flow: 'border-[#b8d6f3] bg-[#eef7ff] text-[#2a5f8f]',
     rule: 'border-[#d8c0ec] bg-[#f7efff] text-[#6a3f8a]',
-    anchor: 'border-[#b7ddcd] bg-[#edf9f1] text-[#23644d]',
   }
 
   return <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${tones[kind]}`}>{kind}</span>

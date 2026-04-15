@@ -43,7 +43,7 @@
 也就是：
 
 - 前台负责输入、预览、编辑、确认
-- 后台负责召回 repo、扫描证据、生成草稿、产出待确认项
+- 后台负责召回 repo、生成草稿、并保留内部生成依据供后续排查
 
 ## 导航建议
 
@@ -72,7 +72,7 @@
 第一版页面建议沿用当前任务页的“双栏工作台”思路：
 
 - 左侧：列表和筛选
-- 右侧：阅读 / 编辑 / 证据查看工作台
+- 右侧：阅读 / 编辑 / 发布工作台
 
 ### 左栏：知识列表
 
@@ -87,32 +87,17 @@
 原因：
 
 - 用户天然先关心“我在看哪个业务方向”
-- 再关心这个方向下面有哪些 `flow / anchor / rule`
+- 再关心这个方向下面有哪些 `flow / rule`
 - `kind` 和 `status` 更适合作为单条文件的 badge，不适合作为一级分组
 
 建议信息：
 
 - 搜索框
-- `kind` 筛选
-  - `domain`
-  - `flow`
-  - `rule`
-  - `anchor`
 - `status` 筛选
   - `draft`
   - `approved`
   - `archived`
-- `engine` 筛选
-  - `refine`
-  - `plan`
 - `domain` 筛选
-- `group by` 视图切换
-  - `按 domain`
-  - `按文件`
-
-默认使用：
-
-- `按 domain`
 
 ### 按 domain 聚合的列表结构
 
@@ -136,21 +121,8 @@
 竞拍讲解卡
   3 个知识文件 · 最近更新 2026-04-15
   - 表达层链路 [flow] [draft]
-  - 表达层代码映射 [anchor] [approved]
   - 默认业务规则 [rule] [draft]
 ```
-
-### 按文件平铺的列表结构
-
-这个视图主要给维护者用，用于排查和批量处理。
-
-每条记录直接展示：
-
-- 标题
-- `domain`
-- `kind`
-- `status`
-- `updated_at`
 
 左栏顶部保留一个显眼的入口：
 
@@ -158,11 +130,10 @@
 
 ### 右栏：Knowledge Workbench
 
-右栏建议分成 4 个 tab：
+右栏建议分成 3 个 tab：
 
 - `摘要`
 - `正文`
-- `证据`
 - `发布`
 
 #### 1. 摘要
@@ -199,45 +170,14 @@
   - `Main Flow`
   - `Dependencies`
   - `Risks`
-  - `Code Anchors`
+  - `Repo Hints`
   - `Open Questions`
 - `rule`
   - `Statement`
   - `Exceptions`
   - `Scope`
   - `Open Questions`
-- `anchor`
-  - `Repos`
-  - `Paths`
-  - `Search Terms`
-  - `Adjacent Modules`
-  - `Open Questions`
-
-#### 3. 证据
-
-这是第一版里非常重要的 tab。
-
-它必须回答：
-
-- 为什么系统生成了这份草稿
-- 哪些内容来自 repo 扫描
-- 哪些内容只是 LLM 推断
-
-建议展示：
-
-- 输入描述
-- 选中的 repo
-- 触发命中的关键词
-- 候选知识文件
-- 相关目录 / 文件
-- 抽取到的检索词
-- 相关代码片段或文件路径
-- `.livecoding/context` 命中情况
-- 待确认问题
-
-这一页的目标不是展示所有日志，而是建立信任。
-
-#### 4. 发布
+#### 3. 发布
 
 负责控制这份知识是否进入主链路。
 
@@ -281,7 +221,6 @@
   - 多选
 - `生成类型`
   - `flow`
-  - `anchor`
   - `rule`
   - `domain`
 - `补充材料`
@@ -293,7 +232,6 @@
 - 用户输入某个业务方向 + 场景时
 - 系统默认优先生成：
   - `flow`
-  - `anchor`
 
 只有在以下情况才补 `domain / rule`：
 
@@ -312,16 +250,9 @@
    - 命中关键词和路径
    - 生成 knowledge draft
 4. UI 回到工作台并打开新草稿
-5. 默认停留在 `证据` tab
-6. 用户先看依据，再切到 `摘要` / `正文` 编辑
+5. 默认停留在 `摘要` tab
+6. 用户确认 metainfo 后，再切到 `正文` 编辑
 7. 用户确认后点击 `标记为已确认`
-
-这里有一个关键设计：
-
-- 生成完成后默认先看“证据”
-- 不默认先看正文
-
-因为我们要先解决可信度问题。
 
 ## 推荐的页面状态
 
@@ -360,7 +291,7 @@
 - `body`
   - 正文草稿
 - `evidence`
-  - repo 命中信息
+  - 内部生成依据，当前不作为一级 UI 面板
 - `open_questions`
   - 待确认问题
 - `confidence`
@@ -386,7 +317,6 @@
 ### UI 负责
 
 - 输入采集
-- 证据展示
 - frontmatter 编辑
 - 正文编辑
 - 审核状态切换
@@ -417,11 +347,10 @@ skill 只能规范：
 
 1. 新增 `Knowledge` 页面
 2. 支持输入描述 + 选择 repo
-3. 默认生成 `flow + anchor` 草稿
-4. 支持查看 `证据`
-5. 支持编辑 frontmatter 和 Markdown
-6. 支持 `draft -> approved`
-7. `refine / plan` 只消费 `approved`
+3. 默认生成 `flow` 草稿
+4. 支持编辑 frontmatter 和 Markdown
+5. 支持 `draft -> approved`
+6. `refine / plan` 只消费 `approved`
 
 这已经足够验证两个问题：
 
@@ -438,7 +367,7 @@ skill 只能规范：
 +-----------------------------+---------------------------------+
 | 左栏：按 domain 聚合的知识列表 | 右栏：Knowledge Workbench      |
 |                             |                                 |
-| [新建知识草稿]              | Tabs: 摘要 | 正文 | 证据 | 发布 |
+| [新建知识草稿]              | Tabs: 摘要 | 正文 | 发布 |
 | 搜索                        |                                 |
 | kind/status/domain 筛选     | 标题：竞拍讲解卡表达层链路      |
 | 分组：按 domain / 按文件    |                                 |
@@ -446,9 +375,7 @@ skill 只能规范：
 | 竞拍讲解卡                  | [摘要 tab] frontmatter 编辑区    |
 |   - 表达层链路              |                                 |
 |     [flow] [draft]          | [正文 tab] markdown 编辑区       |
-|   - 表达层代码映射          |                                 |
-|     [anchor] [approved]     | [证据 tab] repo 命中、关键词、   |
-|   - 默认业务规则            |            路径、待确认问题      |
+|   - 默认业务规则            |                                 |
 |     [rule] [draft]          |                                 |
 |                             |                                 |
 |                             | [发布 tab] 保存草稿 / 标记确认   |
@@ -462,4 +389,4 @@ skill 只能规范：
 1. `Knowledge API Draft`
 2. `Knowledge File Template Draft`
 
-前者定义接口，后者定义 `domain / flow / rule / anchor` 的文件模板。
+前者定义接口，后者定义 `domain / flow / rule` 的文件模板。

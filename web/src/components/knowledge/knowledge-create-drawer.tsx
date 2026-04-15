@@ -9,7 +9,7 @@ type KnowledgeCreateDrawerProps = {
   onSubmit: (payload: KnowledgeDraftInput) => void
 }
 
-const defaultKinds: KnowledgeKind[] = ['flow', 'anchor']
+const defaultKinds: KnowledgeKind[] = ['flow']
 
 export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: KnowledgeCreateDrawerProps) {
   const [description, setDescription] = useState('')
@@ -48,7 +48,7 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
           <div>
             <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Create Draft</div>
             <h3 className="mt-2 text-[30px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">新建知识草稿</h3>
-            <div className="mt-2 text-sm text-[#87867f] dark:text-[#b0aea5]">第一版默认从描述和 repo 生成 `flow + anchor` 草稿。</div>
+            <div className="mt-2 text-sm text-[#87867f] dark:text-[#b0aea5]">第一版默认从描述和 repo 生成 `flow` 草稿。</div>
           </div>
           <button
             className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] border border-[#e8e6dc] text-[#5e5d59] transition hover:text-[#141413] dark:border-[#30302e] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]"
@@ -90,7 +90,7 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
 
           <FormBlock label="生成类型">
             <div className="flex flex-wrap gap-2">
-              {(['flow', 'anchor', 'rule', 'domain'] as KnowledgeKind[]).map((kind) => (
+              {(['flow', 'rule', 'domain'] as KnowledgeKind[]).map((kind) => (
                 <ToggleChip
                   active={selectedKinds.includes(kind)}
                   key={kind}
@@ -99,7 +99,7 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
                 />
               ))}
             </div>
-            <div className="mt-3 text-xs text-[#87867f] dark:text-[#b0aea5]">默认推荐 `flow + anchor`。只有在 domain 缺失或你明确需要时，再补 `rule / domain`。</div>
+            <div className="mt-3 text-xs text-[#87867f] dark:text-[#b0aea5]">默认推荐 `flow`。只有在 domain 缺失或你明确需要时，再补 `rule / domain`。</div>
           </FormBlock>
 
           <FormBlock label="补充材料">

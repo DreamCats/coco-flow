@@ -1,12 +1,11 @@
-import type { KnowledgeDocument, KnowledgeEngine, KnowledgeGroupMode, KnowledgeKind, KnowledgeStatus } from '../../knowledge/types'
+import type { KnowledgeDocument, KnowledgeKind, KnowledgeStatus } from '../../knowledge/types'
 import { KnowledgeKindBadge, KnowledgeStatusBadge } from './knowledge-badges'
 
-const knowledgeKindOrder: KnowledgeKind[] = ['domain', 'flow', 'rule', 'anchor']
+const knowledgeKindOrder: KnowledgeKind[] = ['domain', 'flow', 'rule']
 const knowledgeKindFallbackTitle: Record<KnowledgeKind, string> = {
   domain: '业务方向概览',
   flow: '关键链路待补',
   rule: '业务规则待补',
-  anchor: '代码映射待补',
 }
 
 type KnowledgeSidebarProps = {
@@ -14,16 +13,10 @@ type KnowledgeSidebarProps = {
   selectedDocumentId: string
   query: string
   onQueryChange: (value: string) => void
-  kindFilter: KnowledgeKind | 'all'
-  onKindFilterChange: (value: KnowledgeKind | 'all') => void
   statusFilter: KnowledgeStatus | 'all'
   onStatusFilterChange: (value: KnowledgeStatus | 'all') => void
-  engineFilter: KnowledgeEngine | 'all'
-  onEngineFilterChange: (value: KnowledgeEngine | 'all') => void
   domainFilter: string
   onDomainFilterChange: (value: string) => void
-  groupMode: KnowledgeGroupMode
-  onGroupModeChange: (value: KnowledgeGroupMode) => void
   onSelectDocument: (id: string) => void
   onOpenCreate: () => void
 }
@@ -33,16 +26,10 @@ export function KnowledgeSidebar({
   selectedDocumentId,
   query,
   onQueryChange,
-  kindFilter,
-  onKindFilterChange,
   statusFilter,
   onStatusFilterChange,
-  engineFilter,
-  onEngineFilterChange,
   domainFilter,
   onDomainFilterChange,
-  groupMode,
-  onGroupModeChange,
   onSelectDocument,
   onOpenCreate,
 }: KnowledgeSidebarProps) {
@@ -52,7 +39,7 @@ export function KnowledgeSidebar({
     return acc
   }, {})
   const orderedDomains = Object.keys(groupedByDomain).sort((left, right) => left.localeCompare(right))
-  const showCompletenessSlots = kindFilter === 'all' && statusFilter === 'all' && engineFilter === 'all'
+  const showCompletenessSlots = statusFilter === 'all'
 
   return (
     <section className="rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-2.5 shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.94)] lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden">
@@ -84,17 +71,6 @@ export function KnowledgeSidebar({
           <div className="grid grid-cols-2 gap-2">
             <select
               className="rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-2 text-sm text-[#5e5d59] outline-none focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:focus:border-[#3898ec]"
-              onChange={(event) => onKindFilterChange(event.target.value as KnowledgeKind | 'all')}
-              value={kindFilter}
-            >
-              <option value="all">全部类型</option>
-              <option value="domain">domain</option>
-              <option value="flow">flow</option>
-              <option value="rule">rule</option>
-              <option value="anchor">anchor</option>
-            </select>
-            <select
-              className="rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-2 text-sm text-[#5e5d59] outline-none focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:focus:border-[#3898ec]"
               onChange={(event) => onStatusFilterChange(event.target.value as KnowledgeStatus | 'all')}
               value={statusFilter}
             >
@@ -102,15 +78,6 @@ export function KnowledgeSidebar({
               <option value="draft">draft</option>
               <option value="approved">approved</option>
               <option value="archived">archived</option>
-            </select>
-            <select
-              className="rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-2 text-sm text-[#5e5d59] outline-none focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:focus:border-[#3898ec]"
-              onChange={(event) => onEngineFilterChange(event.target.value as KnowledgeEngine | 'all')}
-              value={engineFilter}
-            >
-              <option value="all">全部引擎</option>
-              <option value="refine">refine</option>
-              <option value="plan">plan</option>
             </select>
             <select
               className="rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-2 text-sm text-[#5e5d59] outline-none focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:focus:border-[#3898ec]"
@@ -126,11 +93,6 @@ export function KnowledgeSidebar({
             </select>
           </div>
         </div>
-
-        <div className="mt-3 flex items-center gap-2">
-          <GroupButton active={groupMode === 'domain'} label="按 domain" onClick={() => onGroupModeChange('domain')} />
-          <GroupButton active={groupMode === 'file'} label="按文件" onClick={() => onGroupModeChange('file')} />
-        </div>
       </div>
 
       <div className="mb-2 flex items-center justify-between px-1">
@@ -143,7 +105,7 @@ export function KnowledgeSidebar({
           <div className="rounded-[18px] border border-dashed border-[#d1cfc5] bg-[#faf9f5] px-4 py-6 text-center text-sm text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
             当前筛选条件下没有知识文件。
           </div>
-        ) : groupMode === 'domain' ? (
+        ) : (
           orderedDomains.map((domainName) => (
             <section
               className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]"
@@ -153,7 +115,7 @@ export function KnowledgeSidebar({
                 <div>
                   <div className="text-[18px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{domainName}</div>
                   <div className="mt-1 text-xs text-[#87867f] dark:text-[#b0aea5]">
-                    {groupedByDomain[domainName].length}/4 已补齐 · 最近更新 {groupedByDomain[domainName][0]?.updatedAt ?? '-'}
+                    {groupedByDomain[domainName].length}/3 已补齐 · 最近更新 {groupedByDomain[domainName][0]?.updatedAt ?? '-'}
                   </div>
                 </div>
               </div>
@@ -187,37 +149,9 @@ export function KnowledgeSidebar({
               </div>
             </section>
           ))
-        ) : (
-          documents.map((document) => (
-            <KnowledgeRow document={document} key={document.id} selected={document.id === selectedDocumentId} onSelect={onSelectDocument} showDomain />
-          ))
         )}
       </div>
     </section>
-  )
-}
-
-function GroupButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      className={`rounded-full border px-3 py-2 text-sm transition ${
-        active
-          ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
-          : 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
-      }`}
-      onClick={onClick}
-      type="button"
-    >
-      {label}
-    </button>
   )
 }
 
@@ -225,12 +159,10 @@ function KnowledgeRow({
   document,
   selected,
   onSelect,
-  showDomain = false,
 }: {
   document: KnowledgeDocument
   selected: boolean
   onSelect: (id: string) => void
-  showDomain?: boolean
 }) {
   return (
     <button
@@ -245,7 +177,6 @@ function KnowledgeRow({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-[#141413] dark:text-[#faf9f5]">{document.title}</div>
-          {showDomain ? <div className="mt-1 text-xs text-[#87867f] dark:text-[#b0aea5]">{document.domainName}</div> : null}
         </div>
         <div className="flex flex-wrap gap-1.5">
           <KnowledgeKindBadge kind={document.kind} />

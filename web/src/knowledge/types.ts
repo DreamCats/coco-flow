@@ -1,9 +1,8 @@
-export type KnowledgeKind = 'domain' | 'flow' | 'rule' | 'anchor'
+export type KnowledgeKind = 'domain' | 'flow' | 'rule'
 export type KnowledgeStatus = 'draft' | 'approved' | 'archived'
 export type KnowledgeEngine = 'refine' | 'plan'
 export type KnowledgePriority = 'low' | 'medium' | 'high'
 export type KnowledgeConfidence = 'low' | 'medium' | 'high'
-export type KnowledgeGroupMode = 'domain' | 'file'
 
 export type KnowledgeEvidence = {
   inputDescription: string

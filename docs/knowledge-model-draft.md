@@ -111,7 +111,7 @@
 
 ## 最小知识模型
 
-我建议先只保留 4 类对象，够用就行。
+我建议先只保留 3 类对象，够用就行。
 
 ### 1. Domain
 
@@ -184,24 +184,6 @@
 - 哪些情况例外
 - 哪些规则优先级更高
 
-### 4. Anchor
-
-表示代码映射。
-
-最小字段：
-
-- `id`
-- `domain_id`
-- `flow_id`
-- `repo`
-- `paths`
-- `search_terms`
-
-它回答的问题是：
-
-- 这个业务链路大概率落在哪些 repo / 目录
-- `plan` 应该先搜什么词
-
 ### 可选元信息
 
 每类对象都可以带少量元信息：
@@ -246,7 +228,7 @@ owner: maifeng
 字段解释：
 
 - `kind`
-  表示它是哪类对象，例如 `domain / flow / rule / anchor`
+  表示它是哪类对象，例如 `domain / flow / rule`
 - `id`
   稳定标识
 - `title`
@@ -262,7 +244,7 @@ owner: maifeng
 - `repos`
   可能关联的 repo
 - `paths`
-  可能关联的目录或代码区域
+  可能关联的目录或代码区域，用来表达轻量 repo hints，不是长期维护的精确代码映射
 - `priority`
   候选排序时可参考
 
@@ -272,14 +254,13 @@ owner: maifeng
 - `## Main Flow`
 - `## Rules`
 - `## Risks`
-- `## Code Anchors`
+- `## Repo Hints`
 
 不同对象可以略有差异：
 
 - `domain` 文件偏 `Summary / Terms / Rules / Related Flows`
-- `flow` 文件偏 `Main Flow / Dependencies / Risks / Anchors`
+- `flow` 文件偏 `Main Flow / Dependencies / Risks / Repo Hints`
 - `rule` 文件偏 `Statement / Exceptions / Scope`
-- `anchor` 文件偏 `Repos / Paths / Search Terms / Adjacent Modules`
 
 ## 渐进式加载建议
 
@@ -317,7 +298,7 @@ owner: maifeng
 让模型判断：
 
 - 哪些文件最值得继续加载
-- 当前更需要 `domain / flow / rule / anchor` 中的哪几类
+- 当前更需要 `domain / flow / rule` 中的哪几类
 
 这一步不是让模型在全库里瞎选，而是在已粗筛的候选里做精选。
 
@@ -354,9 +335,6 @@ knowledge/
 ├── rules/
 │   ├── auction-explain-card.md
 │   └── auction-shopping-bag.md
-└── anchors/
-    ├── auction-explain-card.md
-    └── auction-shopping-bag.md
 ```
 
 这样足够简单，也方便后续单独建 git 仓库。
@@ -384,7 +362,7 @@ knowledge/
 
 这样引擎就不会被单仓库限制住。
 
-## 这 4 类对象怎样帮助引擎
+## 这 3 类对象怎样帮助引擎
 
 ### 对 refine 的帮助
 
@@ -426,13 +404,13 @@ knowledge/
 推荐加载策略：
 
 1. 先基于 refined PRD 和 repo 信息粗筛候选知识文件
-2. 让 LLM 依据候选头部摘要挑选更相关的 `flow / anchor`
+2. 让 LLM 依据候选头部摘要挑选更相关的 `flow / rule`
 3. 再加载这些文件的正文，最后进入 repo research
 
 最直接的收益：
 
 - 更容易判断涉及哪些系统
-- 更容易知道应该先看哪个 repo / 目录
+- 更容易知道涉及哪些 repo 以及每个 repo 大概要做什么
 - 不再只是靠 glossary + `rg` 猜文件
 
 ## 推荐的引擎读取顺序
@@ -458,7 +436,7 @@ knowledge/
 
 1. 读 refined PRD
 2. 用头部 metadata 做粗筛
-3. 让模型判断应优先加载哪些 `Flow + Anchor + Rule`
+3. 让模型判断应优先加载哪些 `Flow + Rule`
 4. 再到目标 repo 做本地搜索
 5. 必要时参考 `.livecoding/context`
 
@@ -493,7 +471,7 @@ knowledge/
 
 1. 新增 `knowledge_root` 配置
 2. 定义知识文件 frontmatter 格式
-3. 定义 4 类最小对象
+3. 定义 3 类最小对象
 4. 先手工写 1 个领域
 5. 先接入 `plan`
 
@@ -517,9 +495,9 @@ knowledge/
 
 - 独立知识目录
 - 统一 frontmatter
-- 4 类最小对象
+- 3 类最小对象
 - 倒排粗筛 + LLM 精选 + 正文渐进加载
-- 主打 `Flow + Anchor`
+- 主打 `Flow`
 - `.livecoding/context` 只做补充来源
 
 先把这一步做对，后面再谈索引、共享和治理。

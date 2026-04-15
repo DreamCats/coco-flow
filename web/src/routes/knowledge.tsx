@@ -6,9 +6,6 @@ import { generateKnowledgeDrafts, knowledgeMockDocuments } from '../knowledge/mo
 import type {
   KnowledgeDocument,
   KnowledgeDraftInput,
-  KnowledgeEngine,
-  KnowledgeGroupMode,
-  KnowledgeKind,
   KnowledgeStatus,
 } from '../knowledge/types'
 
@@ -16,11 +13,8 @@ export function KnowledgePage() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>(knowledgeMockDocuments)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>(knowledgeMockDocuments[0]?.id ?? '')
   const [query, setQuery] = useState('')
-  const [kindFilter, setKindFilter] = useState<KnowledgeKind | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<KnowledgeStatus | 'all'>('all')
-  const [engineFilter, setEngineFilter] = useState<KnowledgeEngine | 'all'>('all')
   const [domainFilter, setDomainFilter] = useState('all')
-  const [groupMode, setGroupMode] = useState<KnowledgeGroupMode>('domain')
   const [showCreateDrawer, setShowCreateDrawer] = useState(false)
   const [creating, setCreating] = useState(false)
   const deferredQuery = useDeferredValue(query)
@@ -29,13 +23,7 @@ export function KnowledgePage() {
     const keyword = deferredQuery.trim().toLowerCase()
     return documents
       .filter((document) => {
-        if (kindFilter !== 'all' && document.kind !== kindFilter) {
-          return false
-        }
         if (statusFilter !== 'all' && document.status !== statusFilter) {
-          return false
-        }
-        if (engineFilter !== 'all' && !document.engines.includes(engineFilter)) {
           return false
         }
         if (domainFilter !== 'all' && document.domainName !== domainFilter) {
@@ -56,7 +44,7 @@ export function KnowledgePage() {
           .includes(keyword)
       })
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.title.localeCompare(right.title))
-  }, [deferredQuery, documents, domainFilter, engineFilter, kindFilter, statusFilter])
+  }, [deferredQuery, documents, domainFilter, statusFilter])
 
   const selectedDocument = filteredDocuments.find((document) => document.id === selectedDocumentId) ?? documents.find((document) => document.id === selectedDocumentId) ?? null
 
@@ -102,13 +90,7 @@ export function KnowledgePage() {
         <KnowledgeSidebar
           documents={filteredDocuments}
           domainFilter={domainFilter}
-          engineFilter={engineFilter}
-          groupMode={groupMode}
-          kindFilter={kindFilter}
           onDomainFilterChange={setDomainFilter}
-          onEngineFilterChange={setEngineFilter}
-          onGroupModeChange={setGroupMode}
-          onKindFilterChange={setKindFilter}
           onOpenCreate={() => setShowCreateDrawer(true)}
           onQueryChange={setQuery}
           onSelectDocument={setSelectedDocumentId}

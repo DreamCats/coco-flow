@@ -8,7 +8,7 @@ export const knowledgeMockDocuments: KnowledgeDocument[] = [
     kind: 'flow',
     status: 'draft',
     title: '表达层链路',
-    desc: '说明竞拍讲解卡在表达层的入口、联动模块、状态变化和常见风险。',
+    desc: '说明竞拍讲解卡在表达层的入口、联动仓库、关键模块、状态变化和常见风险。',
     domainId: 'auction-explain-card',
     domainName: '竞拍讲解卡',
     engines: ['plan', 'refine'],
@@ -35,7 +35,7 @@ export const knowledgeMockDocuments: KnowledgeDocument[] = [
 - 表达层字段变更容易和实验开关逻辑耦合。
 - 渲染降级路径如果没有同步更新，容易出现空卡或字段缺失。
 
-## Code Anchors
+## Repo Hints
 
 - live_pack/app/explain_card
 - live_pack/service/card_render
@@ -61,63 +61,6 @@ export const knowledgeMockDocuments: KnowledgeDocument[] = [
         '当前草稿优先覆盖 plan 需要的链路和入口信息。',
       ],
       openQuestions: ['是否还有网关层或配置中心参与表达层分流。'],
-    },
-  },
-  {
-    id: 'anchor-auction-explain-card-render',
-    kind: 'anchor',
-    status: 'approved',
-    title: '表达层代码映射',
-    desc: '收敛竞拍讲解卡表达层最可能命中的 repo、目录和检索词，供 plan 阶段优先搜索。',
-    domainId: 'auction-explain-card',
-    domainName: '竞拍讲解卡',
-    engines: ['plan'],
-    repos: ['live_pack', 'live_sdk'],
-    paths: ['app/explain_card', 'service/card_render', 'sdk/render'],
-    keywords: ['explain_card', 'render_card', '讲解卡', '卡片模板'],
-    priority: 'high',
-    confidence: 'high',
-    updatedAt: '2026-04-15 18:10',
-    owner: 'Maifeng',
-    body: `## Repos
-
-- live_pack
-- live_sdk
-
-## Paths
-
-- app/explain_card
-- service/card_render
-- sdk/render
-
-## Search Terms
-
-- explain_card
-- render_card
-- 讲解卡
-- 卡片模板
-
-## Adjacent Modules
-
-- experiment/card_scene
-- config/card_switch
-
-## Open Questions
-
-- 表达层目录是否还有独立 converter 层需要纳入。`,
-    evidence: {
-      inputDescription: '竞拍讲解卡表达层代码映射',
-      repoMatches: ['live_pack', 'live_sdk'],
-      keywordMatches: ['explain_card', 'render_card', '讲解卡'],
-      pathMatches: ['app/explain_card', 'service/card_render', 'sdk/render'],
-      candidateFiles: [
-        'app/explain_card/card_handler.go',
-        'service/card_render/card_scene_builder.go',
-        'sdk/render/card_renderer.go',
-      ],
-      contextHits: ['本次草稿未依赖 repo 外知识，仅结合 repo 命中和已有 context。'],
-      retrievalNotes: ['代码映射已经人工确认，可直接作为 plan 的优先搜索入口。'],
-      openQuestions: ['是否需要补充 experiment 相关目录作为相邻模块。'],
     },
   },
   {
@@ -279,7 +222,7 @@ function buildDraftDocument({
     repos,
     paths,
     keywords,
-    priority: kind === 'flow' || kind === 'anchor' ? 'high' : 'medium',
+    priority: kind === 'flow' ? 'high' : 'medium',
     confidence: 'medium',
     updatedAt: timestamp,
     owner: 'Maifeng',
@@ -293,7 +236,7 @@ function buildDraftDocument({
       contextHits,
       retrievalNotes: [
         '本次为 mock 生成草稿，优先保留了可用于 plan / refine 的高信号字段。',
-        '建议先确认证据页里的 repo 命中和路径，再决定是否发布。',
+        '建议先确认摘要里的 repo hints 和正文里的待确认项，再决定是否发布。',
         ...(notes ? [`补充材料：${notes}`] : []),
       ],
       openQuestions: buildDraftOpenQuestions(kind, description),
@@ -302,9 +245,6 @@ function buildDraftDocument({
 }
 
 function inferEngines(kind: KnowledgeKind): KnowledgeEngine[] {
-  if (kind === 'anchor') {
-    return ['plan']
-  }
   if (kind === 'flow') {
     return ['plan', 'refine']
   }
@@ -315,7 +255,6 @@ function inferDomainName(description: string): string {
   const trimmed = description.trim()
   const normalized = trimmed
     .replace(/表达层/g, '')
-    .replace(/代码映射/g, '')
     .replace(/默认业务规则/g, '')
     .replace(/业务规则/g, '')
     .replace(/链路/g, '')
@@ -337,8 +276,6 @@ function buildDraftTitle(kind: KnowledgeKind, description: string): string {
   switch (kind) {
     case 'flow':
       return description.includes('链路') ? description : `${description}链路`
-    case 'anchor':
-      return description.includes('代码映射') ? description : `${description}代码映射`
     case 'rule':
       return description.includes('规则') ? description : `${description}业务规则`
     case 'domain':
@@ -350,8 +287,6 @@ function buildDraftDescription(kind: KnowledgeKind, description: string): string
   switch (kind) {
     case 'flow':
       return `归纳 ${description} 的主链路、关键依赖和风险，供 plan 与 refine 渐进加载。`
-    case 'anchor':
-      return `为 ${description} 收敛 repo、路径和检索词，供 plan 阶段优先搜索。`
     case 'rule':
       return `整理 ${description} 的默认规则、例外和待确认问题，供 refine 补边界时参考。`
     case 'domain':
@@ -393,34 +328,13 @@ ${repoLines}
 - 关键状态来源可能仍需人工确认。
 - 相邻模块边界可能需要在 repo 调研后继续收敛。
 
-## Code Anchors
+## Repo Hints
 
 ${pathLines}
 
 ## Open Questions
 
 - 当前链路是否还有上游网关或配置依赖。${noteLine}`
-    case 'anchor':
-      return `## Repos
-
-${repoLines}
-
-## Paths
-
-${pathLines}
-
-## Search Terms
-
-${keywordLines}
-
-## Adjacent Modules
-
-- experiment
-- config
-
-## Open Questions
-
-- 哪些目录是主入口，哪些只是相邻依赖。${noteLine}`
     case 'rule':
       return `## Statement
 
@@ -440,7 +354,7 @@ ${keywordLines}
     case 'domain':
       return `## Summary
 
-${inferDomainName(description)} 当前作为领域级知识入口，用来把相关 flow / rule / anchor 聚合到同一个 domain。
+${inferDomainName(description)} 当前作为领域级知识入口，用来把相关 flow / rule 聚合到同一个 domain。
 
 ## Terms
 
@@ -457,9 +371,6 @@ ${keywordLines}
 }
 
 function buildDraftOpenQuestions(kind: KnowledgeKind, description: string): string[] {
-  if (kind === 'anchor') {
-    return ['哪些路径是主搜索入口，哪些路径只是邻接模块。']
-  }
   if (kind === 'rule') {
     return ['默认规则和实验覆盖规则之间的优先级是否已经明确。']
   }
