@@ -149,7 +149,9 @@ export function KnowledgeSidebar({
                 <div className="mt-3 space-y-2">
                   {showCompletenessSlots
                     ? knowledgeKindOrder.map((kind) => {
-                        const document = groupedByDomain[domainName].find((item) => item.kind === kind)
+                        const document = groupedByDomain[domainName]
+                          .filter((item) => item.kind === kind)
+                          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.title.localeCompare(right.title))[0]
                         if (!document) {
                           return <KnowledgePlaceholderRow domainName={domainName} key={`${domainName}-${kind}`} kind={kind} />
                         }

@@ -3,7 +3,13 @@ import { createKnowledgeDrafts, deleteKnowledgeDocument, getKnowledgeGenerationJ
 import { KnowledgeCreateDrawer } from '../components/knowledge/knowledge-create-drawer'
 import { KnowledgeSidebar } from '../components/knowledge/knowledge-sidebar'
 import { KnowledgeWorkbench } from '../components/knowledge/knowledge-workbench'
-import type { KnowledgeDocument, KnowledgeDraftInput, KnowledgeGenerationJob, KnowledgeStatus } from '../knowledge/types'
+import type { KnowledgeDocument, KnowledgeDraftInput, KnowledgeGenerationJob, KnowledgeKind, KnowledgeStatus } from '../knowledge/types'
+
+type SelectionHint = {
+  jobId: string
+  domainName: string
+  kind: KnowledgeKind
+}
 
 export function KnowledgePage() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([])
@@ -17,6 +23,7 @@ export function KnowledgePage() {
   const [creating, setCreating] = useState(false)
   const [activeJob, setActiveJob] = useState<KnowledgeGenerationJob | null>(null)
   const [hydratedJobId, setHydratedJobId] = useState('')
+  const [pendingSelection, setPendingSelection] = useState<SelectionHint | null>(null)
   const deferredQuery = useDeferredValue(query)
   const saveTimers = useRef<Record<string, number>>({})
 
@@ -137,10 +144,22 @@ export function KnowledgePage() {
           return
         }
         setDocuments(items)
-        if (activeJob.document_ids.length > 0) {
-          setSelectedDocumentId(activeJob.document_ids[0])
+        const exactDocumentId = activeJob.document_ids.find((id) => items.some((document) => document.id === id))
+        const hintedDocument =
+          pendingSelection && pendingSelection.jobId === activeJob.job_id
+            ? items
+                .filter((document) => document.domainName === pendingSelection.domainName && document.kind === pendingSelection.kind)
+                .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.title.localeCompare(right.title))[0]
+            : null
+        if (exactDocumentId) {
+          setSelectedDocumentId(exactDocumentId)
+        } else if (hintedDocument) {
+          setSelectedDocumentId(hintedDocument.id)
         }
         setHydratedJobId(activeJob.job_id)
+        if (pendingSelection?.jobId === activeJob.job_id) {
+          setPendingSelection(null)
+        }
       })
       .catch((err) => {
         if (cancelled) {
@@ -151,7 +170,7 @@ export function KnowledgePage() {
     return () => {
       cancelled = true
     }
-  }, [activeJob, hydratedJobId])
+  }, [activeJob, hydratedJobId, pendingSelection])
 
   useEffect(() => {
     if (!activeJob || !isTerminalJob(activeJob.status)) {
@@ -194,12 +213,20 @@ export function KnowledgePage() {
     }, 400)
   }
 
-  function createDrafts(payload: KnowledgeDraftInput) {
+  function createDrafts(payload: KnowledgeDraftInput, selectionHint?: Pick<SelectionHint, 'domainName' | 'kind'>) {
     setCreating(true)
     void createKnowledgeDrafts(payload)
       .then((response) => {
         startTransition(() => {
           setActiveJob(response.job)
+          setPendingSelection(
+            selectionHint
+              ? {
+                  ...selectionHint,
+                  jobId: response.job.job_id,
+                }
+              : null,
+          )
           setShowCreateDrawer(false)
           setError('')
         })
@@ -230,7 +257,10 @@ export function KnowledgePage() {
   }
 
   function handleRegenerateDocument(document: KnowledgeDocument) {
-    createDrafts(buildRegeneratePayload(document))
+    createDrafts(buildRegeneratePayload(document), {
+      domainName: document.domainName,
+      kind: document.kind,
+    })
   }
 
   function handleDeleteDomain(domainName: string, items: KnowledgeDocument[]) {
