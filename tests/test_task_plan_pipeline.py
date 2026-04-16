@@ -164,6 +164,9 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(status, "planned")
             selection = json.loads((task_dir / "plan-knowledge-selection.json").read_text(encoding="utf-8"))
             self.assertEqual(selection["selected_ids"], ["flow-auction-card-plan"])
+            execution = json.loads((task_dir / "plan-execution.json").read_text(encoding="utf-8"))
+            self.assertTrue(execution["tasks"])
+            self.assertEqual(execution["tasks"][0]["verify_rule"], ["受影响 package 编译通过。"])
             brief = (task_dir / "plan-knowledge-brief.md").read_text(encoding="utf-8")
             self.assertIn("Plan Knowledge Brief", brief)
             self.assertIn("竞拍讲解卡状态提示链路", brief)
@@ -172,8 +175,12 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("验证要点", brief)
             design = (task_dir / "design.md").read_text(encoding="utf-8")
             plan = (task_dir / "plan.md").read_text(encoding="utf-8")
-            self.assertIn("竞拍讲解卡状态提示链路", design)
-            self.assertIn("竞拍讲解卡状态提示链路", plan)
+            self.assertIn("## 系统改造点", design)
+            self.assertIn("## 方案设计", design)
+            self.assertIn("仓库 demo_repo 主要承接", design)
+            self.assertIn("## 实施策略", plan)
+            self.assertIn("## 任务拆分", plan)
+            self.assertIn("受影响 package 编译通过", plan)
 
     def test_native_plan_runs_scope_and_verify(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -296,21 +303,42 @@ class PlanTaskPipelineTest(unittest.TestCase):
                             "validation_focus": ["校验主播侧状态提示与现有样式兼容"],
                         }
                     ),
-                    json.dumps({"ok": True, "issues": [], "reason": "方案结构完整"}),
+                    json.dumps({"ok": True, "issues": [], "reason": "design 结构完整"}),
+                    (
+                        "=== EXECUTION STRATEGY ===\n"
+                        "- 优先围绕现有讲解卡入口文件收敛改动。\n"
+                        "=== CANDIDATE FILES ===\n"
+                        "- app/explain_card/render_handler.go\n"
+                        "=== TASK STEPS ===\n"
+                        "- 在 app/explain_card/render_handler.go 中补齐竞拍态状态提示逻辑。\n"
+                        "=== BLOCKERS AND RISKS ===\n"
+                        "- 保持非竞拍态不展示。\n"
+                        "=== VALIDATION PLAN ===\n"
+                        "- 受影响 package 编译通过。\n"
+                    ),
+                    json.dumps({"ok": True, "issues": [], "reason": "execution 结构完整"}),
                 ],
             ), patch(
                 "coco_flow.clients.CocoACPClient.run_readonly_agent",
                 return_value=(
-                    "=== IMPLEMENTATION SUMMARY ===\n"
+                    "=== SYSTEM CHANGE POINTS ===\n"
+                    "- 收敛讲解卡状态提示改造范围。\n"
+                    "=== SOLUTION OVERVIEW ===\n"
                     "- 先在现有讲解卡入口范围内收敛改动。\n"
-                    "=== CANDIDATE FILES ===\n"
-                    "- app/explain_card/render_handler.go\n"
-                    "=== IMPLEMENTATION STEPS ===\n"
-                    "- 在 app/explain_card/render_handler.go 中补齐竞拍态状态提示逻辑。\n"
-                    "=== RISK NOTES ===\n"
-                    "- 保持非竞拍态不展示。\n"
-                    "=== VALIDATION EXTRA ===\n"
+                    "=== SYSTEM DEPENDENCIES ===\n"
+                    "- 先完成讲解卡入口逻辑，再确认上下游展示兼容性。\n"
+                    "=== CRITICAL FLOWS ===\n"
+                    "- 主链路从 ExplainCardHandler 进入，再下发状态提示。\n"
+                    "=== PROTOCOL CHANGES ===\n"
+                    "- 当前未发现明确协议变更，保持接口兼容。\n"
+                    "=== STORAGE CONFIG CHANGES ===\n"
+                    "- 当前未发现明确存储或配置变更。\n"
+                    "=== EXPERIMENT CHANGES ===\n"
+                    "- 当前未发现明确实验变更。\n"
+                    "=== QA INPUTS ===\n"
                     "- 校验主播侧状态提示与现有样式兼容。\n"
+                    "=== STAFFING ESTIMATE ===\n"
+                    "- 预计以后端单仓收敛为主，前后协调成本较低。\n"
                 ),
             ):
                 status = plan_task(task_id, settings=settings)
@@ -318,13 +346,21 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(status, "planned")
             scope = json.loads((task_dir / "plan-scope.json").read_text(encoding="utf-8"))
             self.assertEqual(scope["summary"], "优先收敛讲解卡状态提示边界")
+            execution = json.loads((task_dir / "plan-execution.json").read_text(encoding="utf-8"))
+            self.assertTrue(execution["tasks"])
             verify = json.loads((task_dir / "plan-verify.json").read_text(encoding="utf-8"))
-            self.assertEqual(verify["ok"], True)
+            self.assertEqual(verify["design"]["ok"], True)
+            self.assertEqual(verify["execution"]["ok"], True)
             design = (task_dir / "design.md").read_text(encoding="utf-8")
             plan = (task_dir / "plan.md").read_text(encoding="utf-8")
-            self.assertIn("竞拍讲解卡状态提示链路", design)
+            self.assertIn("## 系统改造点", design)
+            self.assertIn("## 方案设计", design)
+            self.assertIn("仓库 demo_repo 主要承接", design)
+            self.assertIn("收敛讲解卡状态提示改造范围", design)
             self.assertIn("优先收敛讲解卡状态提示边界", design)
-            self.assertIn("优先收敛讲解卡状态提示边界", plan)
+            self.assertIn("## 执行顺序", plan)
+            self.assertIn("优先围绕现有讲解卡入口文件收敛改动", plan)
+            self.assertIn("受影响 package 编译通过", plan)
 
 
 if __name__ == "__main__":

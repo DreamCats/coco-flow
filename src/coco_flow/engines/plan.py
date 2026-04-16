@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 import json
@@ -9,20 +10,24 @@ from typing import Callable
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.engines.plan_generate import (
-    build_plan_prompt,
+    build_design_prompt,
+    build_design_verify_prompt,
+    build_execution_prompt,
+    build_execution_verify_prompt,
     build_plan_scope_prompt,
-    build_plan_verify_prompt,
-    extract_plan_outputs,
+    extract_design_outputs,
+    extract_execution_outputs,
     extract_plan_scope_output,
     parse_ai_candidate_files,
     parse_plan_verify_output,
-    qualify_repo_path,
-    validate_plan_outputs,
+    validate_design_outputs,
+    validate_execution_outputs,
 )
 from coco_flow.engines.plan_knowledge import build_plan_knowledge_brief
-from coco_flow.engines.plan_models import PlanBuild, PlanEngineResult
-from coco_flow.engines.plan_render import build_design, build_plan
+from coco_flow.engines.plan_models import PlanAISections, PlanBuild, PlanEngineResult
+from coco_flow.engines.plan_render import build_design, build_execution_sections, build_plan
 from coco_flow.engines.plan_research import (
+    build_design_research_signals,
     build_repo_researches,
     combine_context_snapshots,
     combine_research_findings,
@@ -76,7 +81,7 @@ def plan_task_local(
         status=STATUS_PLANNED,
         design_markdown=design,
         plan_markdown=plan,
-        intermediate_artifacts=build_plan_intermediate_artifacts(build),
+        intermediate_artifacts=build_plan_intermediate_artifacts(build, ai=None),
     )
 
 
@@ -109,25 +114,62 @@ def plan_task_native(
         on_log(f"scope_error: {error}")
         return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
 
-    on_log(f"prompt_start: timeout={settings.native_query_timeout}")
+    on_log(f"design_prompt_start: timeout={settings.native_query_timeout}")
     try:
-        raw = client.run_readonly_agent(
-            build_plan_prompt(build),
+        design_raw = client.run_readonly_agent(
+            build_design_prompt(build),
             settings.native_query_timeout,
             build.repo_root or os.getcwd(),
         )
     except ValueError as error:
-        on_log(f"generate_plan_with_native_error: {error}")
+        on_log(f"generate_design_with_native_error: {error}")
         return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
 
-    on_log(f"prompt_ok: {len(raw)} bytes")
-    ai_sections, ok = extract_plan_outputs(raw)
+    on_log(f"design_prompt_ok: {len(design_raw)} bytes")
+    design_ai, ok = extract_design_outputs(design_raw)
     if not ok:
-        on_log("parse_plan_output_error: missing required marker sections")
+        on_log("parse_design_output_error: missing required marker sections")
         return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
-    validate_plan_outputs(build, ai_sections)
+    validate_design_outputs(build, design_ai)
 
-    ai_files = parse_ai_candidate_files(raw=ai_sections.candidate_files, build=build)
+    on_log(f"design_verify_start: timeout={settings.native_query_timeout}")
+    try:
+        design_verify_raw = client.run_prompt_only(
+            build_design_verify_prompt(build, design_ai),
+            settings.native_query_timeout,
+            cwd=build.repo_root,
+        )
+        design_verify_payload = parse_plan_verify_output(design_verify_raw)
+        on_log(f"design_verify_ok: {len(design_verify_raw)} bytes")
+        if not bool(design_verify_payload.get("ok")):
+            issues = design_verify_payload.get("issues")
+            issue_text = "; ".join(str(item) for item in issues[:3]) if isinstance(issues, list) else "unknown"
+            on_log(f"design_verify_failed: {issue_text}")
+            return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
+        on_log("design_verify_passed: true")
+    except ValueError as error:
+        on_log(f"design_verify_error: {error}")
+        return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
+
+    on_log(f"execution_prompt_start: timeout={settings.native_query_timeout}")
+    try:
+        execution_raw = client.run_prompt_only(
+            build_execution_prompt(build, design_ai),
+            settings.native_query_timeout,
+            cwd=build.repo_root,
+        )
+    except ValueError as error:
+        on_log(f"generate_execution_with_native_error: {error}")
+        return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
+
+    on_log(f"execution_prompt_ok: {len(execution_raw)} bytes")
+    execution_ai, ok = extract_execution_outputs(execution_raw)
+    if not ok:
+        on_log("parse_execution_output_error: missing required marker sections")
+        return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
+    validate_execution_outputs(build, execution_ai)
+
+    ai_files = parse_ai_candidate_files(raw=execution_ai.candidate_files, build=build)
     if ai_files:
         build.finding.candidate_files = ai_files
         build.finding.candidate_dirs = summarize_dirs(ai_files)
@@ -135,25 +177,26 @@ def plan_task_native(
         on_log(f"candidate_files_override: {len(ai_files)}")
         on_log(f"complexity_after_ai: {build.assessment.level} ({build.assessment.total})")
 
-    on_log(f"verify_start: timeout={settings.native_query_timeout}")
+    on_log(f"execution_verify_start: timeout={settings.native_query_timeout}")
     try:
-        verify_raw = client.run_prompt_only(
-            build_plan_verify_prompt(build, ai_sections),
+        execution_verify_raw = client.run_prompt_only(
+            build_execution_verify_prompt(build, execution_ai),
             settings.native_query_timeout,
             cwd=build.repo_root,
         )
-        verify_payload = parse_plan_verify_output(verify_raw)
-        on_log(f"verify_ok: {len(verify_raw)} bytes")
-        if not bool(verify_payload.get("ok")):
-            issues = verify_payload.get("issues")
+        execution_verify_payload = parse_plan_verify_output(execution_verify_raw)
+        on_log(f"execution_verify_ok: {len(execution_verify_raw)} bytes")
+        if not bool(execution_verify_payload.get("ok")):
+            issues = execution_verify_payload.get("issues")
             issue_text = "; ".join(str(item) for item in issues[:3]) if isinstance(issues, list) else "unknown"
-            on_log(f"verify_failed: {issue_text}")
+            on_log(f"execution_verify_failed: {issue_text}")
             return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
-        on_log("verify_passed: true")
+        on_log("execution_verify_passed: true")
     except ValueError as error:
-        on_log(f"verify_error: {error}")
+        on_log(f"execution_verify_error: {error}")
         return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
 
+    ai_sections = PlanAISections(design=design_ai, execution=execution_ai)
     design = build_design(build, ai=ai_sections)
     plan = build_plan(build, ai=ai_sections)
     on_log(f"status: {STATUS_PLANNED}")
@@ -161,10 +204,13 @@ def plan_task_native(
         status=STATUS_PLANNED,
         design_markdown=design,
         plan_markdown=plan,
-        intermediate_artifacts=build_plan_intermediate_artifacts(build),
+        intermediate_artifacts=build_plan_intermediate_artifacts(build, ai=ai_sections),
     )
     result.intermediate_artifacts["plan-scope.json"] = build.llm_scope.to_payload()
-    result.intermediate_artifacts["plan-verify.json"] = verify_payload
+    result.intermediate_artifacts["plan-verify.json"] = {
+        "design": design_verify_payload,
+        "execution": execution_verify_payload,
+    }
     return result
 
 
@@ -182,6 +228,7 @@ def prepare_plan_build(task_dir: Path, task_meta: dict[str, object], settings: S
     repo_root = repo_scopes[0].repo_path if repo_scopes else None
     context = combine_context_snapshots(repo_researches)
     finding = combine_research_findings(repo_researches, len(repo_scopes))
+    research_signals = build_design_research_signals(repo_researches, sections)
     assessment = score_complexity(sections, finding)
     knowledge_brief_markdown, knowledge_selection_payload, selected_knowledge_ids = build_plan_knowledge_brief(
         settings,
@@ -203,6 +250,7 @@ def prepare_plan_build(task_dir: Path, task_meta: dict[str, object], settings: S
         context=context,
         sections=sections,
         finding=finding,
+        research_signals=research_signals,
         assessment=assessment,
         knowledge_brief_markdown=knowledge_brief_markdown,
         knowledge_selection_payload=knowledge_selection_payload,
@@ -244,7 +292,7 @@ def log_plan_research(build: PlanBuild, on_log: LogHandler) -> None:
     on_log(f"complexity: {build.assessment.level} ({build.assessment.total})")
 
 
-def build_plan_intermediate_artifacts(build: PlanBuild) -> dict[str, str | dict[str, object]]:
+def build_plan_intermediate_artifacts(build: PlanBuild, ai: PlanAISections | None) -> dict[str, str | dict[str, object]]:
     artifacts: dict[str, str | dict[str, object]] = {}
     candidates = build.knowledge_selection_payload.get("candidates")
     if isinstance(candidates, list) and candidates:
@@ -253,6 +301,7 @@ def build_plan_intermediate_artifacts(build: PlanBuild) -> dict[str, str | dict[
         artifacts["plan-knowledge-brief.md"] = build.knowledge_brief_markdown
     if any([build.llm_scope.summary, build.llm_scope.boundaries, build.llm_scope.priorities, build.llm_scope.risk_focus, build.llm_scope.validation_focus]):
         artifacts["plan-scope.json"] = build.llm_scope.to_payload()
+    artifacts["plan-execution.json"] = asdict(build_execution_sections(build, ai=ai))
     return artifacts
 
 

@@ -46,7 +46,9 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
         "repoNext": [
             repo.repo_id
             for repo in detail.repos
-            if repo.repo_id and (repo.status or "") in {"planned", "failed", "initialized", "refined"}
+            if repo.repo_id
+            and (repo.status or "") in {"planned", "failed", "initialized", "refined"}
+            and (repo.failure_type or "") != "blocked_by_dependency"
         ],
         "repos": [
             {

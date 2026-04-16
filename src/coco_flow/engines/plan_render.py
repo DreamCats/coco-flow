@@ -9,7 +9,8 @@ from .plan_models import (
     GlossaryEntry,
     PlanAISections,
     PlanBuild,
-    PlanTask,
+    PlanExecutionSections,
+    PlanTaskSpec,
     RefinedSections,
     ResearchFinding,
 )
@@ -19,87 +20,87 @@ MAX_TASK_ACTIONS = 4
 
 
 def build_design(build: PlanBuild, ai: PlanAISections | None) -> str:
-    repo_section = "\n".join(build.repo_lines) if build.repo_lines else "- current-repo"
-    candidate_summary = render_design_candidate_summary(build.finding.candidate_files)
+    repo_order = [scope.repo_id for scope in build.repo_scopes]
+    tasks = build_plan_tasks(build.sections, build.finding, ai, build.repo_ids, repo_order)
     parts = [
         "# Design\n\n",
-        "## 背景与目标\n\n",
         f"- task_id: {build.task_id}\n",
-        f"- 任务标题：{build.title}\n",
-        f"- 原始输入：{build.source_value or '未记录'}\n",
-        "- 基于 refined PRD、context 和本地调研结果收敛实现边界。\n",
-        "- 涉及仓库：\n",
-        f"{indent_block(repo_section, prefix='  ')}\n\n",
-        render_requirement_summary(build.sections, build.source_markdown),
+        f"- title: {build.title}\n\n",
+        "## 系统改造点\n\n",
+        render_system_change_points(build.sections, ai),
         "\n\n",
-        "## 现状与关键上下文\n\n",
-        render_context_snapshot(build.context),
+        "## 方案设计\n\n",
+        "### 总体方案\n\n",
+        render_solution_overview(build, ai),
         "\n\n",
-        "## Plan Scope\n\n",
-        render_plan_scope_block(build),
+        "### 分系统改造\n\n",
+        render_system_change_details(build, tasks, ai),
         "\n\n",
-        render_plan_knowledge_section(build),
+        "### 系统依赖关系\n\n",
+        render_system_dependencies(build, tasks, ai),
         "\n\n",
-        render_research_summary(build.finding),
+        "### 关键链路说明\n\n",
+        render_critical_flows(build, ai),
         "\n\n",
-        "## 方案摘要\n\n",
-        render_implementation_summary(ai, build.assessment),
+        "## 多端协议是否有变更\n\n",
+        render_protocol_changes(build, ai),
         "\n\n",
-        "- 候选文件摘要：\n",
-        f"{candidate_summary}\n\n",
-        "## 风险与待确认\n\n",
-        render_complexity_summary(build.assessment),
+        "## 存储&&配置是否有变更\n\n",
+        render_storage_config_changes(build, ai),
         "\n\n",
-        render_risk_section(ai, build.finding.notes),
+        "## 是否有实验，实验怎么涉及\n\n",
+        render_experiment_changes(build, ai),
         "\n\n",
-        render_open_questions(build.sections.open_questions),
+        "## 给 QA 的输入\n\n",
+        render_qa_inputs(build, ai),
+        "\n\n",
+        "## 人力评估\n\n",
+        render_staffing_estimate(build, tasks, ai),
         "\n",
     ]
     return "".join(parts)
 
 
 def build_plan(build: PlanBuild, ai: PlanAISections | None) -> str:
-    repo_order = [scope.repo_id for scope in build.repo_scopes]
-    tasks = build_plan_tasks(build.sections, build.finding, ai, build.repo_ids, repo_order)
-    repo_groups = build_plan_repo_groups(build.finding.candidate_files, build.repo_ids, repo_order)
+    execution = build_execution_sections(build, ai)
     parts = [
         "# Plan\n\n",
         f"- task_id: {build.task_id}\n",
-        f"- title: {build.title}\n\n",
-        "## 复杂度评估\n\n",
-        f"- complexity: {build.assessment.level} ({build.assessment.total})\n",
-        f"- 结论: {build.assessment.conclusion}\n\n",
-        "## 实现概要\n\n",
-        render_implementation_summary(ai, build.assessment),
+        f"- title: {build.title}\n",
+        f"- complexity: {build.assessment.level} ({build.assessment.total})\n\n",
+        "## 实施策略\n\n",
+        render_execution_strategy(build, execution.tasks, ai),
         "\n\n",
+        "## 任务拆分\n\n",
+        render_plan_tasks(execution.tasks),
+        "\n\n",
+        "## 执行顺序\n\n",
+        render_execution_order(execution.tasks),
+        "\n\n",
+        "## 验证计划\n\n",
+        render_validation_plan(execution.tasks, build.finding.notes, ai),
+        "\n\n",
+        "## 阻塞项与风险\n\n",
+        render_blockers_and_risks(build, ai),
+        "\n",
     ]
-
-    if build.assessment.total > 6:
-        parts.extend(
-            [
-                "## 结论\n\n",
-                "- 当前需求被判定为复杂，暂不建议直接进入自动 code 阶段。\n",
-                "- 建议先人工拆分需求、补充上下文或补全 PRD 后再重新执行 plan。\n\n",
-            ]
-        )
-    else:
-        parts.extend(["## 实现目标\n\n", render_goal_list(build.sections), "\n\n"])
-
-    if repo_groups:
-        parts.extend(["## 涉及仓库\n\n"])
-        for repo_id, files in repo_groups:
-            parts.append(f"- {repo_id}：{len(files)} 个候选文件\n")
-        parts.append("\n")
-
-    parts.extend(["## 拟改文件\n\n", render_plan_candidate_groups(repo_groups, ai), "\n\n"])
-    parts.extend(["## Plan Scope\n\n", render_plan_scope_block(build), "\n\n"])
-    parts.extend(["## Knowledge Brief\n\n", render_plan_knowledge_block(build), "\n\n"])
-    parts.extend(["## 任务列表\n\n", render_plan_tasks(tasks), "\n\n"])
-    parts.extend(["## 实施步骤\n\n", render_implementation_steps(tasks, ai), "\n\n"])
-    parts.extend(["## 风险补充\n\n", render_risk_section(ai, build.finding.notes), "\n\n"])
-    parts.extend(["## 待确认项\n\n", render_open_questions(build.sections.open_questions), "\n\n"])
-    parts.extend(["## 验证建议\n\n", render_validation_section(build.finding.notes, ai), "\n"])
     return "".join(parts)
+
+
+def build_execution_sections(build: PlanBuild, ai: PlanAISections | None) -> PlanExecutionSections:
+    repo_order = [scope.repo_id for scope in build.repo_scopes]
+    tasks = build_plan_tasks(build.sections, build.finding, ai, build.repo_ids, repo_order)
+    strategy = parse_markdown_items(render_execution_strategy(build, tasks, ai))
+    order = parse_markdown_items(render_execution_order(tasks))
+    verification = parse_markdown_items(render_validation_plan(tasks, build.finding.notes, ai))
+    blockers = parse_markdown_items(render_blockers_and_risks(build, ai))
+    return PlanExecutionSections(
+        execution_strategy=strategy,
+        tasks=tasks,
+        execution_order=order,
+        verification_plan=verification,
+        blockers_and_risks=blockers,
+    )
 
 
 def build_plan_tasks(
@@ -108,11 +109,11 @@ def build_plan_tasks(
     ai: PlanAISections | None,
     repo_ids: set[str] | None = None,
     repo_order: list[str] | None = None,
-) -> list[PlanTask]:
+) -> list[PlanTaskSpec]:
     if not findings.candidate_files:
         return []
 
-    ai_steps = ai.steps if ai else ""
+    ai_steps = ai.execution.steps if ai else ""
     repo_dir_files: dict[str, dict[str, list[str]]] = {}
     for file_path in findings.candidate_files:
         repo_id = infer_repo_id_from_file(file_path, repo_ids or set())
@@ -121,7 +122,7 @@ def build_plan_tasks(
         repo_bucket = repo_dir_files.setdefault(repo_id, {})
         repo_bucket.setdefault(directory, []).append(file_path)
 
-    tasks: list[PlanTask] = []
+    tasks: list[PlanTaskSpec] = []
     task_index = 1
     last_repo_task_id: dict[str, str] = {}
     previous_repo_last_task_id = ""
@@ -130,6 +131,7 @@ def build_plan_tasks(
         if repo_id not in ordered_repos:
             ordered_repos.append(repo_id)
 
+    change_point_ids = list(range(1, len(sections.change_scope) + 1))
     for repo_id in ordered_repos:
         repo_dirs = repo_dir_files.get(repo_id, {})
         for directory, files in repo_dirs.items():
@@ -139,16 +141,18 @@ def build_plan_tasks(
             task_id = f"T{task_index}"
             actions = build_task_actions_for_scope(files, sections, ai_steps, repo_id=repo_id, display_dir=display_dir)
             tasks.append(
-                PlanTask(
+                PlanTaskSpec(
                     id=task_id,
                     title=build_plan_task_title(repo_id, display_dir, files, sections, ai_steps),
+                    target_system_or_repo=repo_id,
+                    serves_change_points=change_point_ids[:],
                     goal=build_plan_task_goal(repo_id, display_dir, sections, files),
                     depends_on=depends_on,
-                    files=files,
-                    input=["refined PRD 中的功能点与边界条件", "context 调研结果"],
-                    output=build_task_outputs(repo_id, display_dir, files),
+                    parallelizable_with=[],
+                    change_scope=files,
                     actions=actions,
-                    done=["涉及文件编译通过，功能符合 PRD 要求。"],
+                    done_definition=build_done_definition(repo_id, display_dir, files),
+                    verify_rule=["受影响 package 编译通过。"],
                 )
             )
             last_repo_task_id[repo_id] = task_id
@@ -219,8 +223,8 @@ def build_plan_task_title(
         return f"{repo_prefix}{step}"
     if feature:
         if display_dir == "仓库根目录":
-            return f"{repo_prefix}为「{feature}」补齐核心改动"
-        return f"{repo_prefix}为「{feature}」调整 {display_dir}"
+            return f"{repo_prefix}围绕「{feature}」收敛核心改造"
+        return f"{repo_prefix}围绕「{feature}」调整 {display_dir}"
     return f"{repo_prefix}修改 {display_dir} 下相关文件"
 
 
@@ -228,18 +232,18 @@ def build_plan_task_goal(repo_id: str, display_dir: str, sections: RefinedSectio
     repo_scope = f"在仓库 {repo_id}" if repo_id not in {"", "current-repo"} else "在当前仓库"
     feature = summarize_feature(sections)
     if feature:
-        return f"{repo_scope} 的 {display_dir} 中完成「{feature}」相关改动，并收敛到可验证的最小实现范围。"
+        return f"{repo_scope}的 {display_dir} 中完成「{feature}」相关改动，并保持最小改动范围。"
     if len(files) == 1:
         return f"{repo_scope}围绕 {files[0]} 完成需求涉及的改动，并保证结果可验证。"
-    return f"{repo_scope} 的 {display_dir} 中完成需求涉及的改动，并保证结果可验证。"
+    return f"{repo_scope}的 {display_dir} 中完成需求涉及的改动，并保证结果可验证。"
 
 
-def build_task_outputs(repo_id: str, display_dir: str, files: list[str]) -> list[str]:
-    outputs = [f"{display_dir} 下的改动文件通过编译和自测"]
+def build_done_definition(repo_id: str, display_dir: str, files: list[str]) -> list[str]:
+    outputs = [f"{display_dir} 范围内的改动已落地，并与依赖任务保持一致。"]
     if repo_id not in {"", "current-repo"}:
-        outputs.append(f"仓库 {repo_id} 的改动边界清晰，可继续推进后续仓库任务")
+        outputs.append(f"仓库 {repo_id} 的改动边界已收敛，可继续推进后续任务。")
     if len(files) == 1:
-        outputs.append(f"{files[0]} 的实现变更已落地")
+        outputs.append(f"{files[0]} 的主要变更已完成。")
     return outputs
 
 
@@ -276,7 +280,7 @@ def build_task_actions_for_scope(
 
     feature = summarize_feature(sections)
     if feature:
-        feature_action = normalize_action_line(f"确保实现覆盖功能点「{feature}」及其边界条件。")
+        feature_action = normalize_action_line(f"确保实现覆盖变更范围中的「{feature}」及其关键约束。")
         if feature_action not in seen:
             actions.append(feature_action)
 
@@ -300,11 +304,7 @@ def render_task_directory(repo_id: str, directory: str) -> str:
 
 
 def summarize_feature(sections: RefinedSections, limit: int = 24) -> str:
-    source = ""
-    if sections.features:
-        source = sections.features[0]
-    elif sections.summary:
-        source = sections.summary
+    source = sections.change_scope[0] if sections.change_scope else ""
     source = normalize_action_line(source).removesuffix("。")
     if len(source) > limit:
         return source[: limit - 1] + "…"
@@ -362,16 +362,269 @@ def suggest_file_action(file_path: str) -> str:
     return "作为候选实现文件，需要人工确认是否纳入本次改动范围。"
 
 
-def render_requirement_summary(sections: RefinedSections, source_markdown: str) -> str:
-    items = []
-    if sections.summary:
-        items.append(f"- 需求概述：{sections.summary}")
-    for feature in sections.features[:4]:
-        items.append(f"- 功能点：{feature}")
+def render_system_change_points(sections: RefinedSections, ai: PlanAISections | None) -> str:
+    items = parse_markdown_items(ai.design.system_change_points) if ai else []
     if not items:
-        excerpt = extract_excerpt(source_markdown)
-        return excerpt or "- 当前尚未提取到有效需求内容。"
-    return "\n".join(items)
+        items = unique_items(sections.change_scope)
+    if not items:
+        return "- 当前未能从 refined PRD 中提取明确的系统改造点。"
+    return "\n".join(f"- {item}" for item in items[:6])
+
+
+def render_solution_overview(build: PlanBuild, ai: PlanAISections | None) -> str:
+    lines: list[str] = []
+    if ai and ai.design.solution_overview.strip():
+        lines.extend(parse_markdown_items(ai.design.solution_overview))
+    else:
+        lines.append("优先在已有模块和明确候选文件范围内收敛最小改动。")
+    if build.llm_scope.summary:
+        lines.append(f"范围摘要：{build.llm_scope.summary}")
+    if build.repo_lines:
+        lines.append(f"涉及仓库：{', '.join(line.removeprefix('- ').strip() for line in build.repo_lines)}。")
+    if build.context.available:
+        lines.append("方案收敛时已参考本地 context 与代码调研结果。")
+    if build.knowledge_brief_markdown.strip():
+        lines.append("方案收敛时已参考 approved knowledge 中的稳定规则和验证要点。")
+    return ensure_markdown_list("\n".join(lines))
+
+
+def render_system_change_details(build: PlanBuild, tasks: list[PlanTaskSpec], ai: PlanAISections | None = None) -> str:
+    research_lines: list[str] = []
+    research_lines.extend(build.research_signals.system_summaries[:6])
+    if ai and ai.design.solution_overview.strip():
+        research_lines.extend(parse_markdown_items(ai.design.solution_overview))
+    if not tasks and not research_lines:
+        return "- 当前尚未形成稳定的分系统改造项，需要先收敛候选改动范围。"
+    if not tasks:
+        return "\n".join(f"- {item}" for item in research_lines[:6]) or "- 当前尚未形成稳定的分系统改造项，需要先收敛候选改动范围。"
+    blocks: list[str] = []
+    if research_lines:
+        blocks.extend(f"- {item}" for item in research_lines[:6])
+        blocks.append("")
+    groups: dict[str, list[PlanTaskSpec]] = {}
+    for task in tasks:
+        groups.setdefault(task.target_system_or_repo, []).append(task)
+    for system_id, system_tasks in groups.items():
+        blocks.extend([f"### {system_id}", ""])
+        blocks.append(f"- 主要职责：承接 {len(system_tasks)} 个执行任务，收敛当前需求在该系统/仓库内的改动。")
+        blocks.append("- 涉及任务：")
+        blocks.extend(f"  - {task.id} {task.title}" for task in system_tasks)
+        blocks.append("- 计划改动：")
+        for task in system_tasks:
+            blocks.extend(f"  - {action}" for action in task.actions[:2])
+        blocks.append("")
+    return "\n".join(blocks).rstrip()
+
+
+def render_system_dependencies(build: PlanBuild, tasks: list[PlanTaskSpec], ai: PlanAISections | None = None) -> str:
+    lines: list[str] = []
+    lines.extend(build.research_signals.system_dependencies[:6])
+    if ai and ai.design.system_dependencies.strip():
+        lines.extend(parse_markdown_items(ai.design.system_dependencies))
+    for task in tasks:
+        if task.depends_on:
+            lines.append(f"- {task.id} 依赖 {', '.join(task.depends_on)}，应在上游任务完成后再推进。")
+        else:
+            lines.append(f"- {task.id} 可作为起始任务先行推进。")
+    return "\n".join(f"- {item}" if not item.startswith("- ") else item for item in lines) if lines else "- 当前尚未形成可执行任务，暂无法给出系统依赖关系。"
+
+
+def render_critical_flows(build: PlanBuild, ai: PlanAISections | None) -> str:
+    lines: list[str] = []
+    if ai and ai.design.critical_flows.strip():
+        lines.extend(f"- {item}" for item in parse_markdown_items(ai.design.critical_flows))
+    if build.research_signals.critical_flows:
+        lines.extend(f"- {item}" for item in build.research_signals.critical_flows[:4])
+    elif build.llm_scope.summary:
+        lines.append(f"- 主链路概述：{build.llm_scope.summary}")
+    if build.sections.change_scope:
+        lines.append(f"- 入口目标：{build.sections.change_scope[0]}")
+    if build.sections.key_constraints:
+        lines.append(f"- 关键约束：{build.sections.key_constraints[0]}")
+    if build.sections.non_goals:
+        lines.append(f"- 非目标边界：{build.sections.non_goals[0]}")
+    if build.sections.acceptance_criteria:
+        lines.append(f"- 完成标志：{build.sections.acceptance_criteria[0]}")
+    return "\n".join(lines) if lines else "- 当前未沉淀出额外的关键链路说明。"
+
+
+def render_protocol_changes(build: PlanBuild, ai: PlanAISections | None = None) -> str:
+    lines: list[str] = []
+    if build.research_signals.protocol_changes:
+        lines.extend(build.research_signals.protocol_changes)
+    if ai and ai.design.protocol_changes.strip():
+        lines.extend(parse_markdown_items(ai.design.protocol_changes))
+    if lines:
+        return "\n".join(f"- {item}" for item in unique_items(lines))
+    matched_files = [
+        file_path for file_path in build.finding.candidate_files if file_path.endswith((".proto", ".thrift")) or "/handler/" in file_path
+    ]
+    signal_text = "\n".join([*build.sections.change_scope, *build.sections.key_constraints, *build.sections.acceptance_criteria])
+    if matched_files or contains_keywords(signal_text, "协议", "接口", "rpc", "字段", "请求", "返回"):
+        lines = ["- 检测到可能存在多端协议或接口边界调整，需要重点确认上下游字段兼容性。"]
+        if matched_files:
+            lines.append("- 候选影响文件：")
+            lines.extend(f"  - {file_path}" for file_path in matched_files[:6])
+        return "\n".join(lines)
+    return "- 当前未发现明确的多端协议变更信号。"
+
+
+def render_storage_config_changes(build: PlanBuild, ai: PlanAISections | None = None) -> str:
+    lines: list[str] = []
+    if build.research_signals.storage_config_changes:
+        lines.extend(build.research_signals.storage_config_changes)
+    if ai and ai.design.storage_config_changes.strip():
+        lines.extend(parse_markdown_items(ai.design.storage_config_changes))
+    if lines:
+        return "\n".join(f"- {item}" for item in unique_items(lines))
+    matched_files = [
+        file_path
+        for file_path in build.finding.candidate_files
+        if any(keyword in file_path.lower() for keyword in ("config", "dao", "repo", "model", "store"))
+    ]
+    signal_text = "\n".join([*build.sections.change_scope, *build.sections.key_constraints, *build.sections.non_goals])
+    if matched_files or contains_keywords(signal_text, "数据库", "配置", "缓存", "tcc", "状态", "持久化"):
+        lines = ["- 检测到可能存在存储或配置层变更，需要确认上线、回滚和默认行为。"]
+        if matched_files:
+            lines.append("- 候选影响文件：")
+            lines.extend(f"  - {file_path}" for file_path in matched_files[:6])
+        return "\n".join(lines)
+    return "- 当前未发现明确的存储或配置变更信号。"
+
+
+def render_experiment_changes(build: PlanBuild, ai: PlanAISections | None = None) -> str:
+    lines: list[str] = []
+    if build.research_signals.experiment_changes:
+        lines.extend(build.research_signals.experiment_changes)
+    if ai and ai.design.experiment_changes.strip():
+        lines.extend(parse_markdown_items(ai.design.experiment_changes))
+    if lines:
+        return "\n".join(f"- {item}" for item in unique_items(lines))
+    signal_text = "\n".join([*build.sections.change_scope, *build.sections.key_constraints, *build.sections.open_questions])
+    if contains_keywords(signal_text, "实验", "灰度", "开关", "ab", "bucket"):
+        return "\n".join(
+            [
+                "- 检测到可能存在实验或灰度开关影响，需要确认实验入口、流量范围和回滚策略。",
+                "- 建议在进入 code 前补齐实验开关位置和生效链路。",
+            ]
+        )
+    return "- 当前未发现明确的实验设计变更信号。"
+
+
+def render_qa_inputs(build: PlanBuild, ai: PlanAISections | None) -> str:
+    lines: list[str] = []
+    if build.research_signals.qa_inputs:
+        lines.extend(f"- {item}" for item in build.research_signals.qa_inputs[:8])
+    if ai and ai.design.qa_inputs.strip():
+        lines.extend(f"- {item}" for item in parse_markdown_items(ai.design.qa_inputs))
+    if build.sections.acceptance_criteria:
+        lines.append("- 主链路测试建议：")
+        lines.extend(f"  - {item}" for item in build.sections.acceptance_criteria[:4])
+    if build.sections.key_constraints:
+        lines.append("- 关键约束校验：")
+        lines.extend(f"  - {item}" for item in build.sections.key_constraints[:4])
+    if build.sections.non_goals:
+        lines.append("- 非目标回归：")
+        lines.extend(f"  - 重点确认 {item}" for item in build.sections.non_goals[:3])
+    if build.sections.open_questions:
+        lines.append("- 待确认项：")
+        lines.extend(f"  - {item}" for item in build.sections.open_questions[:4])
+    return "\n".join(lines) if lines else "- 当前未生成额外 QA 输入。"
+
+
+def render_staffing_estimate(build: PlanBuild, tasks: list[PlanTaskSpec], ai: PlanAISections | None = None) -> str:
+    if ai and ai.design.staffing_estimate.strip():
+        return ensure_markdown_list(ai.design.staffing_estimate)
+    lines = [
+        f"- 当前复杂度评估：{build.assessment.level} ({build.assessment.total})。",
+        f"- 涉及仓库数：{len(build.repo_scopes)}。",
+        f"- 当前任务拆分数：{len(tasks)}。",
+        "- 当前未生成精确人天估算，建议在任务拆分评审后补齐具体人力安排。",
+    ]
+    return "\n".join(lines)
+
+
+def render_execution_strategy(build: PlanBuild, tasks: list[PlanTaskSpec], ai: PlanAISections | None) -> str:
+    lines = ["- 优先围绕受影响系统/仓库收敛最小改动范围，再按依赖顺序推进实现。"]
+    if ai and ai.execution.execution_strategy.strip():
+        lines.extend(parse_markdown_items(ai.execution.execution_strategy))
+    if tasks:
+        lines.append(f"- 建议从 {tasks[0].id} 开始执行，并按任务依赖逐步收口。")
+    if build.llm_scope.summary:
+        lines.append(f"- 范围摘要：{build.llm_scope.summary}")
+    if build.llm_scope.priorities:
+        lines.extend(f"- 优先事项：{item}" for item in build.llm_scope.priorities[:3])
+    if build.assessment.total > 6:
+        lines.append("- 当前复杂度偏高，建议先人工确认关键依赖，再决定是否进入自动 code。")
+    return ensure_markdown_list("\n".join(lines))
+
+
+def render_plan_tasks(tasks: list[PlanTaskSpec]) -> str:
+    if not tasks:
+        return "- 暂未生成任务拆分，需要先收敛候选改动范围。"
+    blocks: list[str] = []
+    for task in tasks:
+        blocks.extend(
+            [
+                f"### {task.id} {task.title}",
+                "",
+                f"- 目标系统/仓库：{task.target_system_or_repo}",
+                f"- 服务改造点：{', '.join(str(item) for item in task.serves_change_points) if task.serves_change_points else '无'}",
+                f"- 目标：{task.goal}",
+                f"- 依赖：{', '.join(task.depends_on) if task.depends_on else '无'}",
+                f"- 可并行任务：{', '.join(task.parallelizable_with) if task.parallelizable_with else '无'}",
+                "- 修改范围：",
+            ]
+        )
+        blocks.extend(f"  - {item}" for item in task.change_scope)
+        blocks.append("- 实施动作：")
+        blocks.extend(f"  - {item}" for item in task.actions)
+        blocks.append("- 完成定义：")
+        blocks.extend(f"  - {item}" for item in task.done_definition)
+        blocks.append("- 验证方式：")
+        blocks.extend(f"  - {item}" for item in task.verify_rule)
+        blocks.append("")
+    return "\n".join(blocks).rstrip()
+
+
+def render_execution_order(tasks: list[PlanTaskSpec]) -> str:
+    if not tasks:
+        return "- 当前尚未生成执行顺序，需要先完成任务拆分。"
+    lines: list[str] = [f"- 推荐执行主顺序：{' -> '.join(task.id for task in tasks)}。"]
+    for task in tasks:
+        if task.depends_on:
+            lines.append(f"- {task.id} 需在 {', '.join(task.depends_on)} 完成后执行。")
+        else:
+            lines.append(f"- {task.id} 可作为起始任务推进。")
+    return "\n".join(lines)
+
+
+def render_validation_plan(tasks: list[PlanTaskSpec], notes: list[str], ai: PlanAISections | None = None) -> str:
+    lines = [
+        "- 默认只做受影响 package 的编译验证，不展开全量测试矩阵。",
+        "- 若涉及多仓库任务，则按各仓库受影响 package 分别完成编译验证。",
+    ]
+    if ai and ai.execution.validation_plan.strip():
+        lines.extend(parse_markdown_items(ai.execution.validation_plan))
+    for task in tasks:
+        lines.append(f"- {task.id}：{' '.join(task.verify_rule)}")
+    if notes:
+        lines.extend(f"- 风险提醒：{note}" for note in notes[:3])
+    return "\n".join(lines)
+
+
+def render_blockers_and_risks(build: PlanBuild, ai: PlanAISections | None) -> str:
+    lines: list[str] = []
+    if build.assessment.total > 6:
+        lines.append("- 当前需求复杂度超过自动推进阈值，建议先人工确认依赖和拆分策略。")
+    if ai and ai.execution.blockers_and_risks.strip():
+        lines.extend(f"- {item}" for item in parse_markdown_items(ai.execution.blockers_and_risks))
+    elif build.finding.notes:
+        lines.extend(f"- {note}" for note in build.finding.notes)
+    if build.sections.open_questions:
+        lines.append("- 当前待确认项：")
+        lines.extend(f"  - {item}" for item in build.sections.open_questions[:5])
+    return "\n".join(lines) if lines else "- 当前未发现额外阻塞项与风险。"
 
 
 def render_context_snapshot(context: ContextSnapshot) -> str:
@@ -387,10 +640,6 @@ def render_context_snapshot(context: ContextSnapshot) -> str:
     if context.missing_files:
         lines.append(f"- 缺少 context 文件: {', '.join(context.missing_files)}")
     return "\n".join(lines) if lines else "- 无可用 context。"
-
-
-def render_plan_knowledge_section(build: PlanBuild) -> str:
-    return "## Approved Knowledge\n\n" + render_plan_knowledge_block(build)
 
 
 def render_plan_scope_block(build: PlanBuild) -> str:
@@ -448,8 +697,8 @@ def render_complexity_summary(assessment: ComplexityAssessment) -> str:
 
 
 def render_implementation_summary(ai: PlanAISections | None, assessment: ComplexityAssessment) -> str:
-    if ai and ai.summary.strip():
-        return ensure_markdown_list(ai.summary)
+    if ai and ai.design.solution_overview.strip():
+        return ensure_markdown_list(ai.design.solution_overview)
     lines = [
         "- 基于 refined PRD、context 和本地调研结果收敛改动范围。",
         "- 优先在已有模块中收敛实现，保持最小改动范围。",
@@ -461,102 +710,36 @@ def render_implementation_summary(ai: PlanAISections | None, assessment: Complex
     return "\n".join(lines)
 
 
-def render_candidate_files(ai: PlanAISections | None, fallback_files: list[str]) -> str:
-    if ai and ai.candidate_files.strip():
-        return ensure_markdown_list(ai.candidate_files)
-    return ensure_markdown_list("\n".join(fallback_files))
-
-
 def render_risk_section(ai: PlanAISections | None, notes: list[str]) -> str:
-    if ai and ai.risks.strip():
-        return ensure_markdown_list(ai.risks)
+    if ai and ai.execution.blockers_and_risks.strip():
+        return "\n".join(f"- {item}" for item in parse_markdown_items(ai.execution.blockers_and_risks))
     if notes:
         return "\n".join(f"- {note}" for note in notes)
     return "- 当前未发现额外风险补充。"
 
 
-def render_design_candidate_summary(candidate_files: list[str]) -> str:
-    if not candidate_files:
-        return "  - 暂未命中候选文件，需要补充 context 或人工指定模块。"
-    lines = [f"  - {file_path}" for file_path in candidate_files[:8]]
-    remaining = len(candidate_files) - len(lines)
-    if remaining > 0:
-        lines.append(f"  - 其余 {remaining} 个候选文件见 plan.md")
-    return "\n".join(lines)
+def render_requirement_summary(sections: RefinedSections, source_markdown: str) -> str:
+    items = []
+    for change in sections.change_scope[:4]:
+        items.append(f"- 变更范围：{change}")
+    for non_goal in sections.non_goals[:3]:
+        items.append(f"- 非目标：{non_goal}")
+    if not items:
+        excerpt = extract_excerpt(source_markdown)
+        return excerpt or "- 当前尚未提取到有效需求内容。"
+    return "\n".join(items)
 
 
 def render_goal_list(sections: RefinedSections) -> str:
-    if not sections.features:
+    if not sections.change_scope:
         return "- 基于 refined PRD 补全实现目标。"
-    return "\n".join(f"- {feature}" for feature in sections.features)
-
-
-def render_plan_candidate_groups(repo_groups: list[tuple[str, list[str]]], ai: PlanAISections | None) -> str:
-    if not repo_groups:
-        return "- 暂未命中候选文件，需要补充 context 或人工指定模块。"
-    ai_steps = ai.steps if ai else ""
-    blocks: list[str] = []
-    for repo_id, files in repo_groups:
-        blocks.append(f"### repo: {repo_id}\n")
-        for file_path in files:
-            desc = match_ai_step_for_file(ai_steps, file_path) or suggest_file_action(file_path)
-            blocks.append(f"- {file_path}：{desc}")
-        blocks.append("")
-    return "\n".join(blocks).strip()
-
-
-def render_plan_tasks(tasks: list[PlanTask]) -> str:
-    if not tasks:
-        return "- 暂未生成任务列表，需要先收敛候选文件后再继续。"
-    blocks: list[str] = []
-    for task in tasks:
-        blocks.extend(
-            [
-                f"### {task.id} {task.title}",
-                "",
-                f"- 目标：{task.goal}",
-            ]
-        )
-        if task.depends_on:
-            blocks.append(f"- 依赖任务：{', '.join(task.depends_on)}")
-        blocks.append("- 涉及文件：")
-        blocks.extend(f"  - {item}" for item in task.files)
-        blocks.append("- 输入：")
-        blocks.extend(f"  - {item}" for item in task.input)
-        blocks.append("- 输出：")
-        blocks.extend(f"  - {item}" for item in task.output)
-        blocks.append("- 具体动作：")
-        blocks.extend(f"  - {item}" for item in task.actions)
-        blocks.append("- 完成标志：")
-        blocks.extend(f"  - {item}" for item in task.done)
-        blocks.append("")
-    return "\n".join(blocks).rstrip()
-
-
-def render_implementation_steps(tasks: list[PlanTask], ai: PlanAISections | None) -> str:
-    if ai and ai.steps.strip():
-        return ai.steps.strip()
-    if not tasks:
-        return "- 先补充 context 或人工确认目标模块，再继续细化实施步骤。"
-    return "\n".join(f"- {task.id}：先完成「{task.title}」，再根据完成标志逐项自检。" for task in tasks)
+    return "\n".join(f"- {item}" for item in sections.change_scope)
 
 
 def render_open_questions(open_questions: list[str]) -> str:
     if not open_questions:
         return "- 无额外待确认项。"
     return "\n".join(f"- {item}" for item in open_questions)
-
-
-def render_validation_section(notes: list[str], ai: PlanAISections | None) -> str:
-    lines = [
-        "- 仅编译涉及的 package，不执行全仓 build/test。",
-        "- 完成实现后建议进行最小范围 review。",
-    ]
-    if notes:
-        lines.extend(f"- {note}" for note in notes)
-    if ai and ai.validation_extra.strip():
-        lines.append(ensure_markdown_list(ai.validation_extra))
-    return "\n".join(lines)
 
 
 def indent_block(content: str, prefix: str = "  ") -> str:
@@ -599,3 +782,29 @@ def ensure_markdown_list(content: str) -> str:
             continue
         lines.append(stripped if stripped.startswith("- ") else f"- {stripped}")
     return "\n".join(lines) if lines else "- 无"
+
+
+def parse_markdown_items(content: str) -> list[str]:
+    items: list[str] = []
+    for line in ensure_markdown_list(content).splitlines():
+        stripped = line.strip().removeprefix("- ").strip()
+        if stripped and stripped != "无":
+            items.append(stripped)
+    return items
+
+
+def unique_items(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        lowered = item.lower().strip()
+        if not lowered or lowered in seen:
+            continue
+        seen.add(lowered)
+        ordered.append(item)
+    return ordered
+
+
+def contains_keywords(content: str, *keywords: str) -> bool:
+    lowered = content.lower()
+    return any(keyword.lower() in lowered for keyword in keywords if keyword)

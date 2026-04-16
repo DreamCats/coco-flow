@@ -5,7 +5,7 @@ from pathlib import Path
 
 import json
 
-from .plan_models import PlanAISections, PlanBuild, PlanScope
+from .plan_models import DesignAISections, ExecutionAISections, PlanBuild, PlanScope
 from .plan_render import (
     render_context_snapshot,
     render_glossary_hits,
@@ -16,45 +16,59 @@ from .plan_research import dedupe_and_sort
 
 MAX_SEARCH_FILES = 8
 
-SECTION_MARKERS = {
-    "summary": "=== IMPLEMENTATION SUMMARY ===",
+DESIGN_SECTION_MARKERS = {
+    "system_change_points": "=== SYSTEM CHANGE POINTS ===",
+    "solution_overview": "=== SOLUTION OVERVIEW ===",
+    "system_dependencies": "=== SYSTEM DEPENDENCIES ===",
+    "critical_flows": "=== CRITICAL FLOWS ===",
+    "protocol_changes": "=== PROTOCOL CHANGES ===",
+    "storage_config_changes": "=== STORAGE CONFIG CHANGES ===",
+    "experiment_changes": "=== EXPERIMENT CHANGES ===",
+    "qa_inputs": "=== QA INPUTS ===",
+    "staffing_estimate": "=== STAFFING ESTIMATE ===",
+}
+
+EXECUTION_SECTION_MARKERS = {
+    "execution_strategy": "=== EXECUTION STRATEGY ===",
     "candidate_files": "=== CANDIDATE FILES ===",
-    "steps": "=== IMPLEMENTATION STEPS ===",
-    "risks": "=== RISK NOTES ===",
-    "validation_extra": "=== VALIDATION EXTRA ===",
+    "steps": "=== TASK STEPS ===",
+    "blockers_and_risks": "=== BLOCKERS AND RISKS ===",
+    "validation_plan": "=== VALIDATION PLAN ===",
 }
 
 
-def build_plan_prompt(build: PlanBuild) -> str:
+def build_design_prompt(build: PlanBuild) -> str:
     repo_section = "\n".join(build.repo_lines) if build.repo_lines else "- current-repo"
     matched_terms = render_glossary_hits(build.finding.matched_terms)
     unmatched_terms = render_list_block(build.finding.unmatched_terms, default="  - 无")
     candidate_files = render_list_block(build.finding.candidate_files, default="  - 无")
     candidate_dirs = render_list_block(build.finding.candidate_dirs, default="  - 无")
     local_notes = render_list_block(build.finding.notes, default="  - 无")
-    dimension_lines = "\n".join(
-        f"  - {dimension.name}: {dimension.score} | {dimension.reason}" for dimension in build.assessment.dimensions
-    )
-    return f"""你是一名资深技术方案与研发计划助手。基于提供的 PRD refined 内容、本地 context 事实和代码调研结果，输出结构化的方案内容。
+    return f"""你是一名资深技术设计助手。基于提供的 refined PRD、本地 context 和代码调研结果，输出面向研发的 design 内容。
 
-要求:
-1. 只能基于提供的信息工作，不要编造未出现的模块、文件或接口。
-2. 不要输出 task_id、title、复杂度总分、待确认项这些固定字段。
-3. 如果需求复杂，仍然要在总结或风险里明确写出“不建议自动实现”。
-4. 输出必须严格使用下面的标记格式:
-{SECTION_MARKERS["summary"]}
+要求：
+1. 只能基于提供的信息工作，不要编造未出现的模块、文件、协议或实验。
+2. 重点服务 design.md，不要写成执行任务列表。
+3. 输出必须严格使用下面的标记格式：
+{DESIGN_SECTION_MARKERS["system_change_points"]}
 - ...
-{SECTION_MARKERS["candidate_files"]}
-(每行一个文件路径，只输出你认为真正需要改动的文件，不要盲目照搬本地调研结果。)
-- path/to/file1.go
-- path/to/file2.go
-{SECTION_MARKERS["steps"]}
+{DESIGN_SECTION_MARKERS["solution_overview"]}
 - ...
-{SECTION_MARKERS["risks"]}
+{DESIGN_SECTION_MARKERS["system_dependencies"]}
 - ...
-{SECTION_MARKERS["validation_extra"]}
+{DESIGN_SECTION_MARKERS["critical_flows"]}
 - ...
-5. 不要输出其它前言或解释。
+{DESIGN_SECTION_MARKERS["protocol_changes"]}
+- ...
+{DESIGN_SECTION_MARKERS["storage_config_changes"]}
+- ...
+{DESIGN_SECTION_MARKERS["experiment_changes"]}
+- ...
+{DESIGN_SECTION_MARKERS["qa_inputs"]}
+- ...
+{DESIGN_SECTION_MARKERS["staffing_estimate"]}
+- ...
+4. 不要输出其它前言或解释。
 
 ## PRD Refined
 {build.sections.raw or build.refined_markdown}
@@ -84,54 +98,221 @@ def build_plan_prompt(build: PlanBuild) -> str:
 {candidate_dirs}
 - 本地风险备注：
 {local_notes}
-
-## 本地基线复杂度评分
-- total: {build.assessment.total}
-- level: {build.assessment.level}
-{dimension_lines}
 """
 
 
-def extract_plan_outputs(raw: str) -> tuple[PlanAISections, bool]:
-    normalized = raw.replace("\r\n", "\n")
-    sections = PlanAISections()
-    markers = [
-        (SECTION_MARKERS["summary"], "summary"),
-        (SECTION_MARKERS["candidate_files"], "candidate_files"),
-        (SECTION_MARKERS["steps"], "steps"),
-        (SECTION_MARKERS["risks"], "risks"),
-        (SECTION_MARKERS["validation_extra"], "validation_extra"),
-    ]
-    indexes = [normalized.find(marker) for marker, _ in markers]
-    if indexes[0] == -1:
-        return PlanAISections(), False
-
-    for index, (marker, field_name) in enumerate(markers):
-        start = indexes[index]
-        if start == -1:
-            continue
-        content_start = start + len(marker)
-        end = len(normalized)
-        for next_index in indexes[index + 1 :]:
-            if next_index != -1 and next_index > start:
-                end = next_index
-                break
-        setattr(sections, field_name, normalize_ai_section(normalized[content_start:end]))
-    return sections, True
+def extract_design_outputs(raw: str) -> tuple[DesignAISections, bool]:
+    payload, ok = extract_marked_sections(raw, DESIGN_SECTION_MARKERS)
+    if not ok:
+        return DesignAISections(), False
+    return DesignAISections(**payload), True
 
 
-def validate_plan_outputs(build: PlanBuild, ai: PlanAISections) -> None:
-    combined = "\n".join([ai.summary, ai.steps, ai.risks, ai.validation_extra])
+def validate_design_outputs(build: PlanBuild, ai: DesignAISections) -> None:
+    combined = "\n".join(
+        [
+            ai.system_change_points,
+            ai.solution_overview,
+            ai.system_dependencies,
+            ai.critical_flows,
+            ai.qa_inputs,
+        ]
+    )
     for marker in ("(待生成)", "(待确认)", "未初始化"):
         if marker in combined:
-            raise ValueError(f"AI 输出包含无效占位符: {marker}")
-    if not ai.summary.strip():
-        raise ValueError("AI plan 缺少实现概要")
+            raise ValueError(f"AI design 输出包含无效占位符: {marker}")
+    if not ai.system_change_points.strip():
+        raise ValueError("AI design 缺少系统改造点")
+    if not ai.solution_overview.strip():
+        raise ValueError("AI design 缺少总体方案")
+    if not ai.system_dependencies.strip():
+        raise ValueError("AI design 缺少系统依赖关系")
+
+
+def build_design_verify_prompt(build: PlanBuild, ai: DesignAISections) -> str:
+    return f"""你在做 coco-flow design verifier。
+
+目标：检查 design generator 的输出是否满足设计文档需要的结构和边界。
+
+要求：
+1. 只输出 JSON 对象，不要输出其它文字。
+2. 输出格式：
+{{
+  "ok": true,
+  "issues": ["问题1"],
+  "reason": "一句话结论"
+}}
+3. 重点检查：
+   - 系统改造点是否清楚
+   - 总体方案和系统依赖关系是否完整
+   - 是否把协议、配置、实验、QA 等专项项至少给出明确结论
+   - 是否明显脱离当前候选文件和调研范围
+
+## Scope
+{render_plan_scope_summary(build.llm_scope)}
+
+## Candidate Files Baseline
+{render_list_block(build.finding.candidate_files, default="  - 无")}
+
+## Design Output
+system_change_points:
+{ai.system_change_points}
+
+solution_overview:
+{ai.solution_overview}
+
+system_dependencies:
+{ai.system_dependencies}
+
+critical_flows:
+{ai.critical_flows}
+
+protocol_changes:
+{ai.protocol_changes}
+
+storage_config_changes:
+{ai.storage_config_changes}
+
+experiment_changes:
+{ai.experiment_changes}
+
+qa_inputs:
+{ai.qa_inputs}
+
+staffing_estimate:
+{ai.staffing_estimate}
+"""
+
+
+def build_execution_prompt(build: PlanBuild, design_ai: DesignAISections) -> str:
+    repo_section = "\n".join(build.repo_lines) if build.repo_lines else "- current-repo"
+    candidate_files = render_list_block(build.finding.candidate_files, default="  - 无")
+    candidate_dirs = render_list_block(build.finding.candidate_dirs, default="  - 无")
+    local_notes = render_list_block(build.finding.notes, default="  - 无")
+    return f"""你是一名资深研发计划助手。基于 refined PRD、design 结论、本地调研结果和候选文件，输出面向执行的 plan 内容。
+
+要求：
+1. 只能基于提供的信息工作，不要编造新模块或新文件。
+2. 重点服务 plan.md，不要重写设计背景。
+3. 输出必须严格使用下面的标记格式：
+{EXECUTION_SECTION_MARKERS["execution_strategy"]}
+- ...
+{EXECUTION_SECTION_MARKERS["candidate_files"]}
+- path/to/file1.go
+- path/to/file2.go
+{EXECUTION_SECTION_MARKERS["steps"]}
+- ...
+{EXECUTION_SECTION_MARKERS["blockers_and_risks"]}
+- ...
+{EXECUTION_SECTION_MARKERS["validation_plan"]}
+- ...
+4. 不要输出其它前言或解释。
+
+## PRD Refined
+{build.sections.raw or build.refined_markdown}
+
+## 任务关联仓库
+{repo_section}
+
+## Design 结论
+system_change_points:
+{ai_list_or_default(design_ai.system_change_points)}
+
+solution_overview:
+{ai_list_or_default(design_ai.solution_overview)}
+
+system_dependencies:
+{ai_list_or_default(design_ai.system_dependencies)}
+
+critical_flows:
+{ai_list_or_default(design_ai.critical_flows)}
+
+qa_inputs:
+{ai_list_or_default(design_ai.qa_inputs)}
+
+## Plan Scope
+{render_plan_scope_summary(build.llm_scope)}
+
+## Candidate Files Baseline
+{candidate_files}
+
+## Candidate Dirs Baseline
+{candidate_dirs}
+
+## Local Notes
+{local_notes}
+
+## Complexity
+- level: {build.assessment.level}
+- total: {build.assessment.total}
+"""
+
+
+def extract_execution_outputs(raw: str) -> tuple[ExecutionAISections, bool]:
+    payload, ok = extract_marked_sections(raw, EXECUTION_SECTION_MARKERS)
+    if not ok:
+        return ExecutionAISections(), False
+    return ExecutionAISections(**payload), True
+
+
+def validate_execution_outputs(build: PlanBuild, ai: ExecutionAISections) -> None:
+    combined = "\n".join([ai.execution_strategy, ai.steps, ai.blockers_and_risks, ai.validation_plan])
+    for marker in ("(待生成)", "(待确认)", "未初始化"):
+        if marker in combined:
+            raise ValueError(f"AI execution 输出包含无效占位符: {marker}")
+    if not ai.execution_strategy.strip():
+        raise ValueError("AI execution 缺少实施策略")
     if build.assessment.total <= 6 and not ai.steps.strip():
-        raise ValueError("AI plan 缺少实施步骤")
+        raise ValueError("AI execution 缺少实施步骤")
     for bad in ("/livecoding:prd-refine", "/livecoding:prd-plan"):
         if bad in combined:
-            raise ValueError(f"AI plan 包含错误命令示例: {bad}")
+            raise ValueError(f"AI execution 包含错误命令示例: {bad}")
+
+
+def build_execution_verify_prompt(build: PlanBuild, ai: ExecutionAISections) -> str:
+    return f"""你在做 coco-flow execution verifier。
+
+目标：检查执行计划输出是否与当前调研范围、复杂度和候选文件一致。
+
+要求：
+1. 只输出 JSON 对象，不要输出其它文字。
+2. 输出格式：
+{{
+  "ok": true,
+  "issues": ["问题1"],
+  "reason": "一句话结论"
+}}
+3. 重点检查：
+   - execution_strategy / steps / blockers_and_risks / validation_plan 是否完整
+   - candidate_files 是否与本地候选范围明显冲突
+   - 验证计划是否保持“受影响 package 编译通过”的最小原则
+
+## Scope
+{render_plan_scope_summary(build.llm_scope)}
+
+## Candidate Files Baseline
+{render_list_block(build.finding.candidate_files, default="  - 无")}
+
+## Complexity
+- level: {build.assessment.level}
+- total: {build.assessment.total}
+
+## Execution Output
+execution_strategy:
+{ai.execution_strategy}
+
+candidate_files:
+{ai.candidate_files}
+
+steps:
+{ai.steps}
+
+blockers_and_risks:
+{ai.blockers_and_risks}
+
+validation_plan:
+{ai.validation_plan}
+"""
 
 
 def build_plan_scope_prompt(build: PlanBuild) -> str:
@@ -189,52 +370,6 @@ def extract_plan_scope_output(raw: str) -> PlanScope:
         risk_focus=_normalized_list(payload.get("risk_focus")),
         validation_focus=_normalized_list(payload.get("validation_focus")),
     )
-
-
-def build_plan_verify_prompt(build: PlanBuild, ai: PlanAISections) -> str:
-    return f"""你在做 coco-flow plan verifier。
-
-目标：检查 plan generator 的输出是否与当前调研范围、复杂度和候选文件一致。
-
-要求：
-1. 只输出 JSON 对象，不要输出其它文字。
-2. 输出格式：
-{{
-  "ok": true,
-  "issues": ["问题1"],
-  "reason": "一句话结论"
-}}
-3. 重点检查：
-   - summary / steps / risks 是否完整
-   - candidate_files 是否与本地候选范围明显冲突
-   - 若复杂度偏高，是否在输出里保留足够风险提示
-
-## Scope
-{render_plan_scope_summary(build.llm_scope)}
-
-## Candidate Files Baseline
-{render_list_block(build.finding.candidate_files, default="  - 无")}
-
-## Complexity
-- level: {build.assessment.level}
-- total: {build.assessment.total}
-
-## Generator Output
-summary:
-{ai.summary}
-
-candidate_files:
-{ai.candidate_files}
-
-steps:
-{ai.steps}
-
-risks:
-{ai.risks}
-
-validation_extra:
-{ai.validation_extra}
-"""
 
 
 def parse_plan_verify_output(raw: str) -> dict[str, object]:
@@ -302,6 +437,31 @@ def normalize_ai_candidate_file(raw_path: str, build: PlanBuild) -> str:
     return normalized
 
 
+def extract_marked_sections(raw: str, markers: dict[str, str]) -> tuple[dict[str, str], bool]:
+    normalized = raw.replace("\r\n", "\n")
+    indexes = {field_name: normalized.find(marker) for field_name, marker in markers.items()}
+    first_field = next(iter(markers))
+    if indexes[first_field] == -1:
+        return {field_name: "" for field_name in markers}, False
+
+    payload: dict[str, str] = {}
+    ordered = list(markers.items())
+    for index, (field_name, marker) in enumerate(ordered):
+        start = indexes[field_name]
+        if start == -1:
+            payload[field_name] = ""
+            continue
+        content_start = start + len(marker)
+        end = len(normalized)
+        for next_field_name, _ in ordered[index + 1 :]:
+            next_index = indexes[next_field_name]
+            if next_index != -1 and next_index > start:
+                end = next_index
+                break
+        payload[field_name] = normalize_ai_section(normalized[content_start:end])
+    return payload, True
+
+
 def normalize_ai_section(content: str) -> str:
     cleaned = content.strip()
     lines: list[str] = []
@@ -351,6 +511,10 @@ def render_plan_scope_summary(scope: PlanScope) -> str:
         lines.append("- validation_focus:")
         lines.extend(f"  - {item}" for item in scope.validation_focus)
     return "\n".join(lines)
+
+
+def ai_list_or_default(content: str) -> str:
+    return content.strip() or "- 无"
 
 
 def _normalized_list(value: object) -> list[str]:

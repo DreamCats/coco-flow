@@ -9,6 +9,7 @@ from .plan_models import (
     ComplexityAssessment,
     ComplexityDimension,
     ContextSnapshot,
+    DesignResearchSignals,
     GlossaryEntry,
     RefinedSections,
     RepoResearch,
@@ -168,6 +169,99 @@ def combine_research_findings(repo_researches: list[RepoResearch], repo_count: i
     )
 
 
+def build_design_research_signals(repo_researches: list[RepoResearch], sections: RefinedSections) -> DesignResearchSignals:
+    system_summaries: list[str] = []
+    system_dependencies: list[str] = []
+    critical_flows: list[str] = []
+    protocol_changes: list[str] = []
+    storage_config_changes: list[str] = []
+    experiment_changes: list[str] = []
+    qa_inputs: list[str] = []
+
+    previous_repo = ""
+    for repo in repo_researches:
+        candidate_dirs = repo.finding.candidate_dirs[:3]
+        candidate_files = repo.finding.candidate_files[:3]
+        primary_scope = sections.change_scope[0] if sections.change_scope else "当前需求改动"
+        dir_summary = "、".join(candidate_dirs) if candidate_dirs else "仓库根目录"
+        if repo.finding.matched_terms:
+            term_summary = "、".join(entry.business for entry in repo.finding.matched_terms[:2])
+            system_summaries.append(
+                f"仓库 {repo.repo_id} 主要承接「{primary_scope}」相关改动，重点范围在 {dir_summary}，术语命中 {term_summary}。"
+            )
+        else:
+            system_summaries.append(f"仓库 {repo.repo_id} 主要承接「{primary_scope}」相关改动，重点范围在 {dir_summary}。")
+
+        if previous_repo:
+            system_dependencies.append(f"建议先完成 {previous_repo} 的主改动，再推进 {repo.repo_id} 的联动收口。")
+        else:
+            system_dependencies.append(f"{repo.repo_id} 可作为起始仓库先行推进。")
+        previous_repo = repo.repo_id
+
+        if candidate_files:
+            first_file = candidate_files[0]
+            critical_flows.append(f"在 {repo.repo_id} 中，主链路优先从 {first_file} 所在路径收敛，再确认上下游联动。")
+        if repo.finding.notes:
+            critical_flows.extend(f"[{repo.repo_id}] {note}" for note in repo.finding.notes[:2])
+
+        protocol_candidates = [
+            file_path
+            for file_path in candidate_files
+            if file_path.endswith((".proto", ".thrift")) or "/handler/" in file_path or "/api/" in file_path
+        ]
+        if protocol_candidates:
+            protocol_changes.append(
+                f"{repo.repo_id} 检测到接口或协议边界变更信号，重点确认 {', '.join(protocol_candidates[:3])} 的上下游兼容性。"
+            )
+
+        storage_candidates = [
+            file_path
+            for file_path in candidate_files
+            if any(keyword in file_path.lower() for keyword in ("config", "dao", "repo", "model", "store", "cache"))
+        ]
+        if storage_candidates:
+            storage_config_changes.append(
+                f"{repo.repo_id} 检测到存储或配置变更信号，重点确认 {', '.join(storage_candidates[:3])} 的默认行为和回滚方式。"
+            )
+
+        experiment_candidates = [
+            file_path
+            for file_path in candidate_files
+            if any(keyword in file_path.lower() for keyword in ("ab", "experiment", "grey", "gray", "feature", "switch"))
+        ]
+        if experiment_candidates:
+            experiment_changes.append(
+                f"{repo.repo_id} 检测到实验或开关变更信号，重点确认 {', '.join(experiment_candidates[:3])} 的生效范围。"
+            )
+
+    joined_sections = "\n".join([*sections.change_scope, *sections.key_constraints, *sections.open_questions])
+    if contains_any(joined_sections, "协议", "接口", "rpc", "字段", "请求", "返回") and not protocol_changes:
+        protocol_changes.append("需求描述中存在协议或字段变更信号，需要重点确认上下游兼容性。")
+    if contains_any(joined_sections, "数据库", "配置", "缓存", "tcc", "持久化", "状态") and not storage_config_changes:
+        storage_config_changes.append("需求描述中存在存储或配置层变更信号，需要确认上线和回滚策略。")
+    if contains_any(joined_sections, "实验", "灰度", "开关", "ab", "bucket") and not experiment_changes:
+        experiment_changes.append("需求描述中存在实验或灰度开关信号，需要确认流量范围和回滚策略。")
+
+    if sections.acceptance_criteria:
+        qa_inputs.extend(f"主链路验证：{item}" for item in sections.acceptance_criteria[:4])
+    if sections.key_constraints:
+        qa_inputs.extend(f"关键约束校验：{item}" for item in sections.key_constraints[:4])
+    if sections.non_goals:
+        qa_inputs.extend(f"非目标回归：重点确认 {item}" for item in sections.non_goals[:3])
+    if sections.open_questions:
+        qa_inputs.extend(f"待确认项：{item}" for item in sections.open_questions[:4])
+
+    return DesignResearchSignals(
+        system_summaries=dedupe_terms(system_summaries),
+        system_dependencies=dedupe_terms(system_dependencies),
+        critical_flows=dedupe_terms(critical_flows),
+        protocol_changes=dedupe_terms(protocol_changes),
+        storage_config_changes=dedupe_terms(storage_config_changes),
+        experiment_changes=dedupe_terms(experiment_changes),
+        qa_inputs=dedupe_terms(qa_inputs),
+    )
+
+
 def qualify_repo_path(repo_id: str, path: str, repo_count: int) -> str:
     normalized = path.strip().lstrip("./")
     if not normalized:
@@ -243,11 +337,24 @@ def parse_glossary_entries(content: str) -> list[GlossaryEntry]:
 def parse_refined_sections(content: str) -> RefinedSections:
     sections = split_markdown_sections(content)
     return RefinedSections(
-        summary=clean_section_lines(sections.get("需求概述", "")),
-        features=extract_bullet_items(sections.get("功能点", "")),
-        boundaries=extract_bullet_items(sections.get("边界条件", "")),
-        business_rules=extract_bullet_items(sections.get("业务规则", "")),
-        open_questions=extract_bullet_items(sections.get("待确认问题", "")),
+        change_scope=_combine_section_items(
+            sections.get("变更范围", ""),
+            sections.get("需求概述", ""),
+            sections.get("功能点", ""),
+        ),
+        non_goals=_combine_section_items(
+            sections.get("非目标", ""),
+            sections.get("边界条件", ""),
+        ),
+        key_constraints=_combine_section_items(
+            sections.get("关键约束", ""),
+            sections.get("业务规则", ""),
+        ),
+        acceptance_criteria=_combine_section_items(sections.get("验收标准", "")),
+        open_questions=_combine_section_items(
+            sections.get("待确认项", ""),
+            sections.get("待确认问题", ""),
+        ),
         raw=content.strip(),
     )
 
@@ -286,6 +393,22 @@ def extract_bullet_items(section: str) -> list[str]:
     return items
 
 
+def _combine_section_items(*parts: str) -> list[str]:
+    items: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        extracted = extract_bullet_items(part)
+        if not extracted and part.strip():
+            extracted = [part.strip()]
+        for item in extracted:
+            lowered = item.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            items.append(item)
+    return items
+
+
 def research_codebase(
     repo_root: str | None,
     title: str,
@@ -304,9 +427,9 @@ def research_codebase(
     search_text = "\n".join(
         [
             title,
-            sections.summary,
-            "\n".join(sections.features),
-            "\n".join(sections.business_rules),
+            "\n".join(sections.change_scope),
+            "\n".join(sections.key_constraints),
+            "\n".join(sections.acceptance_criteria),
         ]
     )
     matched_terms = [
@@ -355,10 +478,10 @@ def infer_search_terms(title: str, sections: RefinedSections, matched: list[Glos
     source_text = "\n".join(
         [
             title,
-            sections.summary,
-            "\n".join(sections.features),
-            "\n".join(sections.boundaries),
-            "\n".join(sections.business_rules),
+            "\n".join(sections.change_scope),
+            "\n".join(sections.non_goals),
+            "\n".join(sections.key_constraints),
+            "\n".join(sections.acceptance_criteria),
         ]
     )
     terms = [item for entry in matched for item in (entry.business, entry.identifier)]
@@ -537,7 +660,15 @@ def score_complexity(sections: RefinedSections, findings: ResearchFinding) -> Co
 
     interface_score = 0
     interface_reason = "未发现明显的接口或协议变更信号。"
-    if contains_any("\n".join(sections.features), "接口", "协议", "请求", "返回", "字段"):
+    if contains_any(
+        "\n".join([*sections.change_scope, *sections.key_constraints, *sections.acceptance_criteria]),
+        "接口",
+        "协议",
+        "请求",
+        "返回",
+        "字段",
+        "rpc",
+    ):
         interface_score = 1
         interface_reason = "需求描述中包含接口/字段类变更信号。"
     if has_path_keyword(findings.candidate_files, "handler", ".proto", ".thrift"):
@@ -547,10 +678,19 @@ def score_complexity(sections: RefinedSections, findings: ResearchFinding) -> Co
 
     data_score = 0
     data_reason = "未发现复杂数据或持久化变更。"
-    if contains_any("\n".join(sections.boundaries), "状态", "缓存", "数据库", "表", "持久化"):
+    if contains_any(
+        "\n".join([*sections.non_goals, *sections.key_constraints]),
+        "状态",
+        "缓存",
+        "数据库",
+        "表",
+        "持久化",
+        "配置",
+        "tcc",
+    ):
         data_score = 1
         data_reason = "边界条件中出现状态/数据类描述。"
-    if contains_any("\n".join(sections.business_rules), "状态流转", "一致性", "数据同步"):
+    if contains_any("\n".join(sections.key_constraints), "状态流转", "一致性", "数据同步"):
         data_score = 2
         data_reason = "业务规则暗示存在复杂状态流转或一致性要求。"
     dimensions.append(ComplexityDimension("数据状态", data_score, data_reason))

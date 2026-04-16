@@ -224,6 +224,7 @@ uv run python -m unittest discover -s tests -v
   - `plan-knowledge-selection.json`
   - `plan-knowledge-brief.md`
   - `plan-scope.json`
+  - `plan-execution.json`
   - `plan-verify.json`
 
 ### daemon / ACP

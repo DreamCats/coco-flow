@@ -197,7 +197,7 @@ def score_plan_knowledge_document(
     if path_match:
         score += 4
     score += min(len(keyword_hits), 4)
-    summary_text = " ".join([title, sections.summary, *sections.features, *sections.business_rules])
+    summary_text = " ".join([title, *sections.change_scope, *sections.key_constraints, *sections.acceptance_criteria])
     if document.domain_name and document.domain_name.lower() in summary_text.lower():
         score += 2
     if document.kind == "flow":
@@ -217,7 +217,7 @@ def score_plan_knowledge_document(
 
 
 def infer_plan_knowledge_terms(title: str, sections: RefinedSections) -> list[str]:
-    values = [title, sections.summary, *sections.features, *sections.boundaries, *sections.business_rules]
+    values = [title, *sections.change_scope, *sections.non_goals, *sections.key_constraints, *sections.acceptance_criteria]
     terms: list[str] = []
     for value in values:
         for token in _PLAN_ASCII_WORD_RE.findall(value):
