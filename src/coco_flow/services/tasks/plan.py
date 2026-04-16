@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
+from pathlib import Path
 
 from coco_flow.config import Settings, load_settings
 from coco_flow.engines.plan import (
@@ -45,6 +47,8 @@ def plan_task(task_id: str, settings: Settings | None = None, on_log: LogHandler
         result = run_plan_engine(task_dir, task_meta, cfg, logger)
         (task_dir / "design.md").write_text(result.design_markdown, encoding="utf-8")
         (task_dir / "plan.md").write_text(result.plan_markdown, encoding="utf-8")
+        for name, payload in result.intermediate_artifacts.items():
+            _write_intermediate_artifact(task_dir / name, payload)
         update_task_status(task_dir, task_meta, result.status)
         sync_repo_statuses(task_dir, result.status)
         return result.status
@@ -88,3 +92,9 @@ def mark_task_failed(task_id: str, settings: Settings | None = None) -> str:
     update_task_status(task_dir, task_meta, STATUS_FAILED)
     return STATUS_FAILED
 
+
+def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -> None:
+    if isinstance(payload, dict):
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return
+    path.write_text(payload.rstrip() + "\n", encoding="utf-8")

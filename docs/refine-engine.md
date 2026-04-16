@@ -13,7 +13,12 @@
 ## 代码位置
 
 - workflow 壳：[src/coco_flow/services/tasks/refine.py](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/services/tasks/refine.py)
-- refine 引擎：[src/coco_flow/engines/refine.py](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines/refine.py)
+- refine pipeline：[src/coco_flow/engines/refine/pipeline.py](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines/refine/pipeline.py)
+- refine models：[src/coco_flow/engines/refine/models.py](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines/refine/models.py)
+- refine source：[src/coco_flow/engines/refine/source.py](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines/refine/source.py)
+- refine intent：[src/coco_flow/engines/refine/intent.py](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines/refine/intent.py)
+- refine knowledge：[src/coco_flow/engines/refine/knowledge.py](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines/refine/knowledge.py)
+- refine generate：[src/coco_flow/engines/refine/generate.py](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines/refine/generate.py)
 - 业务记忆 provider：[src/coco_flow/engines/business_memory.py](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines/business_memory.py)
 
 ## 分层职责
@@ -32,13 +37,15 @@
 
 ### engine
 
-`engines/refine.py` 负责：
+`engines/refine/` 负责：
 
-- 读取 source 信息
+- 读取 source 信息并组装 `RefinePreparedInput`
+- 抽取 `refine-intent.json`
+- 对 `approved + engines=refine` 的知识草稿做规则筛选，生成 `refine-knowledge-selection.json`
+- 基于业务记忆生成 `refine-knowledge-brief.md`
 - 判定是否是 pending Lark 场景
 - 选择 `native` 或 `local`
-- 接入业务记忆
-- 在 prompt 中注入历史上下文约束
+- 在 prompt 中注入意图骨架和知识 brief
 - 返回结构化结果 `RefineEngineResult`
 
 ### business memory
@@ -56,15 +63,21 @@ flowchart TD
     A["refine_task()
     workflow shell"] --> B["run_refine_engine()"]
 
-    B --> C["load_business_memory()
+    B --> B1["prepare_refine_input()
+    source.json + prd.source.md + repos.json"]
+    B1 --> B2["extract_refine_intent()
+    refine-intent.json"]
+    B2 --> B3["knowledge selection
+    approved knowledge -> refine-knowledge-selection.json"]
+    B3 --> C["load_business_memory()
     .livecoding/context"]
     C --> D{"memory available?"}
     D -->|none| E["context_mode = source_only"]
     D -->|partial| F["context_mode = partial_grounded"]
     D -->|rich| G["context_mode = grounded"]
 
-    E --> H["source loading
-    source.json + prd.source.md"]
+    E --> H["build_refine_knowledge_brief()
+    optional refine-knowledge-brief.md"]
     F --> H
     G --> H
 
@@ -74,7 +87,8 @@ flowchart TD
     I -->|no| K{"executor"}
 
     K -->|native| L["build prompt
-    + optional business memory context"]
+    + intent summary
+    + optional knowledge brief"]
     L --> M["CocoACPClient.run_prompt_only()"]
     M --> N["extract_refined_content()"]
     N -->|invalid| O["fallback local refine"]
@@ -99,11 +113,14 @@ flowchart TD
 1. workflow 壳读取 `task.json`
 2. 校验状态必须是 `initialized` 或 `refined`
 3. engine 先加载业务记忆
-4. engine 读取 `source.json` 和 `prd.source.md`
-5. 如果是飞书文档且正文缺失，走 pending 分支
-6. 否则根据 `COCO_FLOW_REFINE_EXECUTOR` 选择 `native` 或 `local`
-7. `native` 失败时自动降级到 `local`
-8. workflow 壳写回 markdown / json artifact，并更新 task 状态
+4. engine 先读取 `source.json`、`prd.source.md`、`repos.json`，组装 `RefinePreparedInput`
+5. engine 抽取 `refine-intent.json`
+6. engine 对 `approved + engines=refine` 的知识草稿做规则筛选，生成 `refine-knowledge-selection.json`
+7. engine 生成可选的 `refine-knowledge-brief.md`
+8. 如果是飞书文档且正文缺失，走 pending 分支
+9. 否则根据 `COCO_FLOW_REFINE_EXECUTOR` 选择 `native` 或 `local`
+10. `native` 失败时自动降级到 `local`
+11. workflow 壳写回 markdown / json artifact，并更新 task 状态
 
 ## 业务记忆模型
 
@@ -164,7 +181,35 @@ workflow 壳会把这些结果落成两个 artifact：
 - `business_memory_provider`
 - `business_memory_documents`
 - `risk_flags`
+- `intermediate_artifacts`
 - `updated_at`
+
+### `refine-intent.json`
+
+当前会记录：
+
+- `goal`
+- `key_terms`
+- `potential_features`
+- `constraints`
+- `open_questions`
+- `source_length`
+
+### `refine-knowledge-selection.json`
+
+当前会记录：
+
+- `selected_ids`
+- `selected_titles`
+- `candidates`
+  - `score`
+  - `repo_match`
+  - `path_match`
+  - `keyword_hits`
+
+### `refine-knowledge-brief.md`
+
+在存在可用业务记忆或筛中的 approved knowledge 时生成，供 native/local refine 统一消费。
 
 ## 日志
 
@@ -178,6 +223,13 @@ workflow 壳会把这些结果落成两个 artifact：
 - `business_memory_documents`
 - `business_memory_files`
 - `business_memory_risk_flags`
+- `intent_goal`
+- `intent_key_terms`
+- `intent_terms`
+- `knowledge_candidates`
+- `selected_knowledge_ids`
+- `knowledge_brief_documents`
+- `knowledge_brief_files`
 - `source_type / source_path / source_url / source_doc_token`
 - `source_length`
 - `prompt_start / prompt_ok`
@@ -189,7 +241,9 @@ workflow 壳会把这些结果落成两个 artifact：
 当前版本已经具备：
 
 - workflow 壳与 engine 分离
+- `prepare -> intent -> knowledge selection -> knowledge brief -> generate` 多步编排
 - 业务记忆 provider 抽象
+- approved knowledge 的规则筛选接入
 - 无上下文时显式降级
 - `native -> local` 自动回退
 - 结构化结果落盘

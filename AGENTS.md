@@ -76,8 +76,13 @@ npm run build
 定向校验：
 
 ```bash
-uv run python -m py_compile src/coco_flow/engines/refine.py
+uv run python -m py_compile src/coco_flow/engines/refine/__init__.py
 uv run python -m py_compile src/coco_flow/engines/plan.py
+uv run python -m py_compile src/coco_flow/engines/plan_generate.py
+uv run python -m py_compile src/coco_flow/engines/plan_models.py
+uv run python -m py_compile src/coco_flow/engines/plan_knowledge.py
+uv run python -m py_compile src/coco_flow/engines/plan_research.py
+uv run python -m py_compile src/coco_flow/engines/plan_render.py
 uv run python -m py_compile src/coco_flow/services/tasks/plan.py
 uv run python -m py_compile src/coco_flow/services/tasks/code.py
 uv run python -m unittest discover -s tests -v
@@ -120,11 +125,20 @@ uv run python -m unittest discover -s tests -v
   - 默认优先读取 repo 下 `.livecoding/context/`
   - 若未找到可用上下文，显式降级为 `source_only`
   - 若只找到部分上下文，标记为 `partial_grounded`
+- `refine` 当前内部已拆成 `prepare -> intent -> knowledge selection -> knowledge brief -> generate` 多步编排
+- `native refine` 会在规则筛中的 approved knowledge 上额外做一步 LLM 适用性裁决；`local refine` 保持规则筛选回退
+- `refine` 当前会额外生成：
+  - `refine-intent.json`
+  - `refine-knowledge-selection.json`（记录 approved knowledge 的规则筛选结果）
+  - `refine-knowledge-brief.md`（仅在存在业务记忆时）
 - 飞书文档若暂时拉不到正文，会生成 pending refine 占位稿，状态保持 `initialized`
 - `refine.log` 当前会记录：
   - `=== REFINE START === / === REFINE END ===`
   - `task_id / task_dir / executor`
   - `context_mode / business_memory_provider / business_memory_used`
+  - `intent_goal / intent_key_terms / intent_terms`
+  - `knowledge_candidates / selected_knowledge_ids`
+  - `knowledge_brief_documents / knowledge_brief_files`
   - `source_type / source_path / source_url / source_doc_token`
   - `source_length`
   - `prompt_start / prompt_ok`
@@ -135,13 +149,27 @@ uv run python -m unittest discover -s tests -v
 - `plan` 支持 `native` 和 `local`
 - `native` 通过 ACP 的 readonly/explorer 模式生成 `design.md` 和 `plan.md`
 - `local` 会基于 refined PRD、本地 context 和代码调研生成本地方案
+- `plan` 当前内部已拆成 orchestrator + 多模块：
+  - `src/coco_flow/engines/plan.py`：主流程编排、AI 输出解析
+  - `src/coco_flow/engines/plan_generate.py`：prompt 构建、AI 输出解析、candidate file 归一化
+  - `src/coco_flow/engines/plan_models.py`：数据模型
+  - `src/coco_flow/engines/plan_knowledge.py`：approved knowledge 的规则筛选与 brief 构建
+  - `src/coco_flow/engines/plan_research.py`：repo context / glossary / candidate files 调研
+  - `src/coco_flow/engines/plan_render.py`：`design.md` / `plan.md` 与任务列表渲染
 - 当前 `plan` 已支持多 repo research：
   - 对 task 绑定的每个 repo 分别读取 `.livecoding/context`
   - 分别提取 glossary 命中、未命中术语、candidate files / dirs
   - 在 `design.md`、`plan.md`、prompt 和 `plan.log` 中按 repo 聚合
+- `plan` 当前已接入 approved knowledge 的规则筛选：
+  - 仅消费 `status=approved` 且 `engines` 包含 `plan` 的知识草稿
+  - 先生成 `plan-knowledge-selection.json`
+  - 再生成 `plan-knowledge-brief.md`
+  - brief 会尽量压成“决策边界 / 稳定规则 / 验证要点”
+  - native prompt 和 local `design.md` / `plan.md` 都会消费该 brief
 - `plan.log` 当前会记录：
   - `repo_count`
   - 每个 repo 的 `repo_research`
+  - `knowledge_candidates / selected_knowledge_ids / knowledge_brief`
   - glossary hits / unmatched terms / candidate files / complexity
 
 ### code
@@ -175,7 +203,12 @@ uv run python -m unittest discover -s tests -v
   - `design.md`
   - `plan.md`
 - 当前 task 级非编辑 artifact 还包括：
+  - `refine-intent.json`
+  - `refine-knowledge-selection.json`
+  - `refine-knowledge-brief.md`
   - `refine-result.json`
+  - `plan-knowledge-selection.json`
+  - `plan-knowledge-brief.md`
 
 ### daemon / ACP
 

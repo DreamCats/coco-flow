@@ -134,7 +134,8 @@ Behavior notes:
 - `refine` / `plan`: default to native; if native execution fails, `coco-flow` falls back to local template generation
 - `knowledge`: supports `native` and `local`; `native` upgrades repo research and knowledge synthesis, and falls back to local when structured output fails
 - `refine` accepts plain text, local file paths, and Lark doc links; when a Lark doc cannot be fetched yet, it creates a pending refine placeholder instead of failing task creation
-- `refine` now records a `refine-result.json` artifact with `context_mode`, business-memory usage, and risk flags; when no business memory is available it degrades explicitly to `source_only`
+- `refine` now runs an internal `prepare -> intent -> knowledge selection -> knowledge brief -> generate` pipeline and records `refine-intent.json`, optional `refine-knowledge-selection.json`, optional `refine-knowledge-brief.md`, and `refine-result.json`; approved knowledge is filtered by rules before entering the brief, and `native refine` adds one LLM adjudication step on top of the rule-based shortlist
+- `plan` now runs an internal approved-knowledge `selection -> brief` step and records optional `plan-knowledge-selection.json` / `plan-knowledge-brief.md`; the brief is consumed by both native prompt generation and local `design.md` / `plan.md`, and is compressed toward decision-useful sections such as boundaries, stable rules, and validation points
 - `code`: supports `native` and `local`
 - `code=native` runs through `coco acp serve`, verifies the changed scope, retries once or twice on build failures, and records commit/code-result artifacts back into the task
 - Go verification defaults to `go build` only; `go test` is disabled by default for large repos. If you really want it, set `COCO_FLOW_ENABLE_GO_TEST_VERIFY=1`, and `coco-flow` will only run tests for affected packages that actually contain `*_test.go`

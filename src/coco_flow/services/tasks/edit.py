@@ -19,6 +19,12 @@ EDIT_RULES = {
         "next_status": STATUS_INITIALIZED,
         "invalidate": [
             "prd-refined.md",
+            "refine-intent.json",
+            "refine-knowledge-selection.json",
+            "refine-knowledge-brief.md",
+            "refine-result.json",
+            "plan-knowledge-selection.json",
+            "plan-knowledge-brief.md",
             "design.md",
             "plan.md",
             "refine.log",
@@ -34,6 +40,8 @@ EDIT_RULES = {
         "invalidate": [
             "design.md",
             "plan.md",
+            "plan-knowledge-selection.json",
+            "plan-knowledge-brief.md",
             "plan.log",
             "code-result.json",
             "code.log",
