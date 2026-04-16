@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
+
+from coco_flow.clients import CocoACPClient
+from coco_flow.config import Settings
 
 from .models import RefineIntent, RefinePreparedInput
 
@@ -55,6 +59,64 @@ def extract_refine_intent(prepared: RefinePreparedInput) -> RefineIntent:
         potential_features=features,
         constraints=constraints,
         open_questions=open_questions,
+        source_length=len(prepared.source_content),
+    )
+
+
+def extract_native_refine_intent(prepared: RefinePreparedInput, settings: Settings) -> RefineIntent:
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    raw = client.run_prompt_only(
+        build_native_refine_intent_prompt(prepared),
+        settings.native_query_timeout,
+        cwd=prepared.repo_root,
+    )
+    return parse_native_refine_intent_output(raw, prepared)
+
+
+def build_native_refine_intent_prompt(prepared: RefinePreparedInput) -> str:
+    return f"""你在做 coco-flow refine intent extraction。
+
+目标：只根据当前 PRD 原文，抽取一份供后续 refine 使用的结构化意图骨架。
+
+要求：
+1. 只能基于当前 PRD 原文，不要引入代码实现、历史知识或外部假设。
+2. 如果信息不明确，放入 open_questions，不要编造。
+3. 输出必须是 JSON 对象，不要输出其它文字。
+4. JSON 格式：
+{{
+  "goal": "一句话需求目标",
+  "key_terms": ["术语1", "术语2"],
+  "potential_features": ["功能点1", "功能点2"],
+  "constraints": ["约束1", "约束2"],
+  "open_questions": ["待确认1", "待确认2"]
+}}
+
+当前任务标题：{prepared.title}
+
+PRD 原文：
+{prepared.source_content}
+"""
+
+
+def parse_native_refine_intent_output(raw: str, prepared: RefinePreparedInput) -> RefineIntent:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid_intent_json: {error}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("intent_output_is_not_object")
+    return RefineIntent(
+        title=prepared.title,
+        source_type=prepared.source_type,
+        goal=str(payload.get("goal") or prepared.title).strip() or prepared.title,
+        key_terms=_normalized_string_list(payload.get("key_terms"))[:12],
+        potential_features=_normalized_string_list(payload.get("potential_features"))[:6],
+        constraints=_normalized_string_list(payload.get("constraints"))[:6],
+        open_questions=_normalized_string_list(payload.get("open_questions"))[:6],
         source_length=len(prepared.source_content),
     )
 
@@ -139,6 +201,17 @@ def _unique(items: list[str]) -> list[str]:
         seen.add(item)
         ordered.append(item)
     return ordered
+
+
+def _normalized_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        current = str(item).strip()
+        if current:
+            result.append(current[:160])
+    return _unique(result)
 
 
 def _render_list(items: list[str], default: str) -> str:

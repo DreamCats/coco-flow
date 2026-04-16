@@ -13,6 +13,24 @@ class PlanAISections:
 
 
 @dataclass
+class PlanScope:
+    summary: str = ""
+    boundaries: list[str] = field(default_factory=list)
+    priorities: list[str] = field(default_factory=list)
+    risk_focus: list[str] = field(default_factory=list)
+    validation_focus: list[str] = field(default_factory=list)
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "summary": self.summary,
+            "boundaries": self.boundaries,
+            "priorities": self.priorities,
+            "risk_focus": self.risk_focus,
+            "validation_focus": self.validation_focus,
+        }
+
+
+@dataclass
 class GlossaryEntry:
     business: str
     identifier: str
@@ -110,6 +128,7 @@ class PlanBuild:
     knowledge_brief_markdown: str = ""
     knowledge_selection_payload: dict[str, object] = field(default_factory=dict)
     selected_knowledge_ids: list[str] = field(default_factory=list)
+    llm_scope: PlanScope = field(default_factory=PlanScope)
 
 
 @dataclass

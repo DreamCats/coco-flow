@@ -10,8 +10,12 @@ from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.engines.plan_generate import (
     build_plan_prompt,
+    build_plan_scope_prompt,
+    build_plan_verify_prompt,
     extract_plan_outputs,
+    extract_plan_scope_output,
     parse_ai_candidate_files,
+    parse_plan_verify_output,
     qualify_repo_path,
     validate_plan_outputs,
 )
@@ -85,13 +89,27 @@ def plan_task_native(
     build = prepare_plan_build(task_dir, task_meta, settings)
     log_plan_research(build, on_log)
     on_log("generator_mode: explorer(readonly)")
-    on_log(f"prompt_start: timeout={settings.native_query_timeout}")
 
     client = CocoACPClient(
         settings.coco_bin,
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
+
+    on_log(f"scope_start: timeout={settings.native_query_timeout}")
+    try:
+        scope_raw = client.run_prompt_only(
+            build_plan_scope_prompt(build),
+            settings.native_query_timeout,
+            cwd=build.repo_root,
+        )
+        build.llm_scope = extract_plan_scope_output(scope_raw)
+        on_log(f"scope_ok: {len(scope_raw)} bytes")
+    except ValueError as error:
+        on_log(f"scope_error: {error}")
+        return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
+
+    on_log(f"prompt_start: timeout={settings.native_query_timeout}")
     try:
         raw = client.run_readonly_agent(
             build_plan_prompt(build),
@@ -117,15 +135,37 @@ def plan_task_native(
         on_log(f"candidate_files_override: {len(ai_files)}")
         on_log(f"complexity_after_ai: {build.assessment.level} ({build.assessment.total})")
 
+    on_log(f"verify_start: timeout={settings.native_query_timeout}")
+    try:
+        verify_raw = client.run_prompt_only(
+            build_plan_verify_prompt(build, ai_sections),
+            settings.native_query_timeout,
+            cwd=build.repo_root,
+        )
+        verify_payload = parse_plan_verify_output(verify_raw)
+        on_log(f"verify_ok: {len(verify_raw)} bytes")
+        if not bool(verify_payload.get("ok")):
+            issues = verify_payload.get("issues")
+            issue_text = "; ".join(str(item) for item in issues[:3]) if isinstance(issues, list) else "unknown"
+            on_log(f"verify_failed: {issue_text}")
+            return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
+        on_log("verify_passed: true")
+    except ValueError as error:
+        on_log(f"verify_error: {error}")
+        return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
+
     design = build_design(build, ai=ai_sections)
     plan = build_plan(build, ai=ai_sections)
     on_log(f"status: {STATUS_PLANNED}")
-    return PlanEngineResult(
+    result = PlanEngineResult(
         status=STATUS_PLANNED,
         design_markdown=design,
         plan_markdown=plan,
         intermediate_artifacts=build_plan_intermediate_artifacts(build),
     )
+    result.intermediate_artifacts["plan-scope.json"] = build.llm_scope.to_payload()
+    result.intermediate_artifacts["plan-verify.json"] = verify_payload
+    return result
 
 
 def prepare_plan_build(task_dir: Path, task_meta: dict[str, object], settings: Settings) -> PlanBuild:
@@ -211,6 +251,8 @@ def build_plan_intermediate_artifacts(build: PlanBuild) -> dict[str, str | dict[
         artifacts["plan-knowledge-selection.json"] = build.knowledge_selection_payload
     if build.knowledge_brief_markdown.strip():
         artifacts["plan-knowledge-brief.md"] = build.knowledge_brief_markdown
+    if any([build.llm_scope.summary, build.llm_scope.boundaries, build.llm_scope.priorities, build.llm_scope.risk_focus, build.llm_scope.validation_focus]):
+        artifacts["plan-scope.json"] = build.llm_scope.to_payload()
     return artifacts
 
 

@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .plan_models import PlanAISections, PlanBuild
+import json
+
+from .plan_models import PlanAISections, PlanBuild, PlanScope
 from .plan_render import (
     render_context_snapshot,
     render_glossary_hits,
@@ -66,6 +68,9 @@ def build_plan_prompt(build: PlanBuild) -> str:
 ## Approved Knowledge Brief
 {render_plan_knowledge_block(build)}
 
+## Plan Scope
+{render_plan_scope_summary(build.llm_scope)}
+
 ## glossary 命中术语
 {matched_terms}
 
@@ -127,6 +132,123 @@ def validate_plan_outputs(build: PlanBuild, ai: PlanAISections) -> None:
     for bad in ("/livecoding:prd-refine", "/livecoding:prd-plan"):
         if bad in combined:
             raise ValueError(f"AI plan 包含错误命令示例: {bad}")
+
+
+def build_plan_scope_prompt(build: PlanBuild) -> str:
+    repo_section = "\n".join(build.repo_lines) if build.repo_lines else "- current-repo"
+    candidate_files = render_list_block(build.finding.candidate_files, default="  - 无")
+    candidate_dirs = render_list_block(build.finding.candidate_dirs, default="  - 无")
+    notes = render_list_block(build.finding.notes, default="  - 无")
+    return f"""你在做 coco-flow plan scope extraction。
+
+目标：基于当前 refined PRD、knowledge brief、context 和本地调研结果，提炼后续 plan generator 的实施边界。
+
+要求：
+1. 只输出 JSON 对象，不要输出其它文字。
+2. 不要编造新模块或新文件。
+3. 输出格式：
+{{
+  "summary": "一句话范围总结",
+  "boundaries": ["边界1", "边界2"],
+  "priorities": ["优先事项1", "优先事项2"],
+  "risk_focus": ["风险焦点1", "风险焦点2"],
+  "validation_focus": ["验证重点1", "验证重点2"]
+}}
+
+## PRD Refined
+{build.sections.raw or build.refined_markdown}
+
+## 任务关联仓库
+{repo_section}
+
+## Approved Knowledge Brief
+{render_plan_knowledge_block(build)}
+
+## candidate files
+{candidate_files}
+
+## candidate dirs
+{candidate_dirs}
+
+## local notes
+{notes}
+"""
+
+
+def extract_plan_scope_output(raw: str) -> PlanScope:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid_plan_scope_json: {error}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("plan_scope_output_is_not_object")
+    return PlanScope(
+        summary=str(payload.get("summary") or "").strip(),
+        boundaries=_normalized_list(payload.get("boundaries")),
+        priorities=_normalized_list(payload.get("priorities")),
+        risk_focus=_normalized_list(payload.get("risk_focus")),
+        validation_focus=_normalized_list(payload.get("validation_focus")),
+    )
+
+
+def build_plan_verify_prompt(build: PlanBuild, ai: PlanAISections) -> str:
+    return f"""你在做 coco-flow plan verifier。
+
+目标：检查 plan generator 的输出是否与当前调研范围、复杂度和候选文件一致。
+
+要求：
+1. 只输出 JSON 对象，不要输出其它文字。
+2. 输出格式：
+{{
+  "ok": true,
+  "issues": ["问题1"],
+  "reason": "一句话结论"
+}}
+3. 重点检查：
+   - summary / steps / risks 是否完整
+   - candidate_files 是否与本地候选范围明显冲突
+   - 若复杂度偏高，是否在输出里保留足够风险提示
+
+## Scope
+{render_plan_scope_summary(build.llm_scope)}
+
+## Candidate Files Baseline
+{render_list_block(build.finding.candidate_files, default="  - 无")}
+
+## Complexity
+- level: {build.assessment.level}
+- total: {build.assessment.total}
+
+## Generator Output
+summary:
+{ai.summary}
+
+candidate_files:
+{ai.candidate_files}
+
+steps:
+{ai.steps}
+
+risks:
+{ai.risks}
+
+validation_extra:
+{ai.validation_extra}
+"""
+
+
+def parse_plan_verify_output(raw: str) -> dict[str, object]:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid_plan_verify_json: {error}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("plan_verify_output_is_not_object")
+    return {
+        "ok": bool(payload.get("ok")),
+        "issues": [str(item) for item in payload.get("issues", []) if str(item).strip()],
+        "reason": str(payload.get("reason") or ""),
+    }
 
 
 def parse_ai_candidate_files(raw: str, build: PlanBuild) -> list[str]:
@@ -208,3 +330,41 @@ def split_repo_prefixed_path(file_path: str, repo_ids: set[str]) -> tuple[str, s
         relative_path = str(Path(*rest_parts)) if rest_parts else ""
         return first, relative_path or normalized
     return "", normalized
+
+
+def render_plan_scope_summary(scope: PlanScope) -> str:
+    if not any([scope.summary, scope.boundaries, scope.priorities, scope.risk_focus, scope.validation_focus]):
+        return "- 无额外 scope 摘要。"
+    lines = []
+    if scope.summary:
+        lines.append(f"- summary: {scope.summary}")
+    if scope.boundaries:
+        lines.append("- boundaries:")
+        lines.extend(f"  - {item}" for item in scope.boundaries)
+    if scope.priorities:
+        lines.append("- priorities:")
+        lines.extend(f"  - {item}" for item in scope.priorities)
+    if scope.risk_focus:
+        lines.append("- risk_focus:")
+        lines.extend(f"  - {item}" for item in scope.risk_focus)
+    if scope.validation_focus:
+        lines.append("- validation_focus:")
+        lines.extend(f"  - {item}" for item in scope.validation_focus)
+    return "\n".join(lines)
+
+
+def _normalized_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        current = str(item).strip()
+        if not current:
+            continue
+        lowered = current.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        result.append(current[:160])
+    return result

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 from coco_flow.clients import CocoACPClient
@@ -85,6 +86,21 @@ def generate_native_refine(
     refined = extract_refined_content(raw)
     if not refined:
         raise ValueError("native refine returned empty content")
+    on_log(f"verify_start: timeout={settings.native_query_timeout}")
+    verify_raw = client.run_prompt_only(
+        build_refine_verify_prompt(prepared, intent, refined),
+        settings.native_query_timeout,
+        cwd=prepared.repo_root,
+    )
+    on_log(f"verify_ok: {len(verify_raw)} bytes")
+    verify_payload = parse_refine_verify_output(verify_raw)
+    artifacts["refine-verify.json"] = verify_payload
+    if not bool(verify_payload.get("ok")):
+        issues = verify_payload.get("issues")
+        issue_text = "; ".join(str(item) for item in issues[:3]) if isinstance(issues, list) else "unknown"
+        on_log(f"verify_failed: {issue_text}")
+        raise ValueError(f"native refine verify failed: {issue_text}")
+    on_log("verify_passed: true")
     on_log(f"status: {STATUS_REFINED}")
     return build_refine_engine_result(
         status=STATUS_REFINED,
@@ -137,6 +153,50 @@ PRD 标题：{prepared.title}
 
 {knowledge_brief.strip() or "- 当前无可用业务知识 brief。"}
 """
+
+
+def build_refine_verify_prompt(prepared: RefinePreparedInput, intent: RefineIntent, refined_markdown: str) -> str:
+    return f"""你在做 coco-flow refine verifier。
+
+目标：检查生成的 PRD Refined 是否满足结构和内容约束。
+
+要求：
+1. 只输出 JSON 对象，不要输出其它文字。
+2. JSON 格式：
+{{
+  "ok": true,
+  "issues": ["问题1"],
+  "missing_sections": ["缺失章节"],
+  "reason": "一句话结论"
+}}
+3. 如果内容满足要求，ok=true，issues 和 missing_sections 可以为空数组。
+4. 重点检查：
+   - 是否以 # PRD Refined 开头
+   - 是否包含固定章节
+   - 是否把明显缺失信息放进“待确认问题”
+   - 是否出现了代码实现细节或脱离 PRD 的臆测
+
+任务标题：{prepared.title}
+需求目标：{intent.goal or prepared.title}
+
+生成结果：
+{refined_markdown}
+"""
+
+
+def parse_refine_verify_output(raw: str) -> dict[str, object]:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid_verify_json: {error}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("verify_output_is_not_object")
+    return {
+        "ok": bool(payload.get("ok")),
+        "issues": [str(item) for item in payload.get("issues", []) if str(item).strip()],
+        "missing_sections": [str(item) for item in payload.get("missing_sections", []) if str(item).strip()],
+        "reason": str(payload.get("reason") or ""),
+    }
 
 
 def build_fallback_refined_content(

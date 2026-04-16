@@ -332,17 +332,33 @@ class RefineTaskTest(unittest.TestCase):
             with patch(
                 "coco_flow.clients.CocoACPClient.run_prompt_only",
                 side_effect=[
+                    json.dumps(
+                        {
+                            "goal": "竞拍讲解卡展示竞拍态提示",
+                            "key_terms": ["竞拍讲解卡", "竞拍态提示"],
+                            "potential_features": ["展示竞拍态提示"],
+                            "constraints": ["仅竞拍态展示"],
+                            "open_questions": [],
+                        }
+                    ),
                     json.dumps({"selected_ids": ["domain-auction-card"], "rejected_ids": ["flow-weak"], "reason": "flow 更偏实现细节"}),
                     "# PRD Refined\n\n## 需求概述\n\n- 竞拍讲解卡需求。\n\n## 功能点\n\n- 展示竞拍态提示。\n\n## 边界条件\n\n- 非竞拍态不展示。\n\n## 交互与展示\n\n- 保持当前样式。\n\n## 验收标准\n\n- 竞拍态可见。\n\n## 业务规则\n\n- 仅竞拍态展示。\n\n## 待确认问题\n\n- 无。\n",
+                    json.dumps({"ok": True, "issues": [], "missing_sections": [], "reason": "结构完整"}),
                 ],
             ):
                 status = refine_task(task_id, settings=settings)
 
             self.assertEqual(status, "refined")
+            intent = json.loads((task_dir / "refine-intent.json").read_text(encoding="utf-8"))
+            self.assertEqual(intent["extraction_mode"], "llm")
             selection = json.loads((task_dir / "refine-knowledge-selection.json").read_text(encoding="utf-8"))
             self.assertEqual(selection["selected_ids"], ["domain-auction-card"])
             self.assertEqual(selection["adjudication"]["mode"], "llm_adjudicated")
             self.assertEqual(selection["adjudication"]["rejected_ids"], ["flow-weak"])
+            verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
+            self.assertEqual(verify["ok"], True)
+            result = json.loads((task_dir / "refine-result.json").read_text(encoding="utf-8"))
+            self.assertIn("refine-verify.json", result["intermediate_artifacts"])
 
 
 if __name__ == "__main__":

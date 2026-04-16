@@ -35,6 +35,9 @@ def build_design(build: PlanBuild, ai: PlanAISections | None) -> str:
         "## 现状与关键上下文\n\n",
         render_context_snapshot(build.context),
         "\n\n",
+        "## Plan Scope\n\n",
+        render_plan_scope_block(build),
+        "\n\n",
         render_plan_knowledge_section(build),
         "\n\n",
         render_research_summary(build.finding),
@@ -89,6 +92,7 @@ def build_plan(build: PlanBuild, ai: PlanAISections | None) -> str:
         parts.append("\n")
 
     parts.extend(["## 拟改文件\n\n", render_plan_candidate_groups(repo_groups, ai), "\n\n"])
+    parts.extend(["## Plan Scope\n\n", render_plan_scope_block(build), "\n\n"])
     parts.extend(["## Knowledge Brief\n\n", render_plan_knowledge_block(build), "\n\n"])
     parts.extend(["## 任务列表\n\n", render_plan_tasks(tasks), "\n\n"])
     parts.extend(["## 实施步骤\n\n", render_implementation_steps(tasks, ai), "\n\n"])
@@ -387,6 +391,28 @@ def render_context_snapshot(context: ContextSnapshot) -> str:
 
 def render_plan_knowledge_section(build: PlanBuild) -> str:
     return "## Approved Knowledge\n\n" + render_plan_knowledge_block(build)
+
+
+def render_plan_scope_block(build: PlanBuild) -> str:
+    scope = build.llm_scope
+    if not any([scope.summary, scope.boundaries, scope.priorities, scope.risk_focus, scope.validation_focus]):
+        return "- 当前未生成额外的 plan scope 摘要。"
+    lines: list[str] = []
+    if scope.summary:
+        lines.append(f"- summary: {scope.summary}")
+    if scope.boundaries:
+        lines.append("- boundaries:")
+        lines.extend(f"  - {item}" for item in scope.boundaries)
+    if scope.priorities:
+        lines.append("- priorities:")
+        lines.extend(f"  - {item}" for item in scope.priorities)
+    if scope.risk_focus:
+        lines.append("- risk_focus:")
+        lines.extend(f"  - {item}" for item in scope.risk_focus)
+    if scope.validation_focus:
+        lines.append("- validation_focus:")
+        lines.extend(f"  - {item}" for item in scope.validation_focus)
+    return "\n".join(lines)
 
 
 def render_plan_knowledge_block(build: PlanBuild) -> str:
