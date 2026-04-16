@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 
 from coco_flow.models.knowledge import KnowledgeDocument, KnowledgeEvidence
@@ -207,7 +208,154 @@ def validate_documents(documents: list[KnowledgeDocument]) -> list[str]:
             errors.append(f"{document.id}: flow body missing Repo Hints")
         if "## Open Questions" not in document.body:
             errors.append(f"{document.id}: body missing Open Questions")
+        errors.extend(validate_document_evidence(document))
     return errors
+
+
+def validate_document_evidence(document: KnowledgeDocument) -> list[str]:
+    if document.kind != "flow":
+        return []
+    errors: list[str] = []
+    supported_routes = extract_supported_routes(document)
+    supported_actions = extract_supported_route_actions(document)
+    body_routes = extract_body_routes(document.body)
+    unsupported_routes = [
+        route for route in body_routes if not is_supported_route(route, supported_routes, supported_actions)
+    ]
+    if unsupported_routes:
+        errors.append(
+            f"{document.id}: body mentions unsupported routes {', '.join(sorted(unsupported_routes)[:3])}"
+        )
+
+    supported_symbols = extract_supported_symbols(document)
+    body_symbols = extract_body_symbols(document.body)
+    unsupported_symbols = [symbol for symbol in body_symbols if not is_supported_symbol(symbol, supported_symbols)]
+    if unsupported_symbols:
+        errors.append(
+            f"{document.id}: body mentions unsupported symbols {', '.join(sorted(unsupported_symbols)[:3])}"
+        )
+    return errors
+
+
+def extract_supported_routes(document: KnowledgeDocument) -> list[str]:
+    supported: list[str] = []
+    for value in document.evidence.contextHits:
+        supported.extend(re.findall(r"/[A-Za-z0-9_/\-]+", str(value)))
+    supported.extend(re.findall(r"/[A-Za-z0-9_/\-]+", extract_repo_hints_section(document.body)))
+    return unique_strings(supported)
+
+
+def extract_body_routes(body: str) -> list[str]:
+    narrative = extract_narrative_body(body)
+    values = [value for value in re.findall(r"/[A-Za-z0-9_/\-]+", narrative) if is_business_route_ref(value)]
+    return unique_strings(values)
+
+
+def is_supported_route(route: str, supported_routes: list[str], supported_actions: list[str]) -> bool:
+    current = str(route).strip()
+    if any(current in supported or supported in current for supported in supported_routes):
+        return True
+    action = current.strip("/").lower()
+    if not action or "/" in action:
+        return False
+    if not has_supported_route_family(supported_routes):
+        return False
+    return action in supported_actions
+
+
+def extract_supported_symbols(document: KnowledgeDocument) -> list[str]:
+    supported: list[str] = []
+    for value in [*document.keywords, *document.evidence.contextHits, *document.evidence.candidateFiles]:
+        supported.extend(re.findall(r"\b[A-Z][A-Za-z0-9_]{5,}\b", str(value)))
+    supported.extend(re.findall(r"\b[A-Z][A-Za-z0-9_]{5,}\b", extract_repo_hints_section(document.body)))
+    return unique_strings(supported)
+
+
+def extract_body_symbols(body: str) -> list[str]:
+    narrative = extract_narrative_body(body)
+    ignored = {
+        "Summary",
+        "Main",
+        "Flow",
+        "Selected",
+        "Paths",
+        "Dependencies",
+        "Repo",
+        "Hints",
+        "Candidate",
+        "Files",
+        "Route",
+        "Hits",
+        "Business",
+        "Symbols",
+        "Recent",
+        "Commit",
+        "Context",
+        "Open",
+        "Questions",
+        "Role",
+        "AGENTS",
+    }
+    values = [
+        value
+        for value in re.findall(r"\b[A-Z][A-Za-z0-9_]{5,}\b", narrative)
+        if value not in ignored
+    ]
+    return unique_strings(values)
+
+
+def is_supported_symbol(symbol: str, supported_symbols: list[str]) -> bool:
+    current = str(symbol).strip()
+    return any(
+        current == supported
+        or current in supported
+        or supported in current
+        for supported in supported_symbols
+    )
+
+
+def extract_narrative_body(body: str) -> str:
+    marker = "\n## Selected Paths"
+    if marker in body:
+        return body.split(marker, 1)[0]
+    return body
+
+
+def extract_repo_hints_section(body: str) -> str:
+    marker = "\n## Repo Hints"
+    if marker not in body:
+        return ""
+    return body.split(marker, 1)[1]
+
+
+def is_business_route_ref(route: str) -> bool:
+    lowered = str(route).strip().lower()
+    segments = [segment for segment in lowered.strip("/").split("/") if segment]
+    if not segments:
+        return False
+    if len(segments) >= 2:
+        return True
+    segment = segments[0]
+    return any(segment == action or segment.startswith(f"{action}_") for action in generic_route_actions())
+
+
+def extract_supported_route_actions(document: KnowledgeDocument) -> list[str]:
+    actions: list[str] = []
+    sources = [*document.keywords, *document.evidence.candidateFiles, *document.evidence.contextHits]
+    for value in sources:
+        lowered = str(value).lower()
+        for action in generic_route_actions():
+            if action in lowered:
+                actions.append(action)
+    return unique_strings(actions)
+
+
+def has_supported_route_family(supported_routes: list[str]) -> bool:
+    return any(len([segment for segment in str(route).strip("/").split("/") if segment]) >= 2 for route in supported_routes)
+
+
+def generic_route_actions() -> tuple[str, ...]:
+    return ("create", "save", "update", "edit", "launch", "start", "deactivate", "delete", "remove", "status", "get", "list", "detail")
 
 
 def serialize_document(document: KnowledgeDocument) -> dict[str, object]:
@@ -322,6 +470,7 @@ def build_documents_local(
     *,
     intent_payload: dict[str, object],
     term_mapping_payload: dict[str, object],
+    term_family_payload: dict[str, object],
     anchor_selection_payloads: list[dict[str, object]],
     repo_research_payloads: list[dict[str, object]],
     selected_paths: list[str],

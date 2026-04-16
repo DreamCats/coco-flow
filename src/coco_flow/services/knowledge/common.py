@@ -96,10 +96,6 @@ ANCHOR_PATH_KEYWORDS = {
     "handler": 7,
     "service": 6,
     "rpc": 6,
-    "promotion": 5,
-    "flash_sale": 7,
-    "creator_promotion": 7,
-    "exclusive": 7,
     "proto": 4,
     "pb_gen": 4,
     "idl": 4,
@@ -312,7 +308,8 @@ def infer_query_terms(title: str, description: str, notes: str) -> list[str]:
 
 def infer_search_terms(query_terms: list[str], domain_candidate: str) -> list[str]:
     search_terms: list[str] = list(query_terms)
-    search_terms.extend([part for part in domain_candidate.split("-") if part])
+    if not domain_candidate.startswith("knowledge-"):
+        search_terms.extend([part for part in domain_candidate.split("-") if part])
     return sanitize_search_terms([term for term in search_terms if len(str(term).strip()) >= 2])
 
 

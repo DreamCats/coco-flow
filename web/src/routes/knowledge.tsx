@@ -371,10 +371,12 @@ const stageItems = [
   { status: 'intent_normalizing', label: '意图收敛', progress: 10 },
   { status: 'term_mapping', label: '术语映射', progress: 24 },
   { status: 'repo_discovering', label: 'Repo 发现', progress: 40 },
-  { status: 'anchor_selecting', label: '锚点筛选', progress: 54 },
-  { status: 'repo_researching', label: 'Repo 研究', progress: 66 },
-  { status: 'synthesizing', label: '草稿生成', progress: 82 },
-  { status: 'validating', label: '结果校验', progress: 92 },
+  { status: 'candidate_ranking', label: '候选裁剪', progress: 52 },
+  { status: 'anchor_selecting', label: '锚点筛选', progress: 62 },
+  { status: 'term_family', label: '术语族群', progress: 70 },
+  { status: 'repo_researching', label: 'Repo 研究', progress: 78 },
+  { status: 'synthesizing', label: '草稿生成', progress: 88 },
+  { status: 'validating', label: '结果校验', progress: 95 },
 ]
 
 function isRunningJob(status: string): boolean {
@@ -392,7 +394,9 @@ function formatJobStatus(status: string): string {
     intent_normalizing: '执行中',
     term_mapping: '执行中',
     repo_discovering: '执行中',
+    candidate_ranking: '执行中',
     anchor_selecting: '执行中',
+    term_family: '执行中',
     repo_researching: '执行中',
     synthesizing: '执行中',
     validating: '执行中',

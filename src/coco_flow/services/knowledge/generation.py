@@ -27,10 +27,12 @@ from .common import (
     is_meaningful_term,
     normalize_executor,
     normalize_kinds,
+    normalize_match_text,
     normalize_selected_paths,
     sanitize_search_terms,
     slugify_domain,
     slugify_repo_id,
+    split_match_tokens,
     soften_weak_claims,
     unique_questions,
     unique_strings,
@@ -50,13 +52,17 @@ from .document_builder import (
     validate_documents,
 )
 from .prompting import (
+    build_candidate_ranking_prompt,
     build_anchor_selection_prompt,
     build_knowledge_synthesis_prompt,
     build_repo_research_prompt,
+    build_term_family_prompt,
     build_term_mapping_prompt,
+    extract_candidate_ranking_output,
     extract_anchor_selection_output,
     extract_knowledge_synthesis_output,
     extract_repo_research_output,
+    extract_term_family_output,
     extract_term_mapping_output,
 )
 from .scan import (
@@ -113,20 +119,45 @@ def generate_knowledge_drafts(
     )
     _emit_progress(on_progress, "repo_discovering", 40, "正在扫描已选路径和 repo 上下文")
     discovery_payload = [discover_repo(target, discovery_search_terms) for target in repo_targets]
-    _emit_progress(on_progress, "anchor_selecting", 54, "正在筛选各 repo 的主锚点")
-    anchor_selection_payloads = [
-        build_anchor_selection(intent_payload, discovery, settings, requested_executor)
+    _emit_progress(on_progress, "candidate_ranking", 52, "正在裁剪主候选和噪音")
+    candidate_ranking_payloads = [
+        build_candidate_ranking(intent_payload, discovery, settings, requested_executor)
         for discovery in discovery_payload
     ]
-    _emit_progress(on_progress, "repo_researching", 66, "正在归纳各 repo 在链路中的角色")
-    repo_research_payloads = [
-        build_repo_research(intent_payload, discovery, anchor_selection, settings, requested_executor)
-        for discovery, anchor_selection in zip(discovery_payload, anchor_selection_payloads, strict=False)
+    _emit_progress(on_progress, "anchor_selecting", 62, "正在筛选各 repo 的主锚点")
+    anchor_selection_payloads = [
+        build_anchor_selection(intent_payload, discovery, candidate_ranking, settings, requested_executor)
+        for discovery, candidate_ranking in zip(discovery_payload, candidate_ranking_payloads, strict=False)
     ]
-    _emit_progress(on_progress, "synthesizing", 82, "正在生成知识草稿")
+    _emit_progress(on_progress, "term_family", 70, "正在归并主术语族群")
+    term_family_payload = build_term_family(
+        intent_payload,
+        term_mapping_payload,
+        candidate_ranking_payloads,
+        anchor_selection_payloads,
+        settings,
+        requested_executor,
+    )
+    _emit_progress(on_progress, "repo_researching", 78, "正在归纳各 repo 在链路中的角色")
+    repo_research_payloads = [
+        build_repo_research(
+            intent_payload,
+            discovery,
+            candidate_ranking,
+            anchor_selection,
+            term_family_payload,
+            settings,
+            requested_executor,
+        )
+        for discovery, candidate_ranking, anchor_selection in zip(
+            discovery_payload, candidate_ranking_payloads, anchor_selection_payloads, strict=False
+        )
+    ]
+    _emit_progress(on_progress, "synthesizing", 88, "正在生成知识草稿")
     documents = build_documents(
         intent_payload=intent_payload,
         term_mapping_payload=term_mapping_payload,
+        term_family_payload=term_family_payload,
         anchor_selection_payloads=anchor_selection_payloads,
         repo_research_payloads=repo_research_payloads,
         selected_paths=selected_paths,
@@ -140,6 +171,7 @@ def generate_knowledge_drafts(
         [
             *intent_payload["open_questions"],
             *[str(question) for question in term_mapping_payload["open_questions"]],
+            *[str(question) for question in term_family_payload["open_questions"]],
             *collect_anchor_questions(anchor_selection_payloads),
             *collect_repo_questions(repo_research_payloads),
             *collect_document_questions(documents),
@@ -151,7 +183,7 @@ def generate_knowledge_drafts(
         "documents": [serialize_document(document) for document in documents],
         "open_questions": open_questions,
     }
-    _emit_progress(on_progress, "validating", 92, "正在校验生成结果")
+    _emit_progress(on_progress, "validating", 95, "正在校验生成结果")
     validation_errors = validate_documents(documents)
     validation_payload = {
         "trace_id": trace_id,
@@ -168,6 +200,12 @@ def generate_knowledge_drafts(
             "search_terms": discovery_search_terms,
             "repos": discovery_payload,
         },
+        "candidate-ranking.json": {
+            "trace_id": trace_id,
+            "requested_executor": requested_executor,
+            "repos": candidate_ranking_payloads,
+        },
+        "term-family.json": term_family_payload,
         "anchor-selection.json": {
             "trace_id": trace_id,
             "requested_executor": requested_executor,
@@ -178,6 +216,8 @@ def generate_knowledge_drafts(
     }
     for anchor_payload in anchor_selection_payloads:
         trace_files[f"anchor-selection/{anchor_payload['repo_id']}.json"] = anchor_payload
+    for ranking_payload in candidate_ranking_payloads:
+        trace_files[f"candidate-ranking/{ranking_payload['repo_id']}.json"] = ranking_payload
     for research_payload in repo_research_payloads:
         trace_files[f"repo-research/{research_payload['repo_id']}.json"] = research_payload
 
@@ -269,10 +309,11 @@ def build_intent_payload(title: str, description: str, requested_kinds: list[str
 def discover_repo(target: dict[str, object], search_terms: list[str]) -> dict[str, object]:
     scan_root = Path(str(target["repo_path"]))
     context_root = scan_root / ".livecoding" / "context"
-    matched_files, path_keywords = scan_candidate_files(scan_root, search_terms)
-    matched_dirs, dir_keywords = scan_candidate_dirs(scan_root, search_terms)
-    route_hits, route_keywords = scan_route_hits(scan_root, search_terms)
-    symbol_hits, symbol_keywords = scan_symbol_hits(scan_root, search_terms)
+    requested_path = str(target["requested_path"])
+    matched_files, path_keywords = scan_candidate_files(scan_root, search_terms, requested_path=requested_path)
+    matched_dirs, dir_keywords = scan_candidate_dirs(scan_root, search_terms, requested_path=requested_path)
+    route_hits, route_keywords = scan_route_hits(scan_root, search_terms, requested_path=requested_path)
+    symbol_hits, symbol_keywords = scan_symbol_hits(scan_root, search_terms, requested_path=requested_path)
     commit_hits, commit_keywords = scan_recent_commit_hits(scan_root, search_terms)
     candidate_dirs = unique_strings(
         [
@@ -419,7 +460,7 @@ def build_term_mapping_native(
     }
 
 
-def build_anchor_selection(
+def build_candidate_ranking(
     intent_payload: dict[str, object],
     discovery: dict[str, object],
     settings: Settings,
@@ -427,31 +468,297 @@ def build_anchor_selection(
 ) -> dict[str, object]:
     if requested_executor == EXECUTOR_NATIVE:
         try:
-            return build_anchor_selection_native(intent_payload, discovery, settings)
+            return build_candidate_ranking_native(intent_payload, discovery, settings)
         except ValueError as error:
-            local = build_anchor_selection_local(intent_payload, discovery)
+            local = build_candidate_ranking_local(intent_payload, discovery)
             local["requested_executor"] = requested_executor
             local["fallback_reason"] = str(error)
             return local
-    return build_anchor_selection_local(intent_payload, discovery)
+    return build_candidate_ranking_local(intent_payload, discovery)
 
 
-def build_anchor_selection_local(intent_payload: dict[str, object], discovery: dict[str, object]) -> dict[str, object]:
+def build_candidate_ranking_local(intent_payload: dict[str, object], discovery: dict[str, object]) -> dict[str, object]:
+    candidate_files = [str(item) for item in discovery.get("candidate_files", [])]
+    candidate_dirs = [str(item) for item in discovery.get("candidate_dirs", [])]
+    route_hits = select_core_route_signals([str(item) for item in discovery.get("route_hits", [])], intent_payload)
+    symbol_hits = [str(item) for item in discovery.get("symbol_hits", [])]
+    strongest_terms = [str(item).lower() for item in discovery.get("matched_keywords", [])]
+
+    file_scores: list[tuple[int, str]] = []
+    for path in candidate_files:
+        lowered = path.lower()
+        score = 0
+        if any(token in lowered for token in ("router", "route")):
+            score += 8
+        if any(token in lowered for token in ("handler", "service", "rpc")):
+            score += 5
+        if any(term and term.replace("_", "") in lowered.replace("_", "") for term in strongest_terms):
+            score += 4
+        if any(token in lowered for token in ("callback", "cycle", "loader", "legacy", "billboard", "developing")):
+            score -= 6
+        file_scores.append((score, path))
+    file_scores.sort(key=lambda item: (-item[0], item[1]))
+    ranked_files = [path for _, path in file_scores]
+    primary_files = ranked_files[:6]
+    secondary_files = [path for path in ranked_files[6:] if path not in primary_files][:6]
+
+    primary_dirs = unique_strings([str(Path(path).parent) for path in primary_files if str(Path(path).parent) not in {"", "."}])
+    if not primary_dirs:
+        primary_dirs = candidate_dirs[:4]
+
+    preferred_symbols: list[str] = []
+    for hit in symbol_hits:
+        _, _, tail = hit.partition("#")
+        identifier = tail.split(" 命中 ", 1)[0].strip()
+        if identifier:
+            preferred_symbols.append(identifier)
+
+    discarded_noise = []
+    for path in candidate_files:
+        lowered = path.lower()
+        if any(token in lowered for token in ("callback", "cycle", "loader", "legacy", "billboard", "developing")):
+            discarded_noise.append(path)
+    open_questions: list[str] = []
+    if not primary_files:
+        open_questions.append("当前还没有稳定筛出主候选文件，可能需要更具体的动作或业务术语。")
+    return {
+        "repo_id": discovery["repo_id"],
+        "repo_path": discovery["repo_path"],
+        "requested_path": discovery["requested_path"],
+        "executor": EXECUTOR_LOCAL,
+        "requested_executor": EXECUTOR_LOCAL,
+        "primary_files": primary_files,
+        "secondary_files": secondary_files,
+        "primary_dirs": primary_dirs[:4],
+        "preferred_symbols": unique_strings(preferred_symbols)[:6],
+        "preferred_routes": route_hits[:4],
+        "discarded_noise": unique_strings(discarded_noise)[:8],
+        "reason": "基于结构入口、动作词和当前候选集中度做本地主候选裁剪。",
+        "open_questions": unique_questions(open_questions),
+    }
+
+
+def build_candidate_ranking_native(
+    intent_payload: dict[str, object],
+    discovery: dict[str, object],
+    settings: Settings,
+) -> dict[str, object]:
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    repo_path = str(discovery["repo_path"]).strip()
+    raw = client.run_prompt_only(
+        build_candidate_ranking_prompt(intent_payload, discovery),
+        settings.native_query_timeout,
+        cwd=repo_path or None,
+    )
+    parsed = extract_candidate_ranking_output(raw)
+    fallback = build_candidate_ranking_local(intent_payload, discovery)
+    return fallback | {
+        "executor": EXECUTOR_NATIVE,
+        "requested_executor": EXECUTOR_NATIVE,
+        "primary_files": parsed["primary_files"] or fallback["primary_files"],
+        "secondary_files": parsed["secondary_files"] or fallback["secondary_files"],
+        "primary_dirs": parsed["primary_dirs"] or fallback["primary_dirs"],
+        "preferred_symbols": parsed["preferred_symbols"] or fallback["preferred_symbols"],
+        "preferred_routes": select_core_route_signals(parsed["preferred_routes"] or fallback["preferred_routes"], intent_payload),
+        "discarded_noise": unique_strings(parsed["discarded_noise"] + fallback["discarded_noise"]),
+        "reason": parsed["reason"] or fallback["reason"],
+        "open_questions": unique_questions(parsed["open_questions"] + fallback["open_questions"]),
+    }
+
+
+def build_term_family(
+    intent_payload: dict[str, object],
+    term_mapping_payload: dict[str, object],
+    candidate_ranking_payloads: list[dict[str, object]],
+    anchor_selection_payloads: list[dict[str, object]],
+    settings: Settings,
+    requested_executor: str,
+) -> dict[str, object]:
+    if requested_executor == EXECUTOR_NATIVE:
+        try:
+            return build_term_family_native(
+                intent_payload,
+                term_mapping_payload,
+                candidate_ranking_payloads,
+                anchor_selection_payloads,
+                settings,
+            )
+        except ValueError as error:
+            local = build_term_family_local(intent_payload, term_mapping_payload, candidate_ranking_payloads, anchor_selection_payloads)
+            local["requested_executor"] = requested_executor
+            local["fallback_reason"] = str(error)
+            return local
+    return build_term_family_local(intent_payload, term_mapping_payload, candidate_ranking_payloads, anchor_selection_payloads)
+
+
+def build_term_family_local(
+    intent_payload: dict[str, object],
+    term_mapping_payload: dict[str, object],
+    candidate_ranking_payloads: list[dict[str, object]],
+    anchor_selection_payloads: list[dict[str, object]],
+) -> dict[str, object]:
+    family_terms: list[str] = []
+    for item in term_mapping_payload.get("mapped_terms", []):
+        if not isinstance(item, dict):
+            continue
+        family_terms.extend(str(term) for term in item.get("repo_terms", []))
+    for item in anchor_selection_payloads:
+        family_terms.extend(str(term) for term in item.get("strongest_terms", []))
+        family_terms.extend(str(term) for term in item.get("business_symbols", []))
+    for item in candidate_ranking_payloads:
+        family_terms.extend(str(term) for term in item.get("preferred_symbols", []))
+        family_terms.extend(str(term) for term in item.get("preferred_routes", []))
+    candidate_primary = unique_strings([term for term in family_terms if is_meaningful_term(term)])
+    action_terms = {"create", "save", "update", "launch", "delete", "deactivate", "status", "get", "list", "detail"}
+    direct_terms = collect_direct_family_terms(term_mapping_payload, candidate_ranking_payloads)
+    generic_terms = infer_generic_terms(candidate_primary, direct_terms)
+    primary_family = [term for term in candidate_primary if term not in generic_terms][:6]
+    secondary_terms = [
+        term
+        for term in unique_strings([str(term) for term in term_mapping_payload.get("search_terms", [])])
+        if term.lower() not in action_terms and term not in primary_family and term not in generic_terms
+    ][:4]
+    noise_terms = unique_strings(
+        [str(term) for item in candidate_ranking_payloads for term in item.get("discarded_noise", [])]
+    )[:8]
+    open_questions: list[str] = []
+    if not primary_family:
+        open_questions.append("当前还没有稳定识别出主术语族群，可能需要补充更具体的业务词或入口文件。")
+    return {
+        "executor": EXECUTOR_LOCAL,
+        "requested_executor": EXECUTOR_LOCAL,
+        "primary_family": primary_family,
+        "secondary_families": [secondary_terms] if secondary_terms else [],
+        "generic_terms": generic_terms,
+        "noise_terms": noise_terms,
+        "reason": "基于 term mapping、候选裁剪和锚点结果归并当前任务的主术语族群。",
+        "open_questions": unique_questions(open_questions),
+    }
+
+
+def build_term_family_native(
+    intent_payload: dict[str, object],
+    term_mapping_payload: dict[str, object],
+    candidate_ranking_payloads: list[dict[str, object]],
+    anchor_selection_payloads: list[dict[str, object]],
+    settings: Settings,
+) -> dict[str, object]:
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    cwd = str(candidate_ranking_payloads[0]["repo_path"]) if candidate_ranking_payloads else None
+    raw = client.run_prompt_only(
+        build_term_family_prompt(intent_payload, term_mapping_payload, candidate_ranking_payloads, anchor_selection_payloads),
+        settings.native_query_timeout,
+        cwd=cwd,
+    )
+    parsed = extract_term_family_output(raw)
+    fallback = build_term_family_local(intent_payload, term_mapping_payload, candidate_ranking_payloads, anchor_selection_payloads)
+    return fallback | {
+        "executor": EXECUTOR_NATIVE,
+        "requested_executor": EXECUTOR_NATIVE,
+        "primary_family": parsed["primary_family"] or fallback["primary_family"],
+        "secondary_families": parsed["secondary_families"] or fallback["secondary_families"],
+        "generic_terms": unique_strings(parsed["generic_terms"] + fallback["generic_terms"]),
+        "noise_terms": unique_strings(parsed["noise_terms"] + fallback["noise_terms"]),
+        "reason": parsed["reason"] or fallback["reason"],
+        "open_questions": unique_questions(parsed["open_questions"] + fallback["open_questions"]),
+    }
+
+
+def collect_direct_family_terms(
+    term_mapping_payload: dict[str, object],
+    candidate_ranking_payloads: list[dict[str, object]],
+) -> set[str]:
+    direct: set[str] = set()
+    for item in term_mapping_payload.get("mapped_terms", []):
+        if not isinstance(item, dict):
+            continue
+        direct.update(str(term) for term in item.get("repo_terms", []))
+    for item in candidate_ranking_payloads:
+        direct.update(str(term) for term in item.get("preferred_routes", []))
+        direct.update(str(term) for term in item.get("primary_dirs", []))
+    return {term for term in direct if str(term).strip()}
+
+
+def infer_generic_terms(candidate_terms: list[str], direct_terms: set[str]) -> list[str]:
+    generics: list[str] = []
+    normalized_direct = {normalize_match_text(term) for term in direct_terms}
+    for term in candidate_terms:
+        normalized = normalize_match_text(term)
+        if not normalized:
+            continue
+        if normalized in normalized_direct:
+            continue
+        containing = 0
+        for other in candidate_terms:
+            if other == term:
+                continue
+            other_normalized = normalize_match_text(other)
+            if not other_normalized:
+                continue
+            if normalized == other_normalized:
+                continue
+            if normalized in other_normalized:
+                containing += 1
+        if containing >= 2:
+            generics.append(term)
+    return unique_strings(generics)[:4]
+
+
+def build_anchor_selection(
+    intent_payload: dict[str, object],
+    discovery: dict[str, object],
+    candidate_ranking: dict[str, object],
+    settings: Settings,
+    requested_executor: str,
+) -> dict[str, object]:
+    if requested_executor == EXECUTOR_NATIVE:
+        try:
+            return build_anchor_selection_native(intent_payload, discovery, candidate_ranking, settings)
+        except ValueError as error:
+            local = build_anchor_selection_local(intent_payload, discovery, candidate_ranking)
+            local["requested_executor"] = requested_executor
+            local["fallback_reason"] = str(error)
+            return local
+    return build_anchor_selection_local(intent_payload, discovery, candidate_ranking)
+
+
+def build_anchor_selection_local(
+    intent_payload: dict[str, object],
+    discovery: dict[str, object],
+    candidate_ranking: dict[str, object],
+) -> dict[str, object]:
     anchors = extract_repo_anchors(discovery)
-    anchors["route_signals"] = select_core_route_signals(anchors["route_signals"], intent_payload)
+    ranked_primary_files = [str(item) for item in candidate_ranking.get("primary_files", [])]
+    ranked_symbols = [str(item) for item in candidate_ranking.get("preferred_symbols", [])]
+    ranked_routes = [str(item) for item in candidate_ranking.get("preferred_routes", [])]
+    anchors["entry_files"] = unique_strings([*ranked_primary_files, *anchors["entry_files"]])[:4]
+    anchors["business_symbols"] = unique_strings([*ranked_symbols, *anchors["business_symbols"]])[:6]
+    anchors["route_signals"] = select_core_route_signals([*ranked_routes, *anchors["route_signals"]], intent_payload)
     strongest_terms = unique_strings(
         [
             *anchors["business_symbols"],
             *anchors["keywords"],
+            *[str(term) for term in candidate_ranking.get("preferred_symbols", []) if is_meaningful_term(str(term))],
             *[str(term) for term in discovery.get("matched_keywords", []) if is_meaningful_term(str(term))],
         ]
     )[:8]
-    discarded_noise = extract_discarded_noise(discovery, strongest_terms)
+    discarded_noise = unique_strings(
+        [*[str(item) for item in candidate_ranking.get("discarded_noise", [])], *extract_discarded_noise(discovery, strongest_terms)]
+    )
     open_questions: list[str] = []
     if not anchors["entry_files"]:
         open_questions.append("当前还没有稳定识别出入口文件，可能需要补充更具体的动作或接口名。")
     if not anchors["business_symbols"]:
         open_questions.append("当前还没有稳定识别出业务枚举或核心符号，可能需要补充业务术语。")
+    open_questions.extend([str(item) for item in candidate_ranking.get("open_questions", [])])
     return {
         "repo_id": discovery["repo_id"],
         "repo_path": discovery["repo_path"],
@@ -471,6 +778,7 @@ def build_anchor_selection_local(intent_payload: dict[str, object], discovery: d
 def build_anchor_selection_native(
     intent_payload: dict[str, object],
     discovery: dict[str, object],
+    candidate_ranking: dict[str, object],
     settings: Settings,
 ) -> dict[str, object]:
     client = CocoACPClient(
@@ -480,12 +788,12 @@ def build_anchor_selection_native(
     )
     repo_path = str(discovery["repo_path"]).strip()
     raw = client.run_prompt_only(
-        build_anchor_selection_prompt(intent_payload, discovery),
+        build_anchor_selection_prompt(intent_payload, discovery, candidate_ranking),
         settings.native_query_timeout,
         cwd=repo_path or None,
     )
     parsed = extract_anchor_selection_output(raw)
-    fallback = build_anchor_selection_local(intent_payload, discovery)
+    fallback = build_anchor_selection_local(intent_payload, discovery, candidate_ranking)
     return fallback | {
         "executor": EXECUTOR_NATIVE,
         "requested_executor": EXECUTOR_NATIVE,
@@ -502,25 +810,29 @@ def build_anchor_selection_native(
 def build_repo_research(
     intent_payload: dict[str, object],
     discovery: dict[str, object],
+    candidate_ranking: dict[str, object],
     anchor_selection: dict[str, object],
+    term_family: dict[str, object],
     settings: Settings,
     requested_executor: str,
 ) -> dict[str, object]:
     if requested_executor == EXECUTOR_NATIVE:
         try:
-            return build_repo_research_native(intent_payload, discovery, anchor_selection, settings)
+            return build_repo_research_native(intent_payload, discovery, candidate_ranking, anchor_selection, term_family, settings)
         except ValueError as error:
-            local = build_repo_research_local(intent_payload, discovery, anchor_selection)
+            local = build_repo_research_local(intent_payload, discovery, candidate_ranking, anchor_selection, term_family)
             local["requested_executor"] = requested_executor
             local["fallback_reason"] = str(error)
             return local
-    return build_repo_research_local(intent_payload, discovery, anchor_selection)
+    return build_repo_research_local(intent_payload, discovery, candidate_ranking, anchor_selection, term_family)
 
 
 def build_repo_research_local(
     intent_payload: dict[str, object],
     discovery: dict[str, object],
+    candidate_ranking: dict[str, object],
     anchor_selection: dict[str, object],
+    term_family: dict[str, object],
 ) -> dict[str, object]:
     matched_keywords = [str(item) for item in discovery["matched_keywords"]]
     candidate_dirs = [str(item) for item in discovery["candidate_dirs"]]
@@ -529,13 +841,18 @@ def build_repo_research_local(
     symbol_hits = [str(item) for item in discovery.get("symbol_hits", [])]
     commit_hits = [str(item) for item in discovery.get("commit_hits", [])]
     context_hits = [str(item) for item in discovery["context_hits"]]
+    ranked_primary_dirs = [str(item) for item in candidate_ranking.get("primary_dirs", [])]
+    ranked_primary_files = [str(item) for item in candidate_ranking.get("primary_files", [])]
+    ranked_secondary_files = [str(item) for item in candidate_ranking.get("secondary_files", [])]
     anchors = {
         "entry_files": [str(item) for item in anchor_selection.get("entry_files", [])],
         "business_symbols": [str(item) for item in anchor_selection.get("business_symbols", [])],
         "route_signals": [str(item) for item in anchor_selection.get("route_signals", [])],
         "keywords": [str(item) for item in anchor_selection.get("strongest_terms", [])],
     }
-    primary = bool(candidate_files or matched_keywords or context_hits or symbol_hits or route_hits or commit_hits)
+    ranked_candidate_files = unique_strings([*ranked_primary_files, *anchors["entry_files"], *ranked_secondary_files, *candidate_files])[:8]
+    ranked_candidate_dirs = unique_strings([*ranked_primary_dirs, *candidate_dirs])
+    primary = bool(ranked_candidate_files or matched_keywords or context_hits or symbol_hits or route_hits or commit_hits)
     role = "primary" if primary else "supporting"
     facts = [
         f"repo_path={discovery['repo_path']}",
@@ -569,13 +886,36 @@ def build_repo_research_local(
         risks.append("未命中 repo context，链路推断主要来自目录、文件名和符号名。")
     if not discovery["agents_present"]:
         risks.append("缺少 AGENTS.md，仓库协作约束需要人工确认。")
-    open_questions = [str(question) for question in anchor_selection.get("open_questions", [])]
+    strongest_terms = [str(item) for item in term_family.get("primary_family", [])] or [str(item) for item in anchor_selection.get("strongest_terms", [])]
+    generic_terms = {normalize_match_text(str(item)) for item in term_family.get("generic_terms", [])}
+    secondary_terms = [
+        str(item)
+        for family in term_family.get("secondary_families", [])
+        if isinstance(family, list)
+        for item in family
+    ]
+    noise_terms = [str(item) for item in term_family.get("noise_terms", [])]
+    ranked_candidate_files = filter_candidate_files_by_term_family(
+        ranked_candidate_files,
+        strongest_terms,
+        secondary_terms,
+        noise_terms,
+    )
+    filtered_matched_keywords = [
+        keyword for keyword in matched_keywords if normalize_match_text(keyword) not in generic_terms
+    ]
+    entry_files = [str(item) for item in anchor_selection.get("entry_files", [])]
+    open_questions = [str(question) for question in term_family.get("open_questions", [])] + [str(question) for question in anchor_selection.get("open_questions", [])]
     if not discovery["is_git_repo"]:
         open_questions.append("该路径不是 git repo，是否应上卷到真实仓库根目录。")
     if not matched_keywords:
         open_questions.append("当前关键词未命中明显模块名，是否需要补充别名或业务术语。")
-    if candidate_dirs:
+    if entry_files:
+        open_questions.append(f"是否以 `{entry_files[0]}` 为第一跳入口文件。")
+    elif candidate_dirs:
         open_questions.append(f"是否以 `{candidate_dirs[0]}` 为第一跳入口目录。")
+    if strongest_terms and not route_hits:
+        open_questions.append(f"缺少明确路由信息，`{strongest_terms[0]}` 对应的 API 路径是什么？")
     return {
         "repo_id": discovery["repo_id"],
         "repo_path": discovery["repo_path"],
@@ -583,8 +923,8 @@ def build_repo_research_local(
         "executor": EXECUTOR_LOCAL,
         "requested_executor": EXECUTOR_LOCAL,
         "role": role,
-        "likely_modules": rank_likely_modules(candidate_dirs, anchors, discovery)[:6],
-        "candidate_files": unique_strings([*anchors["entry_files"], *candidate_files])[:8],
+        "likely_modules": rank_likely_modules(ranked_candidate_dirs, anchors, discovery)[:6],
+        "candidate_files": ranked_candidate_files,
         "route_hits": route_hits,
         "risks": risks,
         "facts": facts,
@@ -594,17 +934,19 @@ def build_repo_research_local(
         "commit_hits": commit_hits,
         "anchors": anchors,
         "open_questions": unique_questions(open_questions),
-        "matched_keywords": matched_keywords,
+        "matched_keywords": filtered_matched_keywords,
     }
 
 
 def build_repo_research_native(
     intent_payload: dict[str, object],
     discovery: dict[str, object],
+    candidate_ranking: dict[str, object],
     anchor_selection: dict[str, object],
+    term_family: dict[str, object],
     settings: Settings,
 ) -> dict[str, object]:
-    fallback = build_repo_research_local(intent_payload, discovery, anchor_selection)
+    fallback = build_repo_research_local(intent_payload, discovery, candidate_ranking, anchor_selection, term_family)
     repo_path = str(discovery["repo_path"]).strip()
     if not repo_path:
         raise ValueError("native repo research missing repo_path")
@@ -614,7 +956,7 @@ def build_repo_research_native(
         settings=settings,
     )
     raw = client.run_readonly_agent(
-        build_repo_research_prompt(intent_payload, discovery, anchor_selection),
+        build_repo_research_prompt(intent_payload, discovery, candidate_ranking, anchor_selection, term_family),
         settings.native_query_timeout,
         cwd=repo_path,
     )
@@ -632,9 +974,31 @@ def build_repo_research_native(
     return result
 
 
+def filter_candidate_files_by_term_family(
+    candidate_files: list[str],
+    primary_terms: list[str],
+    secondary_terms: list[str],
+    noise_terms: list[str],
+) -> list[str]:
+    primary_normalized = [normalize_match_text(term) for term in primary_terms if normalize_match_text(term)]
+    secondary_normalized = [normalize_match_text(term) for term in [*secondary_terms, *noise_terms] if normalize_match_text(term)]
+    if not secondary_normalized:
+        return candidate_files
+    result: list[str] = []
+    for index, path in enumerate(candidate_files):
+        normalized_path = normalize_match_text(path)
+        primary_hits = sum(1 for term in primary_normalized if term and term in normalized_path)
+        secondary_hits = sum(1 for term in secondary_normalized if term and term in normalized_path)
+        if index >= 3 and secondary_hits > 0 and primary_hits == 0:
+            continue
+        result.append(path)
+    return result[:8]
+
+
 def build_documents(
     intent_payload: dict[str, object],
     term_mapping_payload: dict[str, object],
+    term_family_payload: dict[str, object],
     anchor_selection_payloads: list[dict[str, object]],
     repo_research_payloads: list[dict[str, object]],
     selected_paths: list[str],
@@ -647,6 +1011,7 @@ def build_documents(
     local_documents = build_documents_local(
         intent_payload=intent_payload,
         term_mapping_payload=term_mapping_payload,
+        term_family_payload=term_family_payload,
         anchor_selection_payloads=anchor_selection_payloads,
         repo_research_payloads=repo_research_payloads,
         selected_paths=selected_paths,
@@ -662,6 +1027,7 @@ def build_documents(
         return build_documents_native(
             intent_payload=intent_payload,
             term_mapping_payload=term_mapping_payload,
+            term_family_payload=term_family_payload,
             anchor_selection_payloads=anchor_selection_payloads,
             repo_research_payloads=repo_research_payloads,
             selected_paths=selected_paths,
@@ -686,6 +1052,7 @@ def build_documents(
 def build_documents_native(
     intent_payload: dict[str, object],
     term_mapping_payload: dict[str, object],
+    term_family_payload: dict[str, object],
     anchor_selection_payloads: list[dict[str, object]],
     repo_research_payloads: list[dict[str, object]],
     selected_paths: list[str],
@@ -706,6 +1073,7 @@ def build_documents_native(
         build_knowledge_synthesis_prompt(
             intent_payload,
             term_mapping_payload,
+            term_family_payload,
             anchor_selection_payloads,
             repo_research_payloads,
             display_paths,

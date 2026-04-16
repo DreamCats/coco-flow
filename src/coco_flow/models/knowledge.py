@@ -45,6 +45,8 @@ class KnowledgeTraceResponse(BaseModel):
     files: list[str]
     intent: dict[str, object]
     term_mapping: dict[str, object]
+    candidate_ranking: dict[str, object] = Field(default_factory=dict)
+    term_family: dict[str, object] = Field(default_factory=dict)
     anchor_selection: dict[str, object]
     repo_discovery: dict[str, object]
     repo_research: dict[str, dict[str, object]]

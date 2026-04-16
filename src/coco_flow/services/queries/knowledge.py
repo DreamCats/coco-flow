@@ -127,6 +127,8 @@ class KnowledgeStore:
             files=files,
             intent=_read_trace_json(trace_root / "intent.json"),
             term_mapping=_read_trace_json(trace_root / "term-mapping.json"),
+            candidate_ranking=_read_trace_json(trace_root / "candidate-ranking.json"),
+            term_family=_read_trace_json(trace_root / "term-family.json"),
             anchor_selection=_read_trace_json(trace_root / "anchor-selection.json"),
             repo_discovery=_read_trace_json(trace_root / "repo-discovery.json"),
             repo_research=repo_research,

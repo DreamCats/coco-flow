@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 import re
 import subprocess
@@ -25,14 +26,16 @@ def find_repo_root(start: Path) -> Path | None:
     return None
 
 
-def scan_candidate_files(root: Path, search_terms: list[str]) -> tuple[list[str], list[str]]:
+def scan_candidate_files(root: Path, search_terms: list[str], requested_path: str | None = None) -> tuple[list[str], list[str]]:
     matched_files: list[tuple[int, str]] = []
     matched_keywords: list[str] = []
-    scanned = 0
-    for path in iter_repo_files(root):
-        scanned += 1
-        if scanned > 1600:
-            break
+    for path in sample_repo_files(
+        root,
+        search_terms=search_terms,
+        requested_path=requested_path,
+        limit=1600,
+        scan_cap=4800,
+    ):
         relative_path = str(path.relative_to(root))
         hits = matched_search_terms(relative_path, search_terms)
         if not hits:
@@ -43,14 +46,16 @@ def scan_candidate_files(root: Path, search_terms: list[str]) -> tuple[list[str]
     return [path for _, path in matched_files[:24]], unique_strings(matched_keywords)
 
 
-def scan_candidate_dirs(root: Path, search_terms: list[str]) -> tuple[list[str], list[str]]:
+def scan_candidate_dirs(root: Path, search_terms: list[str], requested_path: str | None = None) -> tuple[list[str], list[str]]:
     scored_dirs: dict[str, int] = {}
     matched_keywords: list[str] = []
-    scanned = 0
-    for path in iter_repo_files(root):
-        scanned += 1
-        if scanned > 1200:
-            break
+    for path in sample_repo_files(
+        root,
+        search_terms=search_terms,
+        requested_path=requested_path,
+        limit=1200,
+        scan_cap=4200,
+    ):
         relative_path = Path(path.relative_to(root))
         for parent in relative_path.parents:
             current = str(parent)
@@ -65,17 +70,18 @@ def scan_candidate_dirs(root: Path, search_terms: list[str]) -> tuple[list[str],
     return matched_dirs[:16], unique_strings(matched_keywords)
 
 
-def scan_route_hits(root: Path, search_terms: list[str]) -> tuple[list[str], list[str]]:
+def scan_route_hits(root: Path, search_terms: list[str], requested_path: str | None = None) -> tuple[list[str], list[str]]:
     hits: list[tuple[int, str]] = []
     matched_keywords: list[str] = []
-    scanned = 0
-    for path in iter_repo_files(root):
-        scanned += 1
-        if scanned > 240:
-            break
+    for path in sample_repo_files(
+        root,
+        search_terms=search_terms,
+        requested_path=requested_path,
+        limit=240,
+        scan_cap=1600,
+        path_filter=lambda relative_path: any(token in relative_path.lower() for token in ("router", "route", "handler", "api")),
+    ):
         relative_path = str(path.relative_to(root))
-        if not any(token in relative_path.lower() for token in ("router", "route", "handler", "api")):
-            continue
         try:
             content = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -91,14 +97,16 @@ def scan_route_hits(root: Path, search_terms: list[str]) -> tuple[list[str], lis
     return [item for _, item in hits[:8]], unique_strings(matched_keywords)
 
 
-def scan_symbol_hits(root: Path, search_terms: list[str]) -> tuple[list[str], list[str]]:
+def scan_symbol_hits(root: Path, search_terms: list[str], requested_path: str | None = None) -> tuple[list[str], list[str]]:
     hits: list[tuple[int, str]] = []
     matched_keywords: list[str] = []
-    scanned = 0
-    for path in iter_repo_files(root):
-        scanned += 1
-        if scanned > 180:
-            break
+    for path in sample_repo_files(
+        root,
+        search_terms=search_terms,
+        requested_path=requested_path,
+        limit=220,
+        scan_cap=1800,
+    ):
         try:
             content = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -148,6 +156,94 @@ def iter_repo_files(root: Path):
             if path.suffix.lower() not in SEARCHABLE_SUFFIXES:
                 continue
             yield path
+
+
+def sample_repo_files(
+    root: Path,
+    *,
+    search_terms: list[str],
+    requested_path: str | None,
+    limit: int,
+    scan_cap: int,
+    path_filter: Callable[[str], bool] | None = None,
+) -> list[Path]:
+    requested_prefix, requested_top = resolve_requested_scope(root, requested_path)
+    focus_tokens = build_focus_tokens(search_terms)
+    tiers: list[list[Path]] = [[], [], [], []]
+    scanned = 0
+    for path in iter_repo_files(root):
+        scanned += 1
+        if scanned > scan_cap:
+            break
+        relative_path = str(path.relative_to(root))
+        if path_filter is not None and not path_filter(relative_path):
+            continue
+        tier = classify_sample_tier(relative_path, requested_prefix, requested_top, focus_tokens)
+        tiers[tier].append(path)
+    return interleave_sample_tiers(tiers, limit)
+
+
+def resolve_requested_scope(root: Path, requested_path: str | None) -> tuple[str, str]:
+    if not requested_path:
+        return "", ""
+    try:
+        requested = Path(requested_path).expanduser().resolve()
+        relative = requested.relative_to(root.resolve())
+    except (OSError, ValueError):
+        return "", ""
+    if str(relative) in {"", "."}:
+        return "", ""
+    prefix = relative.as_posix().strip("/")
+    top_level = relative.parts[0] if relative.parts else ""
+    return prefix.lower(), top_level.lower()
+
+
+def build_focus_tokens(search_terms: list[str]) -> list[str]:
+    tokens: list[str] = []
+    for term in search_terms:
+        current = str(term).strip()
+        if not current:
+            continue
+        tokens.extend(split_match_tokens(current))
+        lowered = current.lower()
+        if len(lowered) >= 3 and is_meaningful_term(lowered):
+            tokens.append(lowered)
+    return unique_strings([token for token in tokens if len(token) >= 3 and is_meaningful_term(token)])
+
+
+def classify_sample_tier(relative_path: str, requested_prefix: str, requested_top: str, focus_tokens: list[str]) -> int:
+    lowered = relative_path.lower()
+    if requested_prefix and (lowered == requested_prefix or lowered.startswith(f"{requested_prefix}/")):
+        return 0
+    if requested_top and (lowered == requested_top or lowered.startswith(f"{requested_top}/")):
+        return 1
+    if any(token in lowered for token in focus_tokens):
+        return 2
+    return 3
+
+
+def interleave_sample_tiers(tiers: list[list[Path]], limit: int) -> list[Path]:
+    result: list[Path] = []
+    positions = [0 for _ in tiers]
+    sampling_order = [0, 0, 1, 0, 2, 1, 3]
+    while len(result) < limit:
+        added = False
+        for tier_index in sampling_order:
+            if tier_index >= len(tiers):
+                continue
+            current_tier = tiers[tier_index]
+            current_position = positions[tier_index]
+            if current_position >= len(current_tier):
+                continue
+            result.append(current_tier[current_position])
+            positions[tier_index] += 1
+            added = True
+            if len(result) >= limit:
+                break
+        if added:
+            continue
+        break
+    return result
 
 
 def scan_context_hits(context_root: Path, search_terms: list[str]) -> list[str]:
@@ -346,7 +442,7 @@ def score_symbol_signal(path: str, identifier: str, hits: list[str]) -> int:
     for keyword, bonus in ANCHOR_PATH_KEYWORDS.items():
         if keyword in lowered:
             score += bonus + 1
-    if any(token in identifier for token in ("Request", "Response", "Service", "Handler", "Promotion", "FlashSale", "Exclusive")):
+    if any(token in identifier for token in ("Request", "Response", "Service", "Handler", "Controller", "Client")):
         score += 4
     return score
 
@@ -358,8 +454,6 @@ def score_commit_signal(title: str, hits: list[str]) -> int:
         score -= 3
     if "merge branch" in lowered:
         score -= 4
-    if any(token in lowered for token in ("flash_sale", "creator", "promotion", "exclusive", "秒杀")):
-        score += 2
     return score
 
 
@@ -368,11 +462,28 @@ def extract_repo_anchors(discovery: dict[str, object]) -> dict[str, list[str]]:
     route_hits = [str(item) for item in discovery.get("route_hits", [])]
     symbol_hits = [str(item) for item in discovery.get("symbol_hits", [])]
     matched_keywords = [str(item) for item in discovery.get("matched_keywords", [])]
-    entry_files = [
-        path
-        for path in candidate_files
-        if any(token in path.lower() for token in ("router", "route", "handler", "service", "rpc"))
-    ][:4]
+    dynamic_tokens = {
+        token
+        for keyword in matched_keywords
+        for token in split_match_tokens(str(keyword))
+        if len(token) >= 3 and is_meaningful_term(token)
+    }
+    entry_candidates: list[tuple[int, str]] = []
+    for path in candidate_files:
+        lowered = path.lower()
+        score = 0
+        if any(token in lowered for token in ("router", "route")):
+            score += 10
+        if any(token in lowered for token in ("handler", "service", "rpc")):
+            score += 6
+        if any(token in lowered for token in dynamic_tokens):
+            score += 5
+        if any(token in lowered for token in ("callback", "loader", "legacy", "generated", "mock", "fixture", "archive", "spec")):
+            score -= 8
+        if score > 0:
+            entry_candidates.append((score, path))
+    entry_candidates.sort(key=lambda item: (-item[0], item[1]))
+    entry_files = [path for _, path in entry_candidates[:4]]
     if not entry_files:
         entry_files = candidate_files[:4]
     business_symbols: list[str] = []
@@ -403,27 +514,22 @@ def derive_modules_from_entry_files(entry_files: list[str]) -> list[str]:
 def select_core_route_signals(route_signals: list[str], intent_payload: dict[str, object]) -> list[str]:
     scored: list[tuple[int, str]] = []
     intent_text = " ".join([str(intent_payload.get("title") or ""), str(intent_payload.get("description") or "")]).lower()
-    has_business_prefix = any(any(token in str(signal).lower() for token in ("/flash_sale", "/live_promotion")) for signal in route_signals)
+    family_scores = build_route_family_scores(route_signals)
+    action_tokens = infer_route_action_tokens(intent_text)
     for signal in route_signals:
         current = str(signal).strip()
-        lowered = current.lower()
+        route_path = extract_route_path(current)
+        lowered = route_path.lower()
         score = 0
-        if "/flash_sale" in lowered or "/live_promotion" in lowered:
-            score += 8
-        if any(token in lowered for token in ("/create", "/update", "/launch", "/deactivate", "/delete", "/status")):
-            score += 5
-        if has_business_prefix and not any(token in lowered for token in ("/flash_sale", "/live_promotion")):
-            score -= 8
-        if "/operate" in lowered:
-            score -= 6
-        if "/save_template" in lowered or "/template" in lowered:
-            score -= 12
-        if "启动" in intent_text and any(token in lowered for token in ("/launch", "/status")):
-            score += 2
-        if "更新" in intent_text and "/update" in lowered:
-            score += 2
-        if "删除" in intent_text and any(token in lowered for token in ("/delete", "/deactivate")):
-            score += 2
+        segments = [segment for segment in lowered.split("/") if segment]
+        if not segments:
+            continue
+        score += min(len(segments), 4)
+        score += family_scores.get(route_family_key(route_path), 0)
+        if any(action in lowered for action in action_tokens):
+            score += 4
+        if len(segments) == 1 and not any(action in lowered for action in action_tokens):
+            score -= 4
         scored.append((score, current))
     scored.sort(key=lambda item: (-item[0], item[1]))
     selected = [value for score, value in scored if score > 0][:3]
@@ -443,9 +549,9 @@ def rank_likely_modules(candidate_dirs: list[str], anchors: dict[str, list[str]]
             score += 12
         if any(term and term.replace("_", "").lower() in lowered.replace("_", "") for term in strongest_terms):
             score += 6
-        if any(token in lowered for token in ("router", "route", "handler", "service", "rpc", "flash_sale", "promotion")):
+        if any(token in lowered for token in ("router", "route", "handler", "service", "rpc")):
             score += 4
-        if any(token in lowered for token in ("billboard", "flow_task", "packer", "archive", "openspec", "specs", "developing")):
+        if any(token in lowered for token in ("flow_task", "packer", "archive", "openspec", "specs", "developing", "loader", "legacy", "callback", "generated", "mock", "fixture")):
             score -= 6
         scored[module] = score
     ranked = [value for value, _ in sorted(scored.items(), key=lambda item: (-item[1], item[0]))]
@@ -469,6 +575,47 @@ def extract_discarded_noise(discovery: dict[str, object], strongest_terms: list[
         if any(token in lowered for token in ("openspec/", "/spec.", "archive/", "readme", "build.sh")):
             noise.append(current)
     return unique_strings(noise)[:6]
+
+
+def extract_route_path(signal: str) -> str:
+    current = str(signal).strip()
+    if "#" in current:
+        current = current.split("#", 1)[1]
+    if " 命中 " in current:
+        current = current.split(" 命中 ", 1)[0]
+    return current.strip()
+
+
+def route_family_key(route_path: str) -> str:
+    segments = [segment for segment in extract_route_path(route_path).strip("/").split("/") if segment]
+    if not segments:
+        return ""
+    return "/".join(segments[: min(2, len(segments))])
+
+
+def build_route_family_scores(route_signals: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for signal in route_signals:
+        family = route_family_key(str(signal))
+        if not family:
+            continue
+        counts[family] = counts.get(family, 0) + 1
+    return {family: min(count * 2, 6) for family, count in counts.items()}
+
+
+def infer_route_action_tokens(intent_text: str) -> list[str]:
+    action_map = {
+        "创建": ["create", "save"],
+        "更新": ["update", "edit"],
+        "删除": ["delete", "remove", "deactivate"],
+        "启动": ["launch", "start", "status"],
+        "查询": ["get", "list", "detail"],
+    }
+    actions: list[str] = []
+    for source, mapped in action_map.items():
+        if source in intent_text:
+            actions.extend(mapped)
+    return unique_strings(actions)
 
 
 def list_top_level_dirs(root: Path) -> list[str]:
