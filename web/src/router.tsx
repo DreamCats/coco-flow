@@ -10,6 +10,7 @@ import {
 import { useEffect, useState } from 'react'
 import { AppDataProvider, useAppData } from './hooks/use-app-data'
 import { TopNavItem } from './components/ui-primitives'
+import { KnowledgePage } from './routes/knowledge'
 import { TasksIndexPage, TasksLayout, TaskDetailPage } from './routes/tasks'
 import { WorkspacePage } from './routes/workspace'
 
@@ -116,10 +117,10 @@ function AppShell() {
                   to="/tasks"
                 />
                 <TopNavItem
-                  description="查看仓库、任务目录和隔离工作区的实际位置。"
-                  isActive={location.pathname.startsWith('/workspace')}
-                  title="路径视图"
-                  to="/workspace"
+                  description="生成知识草稿、查看证据，并控制哪些知识进入 refine / plan。"
+                  isActive={location.pathname.startsWith('/knowledge')}
+                  title="知识工作台"
+                  to="/knowledge"
                 />
               </div>
             </div>
@@ -168,9 +169,16 @@ const workspaceRoute = createRoute({
   component: WorkspacePage,
 })
 
+const knowledgeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'knowledge',
+  component: KnowledgePage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   tasksRoute.addChildren([tasksIndexRoute, taskDetailRoute]),
+  knowledgeRoute,
   workspaceRoute,
 ])
 

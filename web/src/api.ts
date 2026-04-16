@@ -1,3 +1,5 @@
+import type { KnowledgeDocument, KnowledgeDraftInput, KnowledgeGenerationJob } from './knowledge/types'
+
 export type TaskStatus =
   | 'initialized'
   | 'refined'
@@ -84,6 +86,7 @@ export type TaskRecord = {
 export type WorkspaceSummary = {
   repoRoot: string
   tasksRoot: string
+  knowledgeRoot: string
   contextRoot: string
   worktreeRoot: string
   reposInvolved: string[]
@@ -149,6 +152,77 @@ export async function getTask(taskId: string) {
 
 export async function getWorkspace() {
   return fetchJSON<WorkspaceSummary>('/api/workspace')
+}
+
+export async function listKnowledge() {
+  const response = await fetchJSON<{ documents: KnowledgeDocument[] }>('/api/knowledge')
+  return response.documents
+}
+
+export async function getKnowledge(documentId: string) {
+  return fetchJSON<KnowledgeDocument>(`/api/knowledge/${documentId}`)
+}
+
+export async function getKnowledgeGenerationJob(jobId: string) {
+  return fetchJSON<KnowledgeGenerationJob>(`/api/knowledge/jobs/${jobId}`)
+}
+
+export async function retryKnowledgeGenerationJob(jobId: string) {
+  const response = await fetch(`/api/knowledge/jobs/${jobId}/retry`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<{ job: KnowledgeGenerationJob }>
+}
+
+export async function createKnowledgeDrafts(input: KnowledgeDraftInput) {
+  const response = await fetch('/api/knowledge/drafts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...input,
+      selected_paths: input.selected_paths ?? input.repos,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<{ job: KnowledgeGenerationJob }>
+}
+
+export async function updateKnowledgeDocument(documentId: string, input: Partial<KnowledgeDocument>) {
+  const response = await fetch(`/api/knowledge/${documentId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: input.title,
+      desc: input.desc,
+      status: input.status,
+      engines: input.engines,
+      repos: input.repos,
+      paths: input.paths,
+      keywords: input.keywords,
+      priority: input.priority,
+      confidence: input.confidence,
+      body: input.body,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<KnowledgeDocument>
+}
+
+export async function deleteKnowledgeDocument(documentId: string) {
+  const response = await fetch(`/api/knowledge/${documentId}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
 }
 
 export async function createTask(input: CreateTaskRequest) {

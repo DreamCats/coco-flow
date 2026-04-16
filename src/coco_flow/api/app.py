@@ -10,11 +10,18 @@ from fastapi.staticfiles import StaticFiles
 
 from coco_flow.models import (
     ArtifactContentResponse,
+    CreateKnowledgeDraftsRequest,
+    CreateKnowledgeDraftsResponse,
     CreateTaskRequest,
     CreateTaskResponse,
+    KnowledgeDocument,
+    KnowledgeGenerationJob,
+    KnowledgeListResponse,
+    KnowledgeTraceResponse,
     TaskDetail,
     TaskActionResponse,
     TaskListResponse,
+    UpdateKnowledgeDocumentRequest,
     UpdateArtifactRequest,
     UpdateArtifactResponse,
 )
@@ -27,13 +34,16 @@ from coco_flow.services.tasks.lifecycle import archive_task, reset_task
 from coco_flow.services.tasks.code import start_coding_task
 from coco_flow.services.tasks.plan import start_planning_task
 from coco_flow.services.queries.repos import list_recent_repos, validate_repo_path
+from coco_flow.services.knowledge import KnowledgeDraftInput, get_generation_job, retry_background_generation, start_background_generation
 from coco_flow.services.tasks.refine import refine_task
 from coco_flow.api.presenters import task_detail_item, task_list_item
+from coco_flow.services.queries.knowledge import KnowledgeStore
 from coco_flow.services.queries.workspace import workspace_summary
 
 
 def create_app(task_store: TaskStore | None = None, static_dir: str | None = None) -> FastAPI:
     store = task_store or TaskStore()
+    knowledge_store = KnowledgeStore(store.settings)
     static_root = Path(static_dir).expanduser().resolve() if static_dir else None
     static_index = static_root / "index.html" if static_root else None
     app = FastAPI(
@@ -76,6 +86,71 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         summaries = store.list_tasks(limit=limit)
         items = [task_list_item(summary, store.get_task(summary.task_id)) for summary in summaries]
         return {"tasks": items}
+
+    @app.get("/api/knowledge", response_model=KnowledgeListResponse)
+    def list_knowledge() -> KnowledgeListResponse:
+        return KnowledgeListResponse(documents=knowledge_store.list_documents())
+
+    @app.get("/api/knowledge/{document_id}", response_model=KnowledgeDocument)
+    def get_knowledge(document_id: str) -> KnowledgeDocument:
+        document = knowledge_store.get_document(document_id)
+        if document is None:
+            raise HTTPException(status_code=404, detail=f"knowledge document not found: {document_id}")
+        return document
+
+    @app.get("/api/knowledge/traces/{trace_id}", response_model=KnowledgeTraceResponse)
+    def get_knowledge_trace(trace_id: str) -> KnowledgeTraceResponse:
+        try:
+            return knowledge_store.get_trace(trace_id)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get("/api/knowledge/jobs/{job_id}", response_model=KnowledgeGenerationJob)
+    def get_knowledge_job(job_id: str) -> KnowledgeGenerationJob:
+        try:
+            return get_generation_job(job_id, store.settings)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/knowledge/jobs/{job_id}/retry", response_model=CreateKnowledgeDraftsResponse, status_code=202)
+    def retry_knowledge_job(job_id: str) -> CreateKnowledgeDraftsResponse:
+        try:
+            job = retry_background_generation(job_id, store.settings)
+            return CreateKnowledgeDraftsResponse(job=job)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/knowledge/drafts", response_model=CreateKnowledgeDraftsResponse, status_code=202)
+    def create_knowledge_drafts(payload: CreateKnowledgeDraftsRequest) -> CreateKnowledgeDraftsResponse:
+        try:
+            job = start_background_generation(
+                KnowledgeDraftInput(
+                    title=payload.title,
+                    description=payload.description,
+                    selected_paths=payload.selected_paths or payload.repos,
+                    kinds=payload.kinds,
+                    notes=payload.notes,
+                ),
+                store.settings,
+            )
+            return CreateKnowledgeDraftsResponse(job=job)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.put("/api/knowledge/{document_id}", response_model=KnowledgeDocument)
+    def update_knowledge_document(document_id: str, payload: UpdateKnowledgeDocumentRequest) -> KnowledgeDocument:
+        try:
+            return knowledge_store.update_document(document_id, payload.model_dump())
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.delete("/api/knowledge/{document_id}", response_model=TaskActionResponse)
+    def delete_knowledge_document(document_id: str) -> TaskActionResponse:
+        try:
+            knowledge_store.delete_document(document_id)
+            return TaskActionResponse(task_id=document_id, status="deleted")
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.post("/api/tasks", response_model=CreateTaskResponse, status_code=202)
     def create_task_handler(payload: CreateTaskRequest) -> CreateTaskResponse:

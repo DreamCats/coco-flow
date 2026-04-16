@@ -21,6 +21,7 @@ def workspace_summary(store: TaskStore) -> dict[str, object]:
     return {
         "repoRoot": str(cwd),
         "tasksRoot": str(store.settings.task_root),
+        "knowledgeRoot": str(store.settings.knowledge_root),
         "contextRoot": str(cwd / ".livecoding" / "context"),
         "worktreeRoot": str(cwd.parent / ".coco-flow-worktree"),
         "reposInvolved": sorted(repos_involved),

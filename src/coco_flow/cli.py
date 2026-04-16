@@ -14,6 +14,8 @@ from coco_flow.config import load_settings
 from coco_flow.daemon.client import shutdown as shutdown_daemon, start_daemon, status as daemon_status, wait_for_daemon
 from coco_flow.daemon.server import run_daemon_server
 from coco_flow.services import TaskStore
+from coco_flow.services.knowledge import KnowledgeDraftInput
+from coco_flow.services.queries.knowledge import KnowledgeStore
 from coco_flow.services.tasks.create import create_task
 from coco_flow.services.tasks.code import code_task
 from coco_flow.services.tasks.lifecycle import archive_task, reset_task
@@ -29,11 +31,13 @@ tasks_app = typer.Typer(help="Inspect task roots and task summaries.")
 prd_app = typer.Typer(help="PRD workflow commands aligned with coco-ext semantics.")
 ui_app = typer.Typer(help="Serve the built web UI together with the local API.")
 daemon_app = typer.Typer(help="Manage the local coco-flow ACP daemon.")
+knowledge_app = typer.Typer(help="Manage knowledge drafts and generation traces.")
 app.add_typer(api_app, name="api")
 app.add_typer(tasks_app, name="tasks")
 app.add_typer(prd_app, name="prd")
 app.add_typer(ui_app, name="ui")
 app.add_typer(daemon_app, name="daemon")
+app.add_typer(knowledge_app, name="knowledge")
 
 _COMPLEXITY_LINE = re.compile(r"(?m)^- complexity:\s*([^\s]+)\s*\((\d+)\)\s*$")
 
@@ -75,6 +79,81 @@ def task_roots() -> None:
     workspace = store.workspace_info()
     typer.echo(f"config_root: {workspace.config_root}")
     typer.echo(f"task_root: {workspace.task_root}")
+
+
+@knowledge_app.command("list")
+def knowledge_list_cmd(
+    limit: int = typer.Option(50, min=1, max=500, help="Max number of documents to show."),
+    as_json: bool = typer.Option(False, "--json", help="Print JSON output."),
+    status: str = typer.Option("", help="Filter by knowledge status."),
+    kind: str = typer.Option("", help="Filter by knowledge kind."),
+) -> None:
+    store = KnowledgeStore(load_settings())
+    documents = store.list_documents()
+    if status.strip():
+        documents = [document for document in documents if document.status == status.strip()]
+    if kind.strip():
+        documents = [document for document in documents if document.kind == kind.strip()]
+    documents = documents[:limit]
+    if as_json:
+        typer.echo(json.dumps({"documents": [document.model_dump() for document in documents]}, ensure_ascii=False, indent=2))
+        return
+    if not documents:
+        typer.echo("No knowledge documents found.")
+        return
+    for document in documents:
+        trace_suffix = f" trace={document.traceId}" if document.traceId else ""
+        typer.echo(f"{document.id} [{document.status}] {document.domainName} / {document.kind} / {document.title}{trace_suffix}")
+
+
+@knowledge_app.command("generate")
+def knowledge_generate_cmd(
+    title: str = typer.Option(..., "--title", help="Knowledge title shown in the UI and used for intent normalization."),
+    description: str = typer.Option(..., "--description", "-d", help="Knowledge description to normalize and generate from."),
+    path: list[str] = typer.Option(None, "--path", help="Selected repo or workspace paths."),
+    kind: list[str] = typer.Option(None, "--kind", help="Knowledge kinds to generate. Defaults to flow."),
+    notes: str = typer.Option("", "--notes", help="Extra notes or PRD hints."),
+    as_json: bool = typer.Option(False, "--json", help="Print JSON output."),
+) -> None:
+    selected_paths = path or [str(Path.cwd())]
+    requested_kinds = kind or ["flow"]
+    store = KnowledgeStore(load_settings())
+    try:
+        result = store.create_drafts(
+            KnowledgeDraftInput(
+                title=title,
+                description=description,
+                selected_paths=selected_paths,
+                kinds=requested_kinds,
+                notes=notes,
+            )
+        )
+    except ValueError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "trace_id": result.trace_id,
+                    "open_questions": result.open_questions,
+                    "documents": [document.model_dump() for document in result.documents],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+
+    typer.echo(f"trace_id: {result.trace_id}")
+    typer.echo(f"documents: {len(result.documents)}")
+    for document in result.documents:
+        typer.echo(f"- {document.id} [{document.kind}] {document.domainName} / {document.title}")
+    if result.open_questions:
+        typer.echo("open_questions:")
+        for question in result.open_questions:
+            typer.echo(f"- {question}")
 
 
 @tasks_app.command("refine")
