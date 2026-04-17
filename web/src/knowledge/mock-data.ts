@@ -47,6 +47,7 @@ export const knowledgeMockDocuments: KnowledgeDocument[] = [
 - 讲解状态是否由统一字段驱动，还是不同入口各自判断。
 - 渲染模板最终由业务仓决定，还是由 SDK 决定。`,
     evidence: {
+      inputTitle: '表达层链路',
       inputDescription: '竞拍讲解卡表达层',
       repoMatches: ['live_pack', 'live_sdk'],
       keywordMatches: ['讲解卡', '表达层', 'render', '卡片'],
@@ -94,6 +95,7 @@ export const knowledgeMockDocuments: KnowledgeDocument[] = [
 
 - 讲解卡模板裁决最终落在业务仓还是 SDK。`,
     evidence: {
+      inputTitle: '业务方向概览',
       inputDescription: '竞拍讲解卡业务方向概览',
       repoMatches: ['live_pack', 'live_sdk'],
       keywordMatches: ['竞拍', '讲解卡', '表达层'],
@@ -140,6 +142,7 @@ export const knowledgeMockDocuments: KnowledgeDocument[] = [
 - 购物袋状态流转链路
 - 购物袋表达层链路`,
     evidence: {
+      inputTitle: '业务方向概览',
       inputDescription: '竞拍购物袋 domain',
       repoMatches: ['live_pack', 'auction_gateway'],
       keywordMatches: ['购物袋', 'bag', '竞拍'],
@@ -228,6 +231,7 @@ function buildDraftDocument({
     owner: 'Maifeng',
     body: buildDraftBody(kind, description, repos, paths, keywords, notes),
     evidence: {
+      inputTitle: buildDraftTitle(kind, description),
       inputDescription: description,
       repoMatches: repos,
       keywordMatches: keywords,

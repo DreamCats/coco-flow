@@ -163,6 +163,18 @@ export async function getKnowledge(documentId: string) {
   return fetchJSON<KnowledgeDocument>(`/api/knowledge/${documentId}`)
 }
 
+export async function createKnowledgeDocument(input: { title: string; content: string }) {
+  const response = await fetch('/api/knowledge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<KnowledgeDocument>
+}
+
 export async function getKnowledgeGenerationJob(jobId: string) {
   return fetchJSON<KnowledgeGenerationJob>(`/api/knowledge/jobs/${jobId}`)
 }
@@ -212,6 +224,18 @@ export async function updateKnowledgeDocument(documentId: string, input: Partial
       confidence: input.confidence,
       body: input.body,
     }),
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<KnowledgeDocument>
+}
+
+export async function updateKnowledgeDocumentContent(documentId: string, content: string) {
+  const response = await fetch(`/api/knowledge/${documentId}/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
   })
   if (!response.ok) {
     throw new Error(await response.text())

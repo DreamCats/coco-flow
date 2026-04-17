@@ -5,6 +5,7 @@ export type KnowledgePriority = 'low' | 'medium' | 'high'
 export type KnowledgeConfidence = 'low' | 'medium' | 'high'
 
 export type KnowledgeEvidence = {
+  inputTitle: string
   inputDescription: string
   repoMatches: string[]
   keywordMatches: string[]

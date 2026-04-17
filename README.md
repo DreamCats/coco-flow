@@ -114,6 +114,8 @@ Current UI actions:
 - run refine
 - run plan
 - run code stage asynchronously
+- browse knowledge documents in a simple list + Markdown preview layout
+- create and edit knowledge documents directly as Markdown files with optional YAML frontmatter
 - edit `prd.source.md` / `prd-refined.md` / `design.md` / `plan.md`
 - reset task
 - archive task
@@ -173,10 +175,12 @@ Current endpoints:
 - `GET /healthz`
 - `GET /api/workspace`
 - `GET /api/knowledge`
+- `POST /api/knowledge`
 - `GET /api/knowledge/{document_id}`
 - `GET /api/knowledge/jobs/{job_id}`
 - `GET /api/knowledge/traces/{trace_id}`
 - `POST /api/knowledge/drafts`
+- `PUT /api/knowledge/{document_id}/content`
 - `PUT /api/knowledge/{document_id}`
 - `DELETE /api/knowledge/{document_id}`
 - `GET /api/tasks`

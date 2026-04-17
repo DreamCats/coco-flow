@@ -1,4 +1,5 @@
 from .knowledge import (
+    CreateKnowledgeDocumentRequest,
     CreateKnowledgeDraftsRequest,
     CreateKnowledgeDraftsResponse,
     KnowledgeDocument,
@@ -6,6 +7,7 @@ from .knowledge import (
     KnowledgeGenerationJob,
     KnowledgeListResponse,
     KnowledgeTraceResponse,
+    UpdateKnowledgeDocumentContentRequest,
     UpdateKnowledgeDocumentRequest,
 )
 from .task import (
@@ -25,6 +27,7 @@ from .task import (
 )
 
 __all__ = [
+    "CreateKnowledgeDocumentRequest",
     "CreateKnowledgeDraftsRequest",
     "CreateKnowledgeDraftsResponse",
     "ArtifactContentResponse",
@@ -42,6 +45,7 @@ __all__ = [
     "TaskListResponse",
     "TaskSummary",
     "TimelineItem",
+    "UpdateKnowledgeDocumentContentRequest",
     "UpdateKnowledgeDocumentRequest",
     "UpdateArtifactRequest",
     "UpdateArtifactResponse",

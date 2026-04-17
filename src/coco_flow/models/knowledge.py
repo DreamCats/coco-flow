@@ -95,6 +95,15 @@ class CreateKnowledgeDraftsResponse(BaseModel):
     job: KnowledgeGenerationJob
 
 
+class CreateKnowledgeDocumentRequest(BaseModel):
+    title: str
+    content: str = ""
+
+
+class UpdateKnowledgeDocumentContentRequest(BaseModel):
+    content: str
+
+
 class UpdateKnowledgeDocumentRequest(BaseModel):
     title: str
     desc: str

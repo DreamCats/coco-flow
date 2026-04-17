@@ -7,6 +7,7 @@ import json
 
 from coco_flow.config import Settings
 from coco_flow.models import KnowledgeDocument, KnowledgeEvidence, KnowledgeTraceResponse
+from coco_flow.services.knowledge.common import infer_domain_name, slugify_domain
 from coco_flow.services.knowledge.generation import (
     KnowledgeDraftInput,
     KnowledgeGenerationResult,
@@ -46,11 +47,27 @@ class KnowledgeStore:
 
     def get_document(self, document_id: str) -> KnowledgeDocument | None:
         self.ensure_root()
-        for kind in KNOWLEDGE_KIND_ORDER:
-            candidate = self.settings.knowledge_root / KIND_DIRS[kind] / f"{document_id}.md"
-            if candidate.is_file():
-                return read_knowledge_document(candidate)
+        resolved = self._resolve_document_path(document_id)
+        if resolved is not None:
+            _, candidate = resolved
+            return read_knowledge_document(candidate)
         return None
+
+    def create_document(self, title: str, content: str) -> KnowledgeDocument:
+        self.ensure_root()
+        normalized_title = title.strip()
+        if not normalized_title:
+            raise ValueError("knowledge title 不能为空")
+        document = build_document_from_content(
+            content,
+            fallback_title=normalized_title,
+            fallback_id=self._next_document_id(normalized_title),
+        )
+        if self._resolve_document_path(document.id) is not None:
+            raise ValueError(f"knowledge document already exists: {document.id}")
+        target = self.settings.knowledge_root / KIND_DIRS[document.kind] / f"{document.id}.md"
+        write_knowledge_document(target, document)
+        return document
 
     def create_drafts(
         self,
@@ -74,9 +91,11 @@ class KnowledgeStore:
             write_knowledge_document(target, document)
 
     def update_document(self, document_id: str, payload: dict[str, object]) -> KnowledgeDocument:
-        existing = self.get_document(document_id)
-        if existing is None:
+        resolved = self._resolve_document_path(document_id)
+        if resolved is None:
             raise ValueError(f"knowledge document not found: {document_id}")
+        _, current_path = resolved
+        existing = read_knowledge_document(current_path)
 
         updated = existing.model_copy(
             update={
@@ -96,13 +115,32 @@ class KnowledgeStore:
         write_knowledge_document(self.settings.knowledge_root / KIND_DIRS[updated.kind] / f"{updated.id}.md", updated)
         return updated
 
+    def update_document_content(self, document_id: str, content: str) -> KnowledgeDocument:
+        resolved = self._resolve_document_path(document_id)
+        if resolved is None:
+            raise ValueError(f"knowledge document not found: {document_id}")
+        _, current_path = resolved
+        existing = read_knowledge_document(current_path)
+        updated = build_document_from_content(
+            content,
+            fallback_title=existing.title,
+            fallback_id=existing.id,
+            fallback_kind=existing.kind,
+            existing=existing,
+        )
+        target = self.settings.knowledge_root / KIND_DIRS[updated.kind] / f"{updated.id}.md"
+        write_knowledge_document(target, updated)
+        if target != current_path and current_path.exists():
+            current_path.unlink()
+        return updated
+
     def delete_document(self, document_id: str) -> None:
         self.ensure_root()
-        for kind in KNOWLEDGE_KIND_ORDER:
-            candidate = self.settings.knowledge_root / KIND_DIRS[kind] / f"{document_id}.md"
-            if candidate.is_file():
-                candidate.unlink()
-                return
+        resolved = self._resolve_document_path(document_id)
+        if resolved is not None:
+            _, candidate = resolved
+            candidate.unlink()
+            return
         raise ValueError(f"knowledge document not found: {document_id}")
 
     def get_trace(self, trace_id: str) -> KnowledgeTraceResponse:
@@ -150,6 +188,22 @@ class KnowledgeStore:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+    def _resolve_document_path(self, document_id: str) -> tuple[str, Path] | None:
+        for kind in KNOWLEDGE_KIND_ORDER:
+            candidate = self.settings.knowledge_root / KIND_DIRS[kind] / f"{document_id}.md"
+            if candidate.is_file():
+                return kind, candidate
+        return None
+
+    def _next_document_id(self, title: str) -> str:
+        base = f"manual-{slugify_domain(title)}"
+        candidate = base
+        suffix = 2
+        while self._resolve_document_path(candidate) is not None:
+            candidate = f"{base}-{suffix}"
+            suffix += 1
+        return candidate
+
 
 def read_knowledge_document(path: Path) -> KnowledgeDocument:
     content = path.read_text(encoding="utf-8")
@@ -179,6 +233,10 @@ def read_knowledge_document(path: Path) -> KnowledgeDocument:
 
 def write_knowledge_document(path: Path, document: KnowledgeDocument) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_knowledge_document(document), encoding="utf-8")
+
+
+def render_knowledge_document(document: KnowledgeDocument) -> str:
     hidden_evidence_fields = {"keywordMatches", "pathMatches", "candidateFiles"}
     evidence_payload = {
         key: value
@@ -211,7 +269,46 @@ def write_knowledge_document(path: Path, document: KnowledgeDocument) -> None:
         serialized = json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else str(value)
         frontmatter.append(f"{key}: {serialized}")
     frontmatter.append("---")
-    path.write_text("\n".join(frontmatter) + "\n\n" + document.body.rstrip() + "\n", encoding="utf-8")
+    return "\n".join(frontmatter) + "\n\n" + document.body.rstrip() + "\n"
+
+
+def build_document_from_content(
+    content: str,
+    *,
+    fallback_title: str,
+    fallback_id: str,
+    fallback_kind: str = "flow",
+    existing: KnowledgeDocument | None = None,
+) -> KnowledgeDocument:
+    meta, body = parse_frontmatter(content)
+    evidence_payload = meta.pop("evidence", None)
+    document_id = fallback_id if existing is not None else str(meta.get("id") or fallback_id).strip() or fallback_id
+    title = str(meta.get("title") or fallback_title).strip() or fallback_title
+    domain_name = str(meta.get("domain_name") or (existing.domainName if existing else "") or infer_domain_name(title)).strip()
+    domain_id = str(meta.get("domain_id") or (existing.domainId if existing else "") or slugify_domain(domain_name)).strip()
+    kind = str(meta.get("kind") or (existing.kind if existing else fallback_kind)).strip() or fallback_kind
+    if kind not in KIND_DIRS:
+        raise ValueError(f"unsupported knowledge kind: {kind}")
+    return KnowledgeDocument(
+        id=document_id,
+        traceId=str(meta.get("trace_id") or (existing.traceId if existing else "")),
+        kind=kind,
+        status=str(meta.get("status") or (existing.status if existing else "draft") or "draft"),
+        title=title,
+        desc=str(meta.get("desc") or (existing.desc if existing else "")),
+        domainId=domain_id,
+        domainName=domain_name,
+        engines=_coerce_string_list(meta.get("engines"), existing.engines if existing else []),
+        repos=_coerce_string_list(meta.get("repos"), existing.repos if existing else []),
+        paths=_coerce_string_list(meta.get("paths"), existing.paths if existing else []),
+        keywords=_coerce_string_list(meta.get("keywords"), existing.keywords if existing else []),
+        priority=str(meta.get("priority") or (existing.priority if existing else "medium") or "medium"),
+        confidence=str(meta.get("confidence") or (existing.confidence if existing else "medium") or "medium"),
+        updatedAt=format_now(),
+        owner=str(meta.get("owner") or (existing.owner if existing else "Maifeng") or "Maifeng"),
+        body=body,
+        evidence=build_evidence(evidence_payload if evidence_payload is not None else (existing.evidence.model_dump() if existing else None)),
+    )
 
 
 def parse_frontmatter(content: str) -> tuple[dict[str, object], str]:
@@ -290,6 +387,12 @@ def _as_string_list(value: object, default: list[str]) -> list[str]:
     if isinstance(value, list):
         return [str(item) for item in value if str(item).strip()]
     return default
+
+
+def _coerce_string_list(value: object, default: list[str]) -> list[str]:
+    if value is None:
+        return default
+    return _as_string_list(value, default)
 
 
 def format_now() -> str:

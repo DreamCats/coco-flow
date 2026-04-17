@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from coco_flow.models import (
     ArtifactContentResponse,
+    CreateKnowledgeDocumentRequest,
     CreateKnowledgeDraftsRequest,
     CreateKnowledgeDraftsResponse,
     CreateTaskRequest,
@@ -21,6 +22,7 @@ from coco_flow.models import (
     TaskDetail,
     TaskActionResponse,
     TaskListResponse,
+    UpdateKnowledgeDocumentContentRequest,
     UpdateKnowledgeDocumentRequest,
     UpdateArtifactRequest,
     UpdateArtifactResponse,
@@ -91,6 +93,13 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
     def list_knowledge() -> KnowledgeListResponse:
         return KnowledgeListResponse(documents=knowledge_store.list_documents())
 
+    @app.post("/api/knowledge", response_model=KnowledgeDocument, status_code=201)
+    def create_knowledge_document(payload: CreateKnowledgeDocumentRequest) -> KnowledgeDocument:
+        try:
+            return knowledge_store.create_document(payload.title, payload.content)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
     @app.get("/api/knowledge/{document_id}", response_model=KnowledgeDocument)
     def get_knowledge(document_id: str) -> KnowledgeDocument:
         document = knowledge_store.get_document(document_id)
@@ -143,6 +152,15 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
             return knowledge_store.update_document(document_id, payload.model_dump())
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.put("/api/knowledge/{document_id}/content", response_model=KnowledgeDocument)
+    def update_knowledge_document_content(document_id: str, payload: UpdateKnowledgeDocumentContentRequest) -> KnowledgeDocument:
+        try:
+            return knowledge_store.update_document_content(document_id, payload.content)
+        except ValueError as error:
+            message = str(error)
+            status_code = 404 if "not found" in message else 400
+            raise HTTPException(status_code=status_code, detail=message) from error
 
     @app.delete("/api/knowledge/{document_id}", response_model=TaskActionResponse)
     def delete_knowledge_document(document_id: str) -> TaskActionResponse:
