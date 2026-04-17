@@ -106,7 +106,6 @@ def build_refine_knowledge_brief(
                     f"- id: {document.id}",
                     f"- domain: {document.domainName or document.domainId or 'unknown'}",
                     f"- repos: {', '.join(document.repos) if document.repos else '无'}",
-                    f"- keywords: {', '.join(document.keywords[:8]) if document.keywords else '无'}",
                     _render_knowledge_excerpt(document, terms),
                     "",
                 ]
@@ -250,7 +249,6 @@ def build_refine_knowledge_adjudication_prompt(
                 f"  title: {document.title}",
                 f"  domain: {document.domainName or document.domainId or 'unknown'}",
                 f"  repos: {', '.join(document.repos) if document.repos else '无'}",
-                f"  keywords: {', '.join(document.keywords[:8]) if document.keywords else '无'}",
                 f"  desc: {document.desc or '无'}",
                 f"  excerpt: {_excerpt_for_adjudication(document.body)}",
             ]
@@ -299,11 +297,8 @@ def _excerpt_for_adjudication(body: str, limit: int = 240) -> str:
 def _score_document(document: KnowledgeDocument, prepared: RefinePreparedInput, intent: RefineIntent) -> int:
     score = 0
     repo_ids = _repo_ids(prepared)
-    repo_paths = _repo_paths(prepared)
     if any(repo_id in document.repos for repo_id in repo_ids):
         score += 5
-    if any(_path_matches(path, repo_paths) for path in document.paths):
-        score += 4
     score += min(_keyword_hits(document, intent), 4)
     if document.domainName and any(document.domainName.lower() in value.lower() for value in [intent.title, intent.goal]):
         score += 3
@@ -314,7 +309,6 @@ def _score_document(document: KnowledgeDocument, prepared: RefinePreparedInput, 
 
 def _score_payload(document: KnowledgeDocument, prepared: RefinePreparedInput, intent: RefineIntent) -> dict[str, object]:
     repo_ids = _repo_ids(prepared)
-    repo_paths = _repo_paths(prepared)
     return {
         "id": document.id,
         "title": document.title,
@@ -322,12 +316,11 @@ def _score_payload(document: KnowledgeDocument, prepared: RefinePreparedInput, i
         "status": document.status,
         "score": _score_document(document, prepared, intent),
         "repo_match": any(repo_id in document.repos for repo_id in repo_ids),
-        "path_match": any(_path_matches(path, repo_paths) for path in document.paths),
         "keyword_hits": sorted(
             {
                 term
                 for term in intent.key_terms
-                if any(term.lower() in value.lower() for value in [*document.keywords, document.title, document.desc, document.domainName, document.body])
+                if any(term.lower() in value.lower() for value in [document.title, document.desc, document.domainName, document.body])
             }
         ),
     }
@@ -340,33 +333,8 @@ def _repo_ids(prepared: RefinePreparedInput) -> list[str]:
     return [str(item.get("id") or "") for item in repos if isinstance(item, dict) and str(item.get("id") or "")]
 
 
-def _repo_paths(prepared: RefinePreparedInput) -> list[str]:
-    repos = prepared.repos_meta.get("repos")
-    if not isinstance(repos, list):
-        return []
-    return [str(item.get("path") or "") for item in repos if isinstance(item, dict) and str(item.get("path") or "")]
-
-
-def _path_matches(path_value: str, repo_paths: list[str]) -> bool:
-    current = path_value.strip()
-    if not current:
-        return False
-    try:
-        candidate = Path(current).resolve()
-    except OSError:
-        return False
-    for repo_path in repo_paths:
-        try:
-            root = Path(repo_path).resolve()
-        except OSError:
-            continue
-        if candidate == root or str(candidate).startswith(str(root) + "/"):
-            return True
-    return False
-
-
 def _keyword_hits(document: KnowledgeDocument, intent: RefineIntent) -> int:
-    values = [*document.keywords, document.title, document.desc, document.domainName, document.body]
+    values = [document.title, document.desc, document.domainName, document.body]
     return sum(1 for term in intent.key_terms if any(term.lower() in value.lower() for value in values))
 
 
@@ -376,7 +344,6 @@ def _read_knowledge_document(path: Path, fallback_kind: str) -> KnowledgeDocumen
     evidence_payload = meta.get("evidence")
     return KnowledgeDocument(
         id=str(meta.get("id") or path.stem),
-        traceId=str(meta.get("trace_id") or ""),
         kind=str(meta.get("kind") or fallback_kind),
         status=str(meta.get("status") or "draft"),
         title=str(meta.get("title") or path.stem),
@@ -385,8 +352,6 @@ def _read_knowledge_document(path: Path, fallback_kind: str) -> KnowledgeDocumen
         domainName=str(meta.get("domain_name") or ""),
         engines=_as_string_list(meta.get("engines")),
         repos=_as_string_list(meta.get("repos")),
-        paths=_as_string_list(meta.get("paths")),
-        keywords=_as_string_list(meta.get("keywords")),
         priority=str(meta.get("priority") or "medium"),
         confidence=str(meta.get("confidence") or "medium"),
         updatedAt=str(meta.get("updated_at") or ""),

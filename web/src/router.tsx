@@ -117,7 +117,7 @@ function AppShell() {
                   to="/tasks"
                 />
                 <TopNavItem
-                  description="生成知识草稿、查看证据，并控制哪些知识进入 refine / plan。"
+                  description="浏览知识文档，直接维护 Markdown 文件和 frontmatter。"
                   isActive={location.pathname.startsWith('/knowledge')}
                   title="知识工作台"
                   to="/knowledge"

@@ -1,4 +1,4 @@
-import type { KnowledgeDocument, KnowledgeDraftInput, KnowledgeGenerationJob, KnowledgeTrace } from './knowledge/types'
+import type { KnowledgeDocument } from './knowledge/types'
 
 export type TaskStatus =
   | 'initialized'
@@ -163,37 +163,16 @@ export async function getKnowledge(documentId: string) {
   return fetchJSON<KnowledgeDocument>(`/api/knowledge/${documentId}`)
 }
 
-export async function getKnowledgeGenerationJob(jobId: string) {
-  return fetchJSON<KnowledgeGenerationJob>(`/api/knowledge/jobs/${jobId}`)
-}
-
-export async function getKnowledgeTrace(traceId: string) {
-  return fetchJSON<KnowledgeTrace>(`/api/knowledge/traces/${traceId}`)
-}
-
-export async function retryKnowledgeGenerationJob(jobId: string) {
-  const response = await fetch(`/api/knowledge/jobs/${jobId}/retry`, {
-    method: 'POST',
-  })
-  if (!response.ok) {
-    throw new Error(await response.text())
-  }
-  return response.json() as Promise<{ job: KnowledgeGenerationJob }>
-}
-
-export async function createKnowledgeDrafts(input: KnowledgeDraftInput) {
-  const response = await fetch('/api/knowledge/drafts', {
+export async function createKnowledgeDocument(input: { title: string; content: string }) {
+  const response = await fetch('/api/knowledge', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...input,
-      selected_paths: input.selected_paths ?? input.repos,
-    }),
+    body: JSON.stringify(input),
   })
   if (!response.ok) {
     throw new Error(await response.text())
   }
-  return response.json() as Promise<{ job: KnowledgeGenerationJob }>
+  return response.json() as Promise<KnowledgeDocument>
 }
 
 export async function updateKnowledgeDocument(documentId: string, input: Partial<KnowledgeDocument>) {
@@ -206,12 +185,22 @@ export async function updateKnowledgeDocument(documentId: string, input: Partial
       status: input.status,
       engines: input.engines,
       repos: input.repos,
-      paths: input.paths,
-      keywords: input.keywords,
       priority: input.priority,
       confidence: input.confidence,
       body: input.body,
     }),
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<KnowledgeDocument>
+}
+
+export async function updateKnowledgeDocumentContent(documentId: string, content: string) {
+  const response = await fetch(`/api/knowledge/${documentId}/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
   })
   if (!response.ok) {
     throw new Error(await response.text())
