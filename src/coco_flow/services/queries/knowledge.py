@@ -129,8 +129,14 @@ class KnowledgeStore:
             term_mapping=_read_trace_json(trace_root / "term-mapping.json"),
             candidate_ranking=_read_trace_json(trace_root / "candidate-ranking.json"),
             term_family=_read_trace_json(trace_root / "term-family.json"),
+            focus_boundary=_read_trace_json(trace_root / "focus-boundary.json"),
+            topic_adjudication=_read_trace_json(trace_root / "topic-adjudication.json"),
             anchor_selection=_read_trace_json(trace_root / "anchor-selection.json"),
             repo_discovery=_read_trace_json(trace_root / "repo-discovery.json"),
+            repo_role_signals=_read_trace_json(trace_root / "repo-role-signals.json"),
+            flow_slots=_read_trace_json(trace_root / "flow-slots.json"),
+            storyline_outline=_read_trace_json(trace_root / "storyline-outline.json"),
+            flow_judge=_read_trace_json(trace_root / "flow-judge.json"),
             repo_research=repo_research,
             knowledge_draft=_read_trace_json(trace_root / "knowledge-draft.json"),
             validation=_read_trace_json(trace_root / "validation-result.json"),
@@ -173,6 +179,12 @@ def read_knowledge_document(path: Path) -> KnowledgeDocument:
 
 def write_knowledge_document(path: Path, document: KnowledgeDocument) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    hidden_evidence_fields = {"keywordMatches", "pathMatches", "candidateFiles"}
+    evidence_payload = {
+        key: value
+        for key, value in document.evidence.model_dump().items()
+        if key not in hidden_evidence_fields and value not in ("", [], {}, None)
+    }
     meta = {
         "kind": document.kind,
         "id": document.id,
@@ -184,14 +196,16 @@ def write_knowledge_document(path: Path, document: KnowledgeDocument) -> None:
         "domain_id": document.domainId,
         "domain_name": document.domainName,
         "repos": document.repos,
-        "paths": document.paths,
-        "keywords": document.keywords,
         "priority": document.priority,
         "confidence": document.confidence,
         "updated_at": document.updatedAt,
         "owner": document.owner,
-        "evidence": document.evidence.model_dump(),
+        "evidence": evidence_payload,
     }
+    if document.paths:
+        meta["paths"] = document.paths
+    if document.keywords:
+        meta["keywords"] = document.keywords
     frontmatter = ["---"]
     for key, value in meta.items():
         serialized = json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else str(value)

@@ -65,47 +65,43 @@ export const knowledgeMockDocuments: KnowledgeDocument[] = [
     },
   },
   {
-    id: 'rule-auction-explain-card-defaults',
+    id: 'domain-auction-explain-card',
     traceId: 'knowledge-20260415-demo2',
-    kind: 'rule',
-    status: 'draft',
-    title: '默认业务规则',
-    desc: '记录竞拍讲解卡表达层的默认展示规则和回退规则，供 refine 补边界条件时参考。',
+    kind: 'domain',
+    status: 'approved',
+    title: '业务方向概览',
+    desc: '概览竞拍讲解卡的业务目标、关键场景和主要相关仓库。',
     domainId: 'auction-explain-card',
     domainName: '竞拍讲解卡',
     engines: ['refine', 'plan'],
-    repos: ['live_pack'],
-    paths: ['service/card_render', 'config/card_switch'],
-    keywords: ['默认规则', '回退', '讲解卡'],
+    repos: ['live_pack', 'live_sdk'],
+    paths: ['app/explain_card', 'service/card_render'],
+    keywords: ['竞拍', '讲解卡', '表达层'],
     priority: 'medium',
-    confidence: 'medium',
+    confidence: 'high',
     updatedAt: '2026-04-15 17:58',
     owner: 'Maifeng',
-    body: `## Statement
+    body: `## Summary
 
-- 讲解卡缺少核心字段时默认走降级模板。
-- 表达层开关关闭时不进入讲解卡拼装逻辑。
+竞拍讲解卡关注表达层入口、卡片状态与数据装配之间的联动关系，是需求理解和方案拆解的上游背景知识。
 
-## Exceptions
+## Repo Coverage
 
-- 特殊实验流量可以强制开启新模板。
-
-## Scope
-
-- 只覆盖表达层，不覆盖讲解数据生产链路。
+- live_pack
+- live_sdk
 
 ## Open Questions
 
-- 降级模板是否对不同端保持一致。`,
+- 讲解卡模板裁决最终落在业务仓还是 SDK。`,
     evidence: {
-      inputDescription: '竞拍讲解卡默认业务规则',
-      repoMatches: ['live_pack'],
-      keywordMatches: ['回退', '默认规则', '开关'],
-      pathMatches: ['service/card_render', 'config/card_switch'],
-      candidateFiles: ['service/card_render/fallback_rule.go', 'config/card_switch/explain_card_switch.go'],
-      contextHits: ['.livecoding/context/business-rules.md 命中讲解卡回退说明'],
-      retrievalNotes: ['规则草稿主要用于帮助 refine 补充边界和待确认项。'],
-      openQuestions: ['特殊实验是否独立于通用开关。'],
+      inputDescription: '竞拍讲解卡业务方向概览',
+      repoMatches: ['live_pack', 'live_sdk'],
+      keywordMatches: ['竞拍', '讲解卡', '表达层'],
+      pathMatches: ['app/explain_card', 'service/card_render'],
+      candidateFiles: ['app/explain_card/card_handler.go', 'service/card_render/explain_card_service.go'],
+      contextHits: ['团队知识库已有竞拍讲解卡的基础 domain 草稿。'],
+      retrievalNotes: ['domain 草稿用于帮助使用者先建立业务方向认知。'],
+      openQuestions: ['是否还需要把网关/BFF 层纳入这个 domain。'],
     },
   },
   {

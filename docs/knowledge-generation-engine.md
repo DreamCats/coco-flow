@@ -11,7 +11,8 @@
 - 生成结果默认是 `draft`
 - 默认不自动进入 `approved`
 - `flow` 是第一优先产物
-- `domain / rule` 作为补充产物
+- `domain` 作为可选补充产物
+- `rule` 暂不作为第一版默认产物
 
 ## 目标
 
@@ -33,7 +34,7 @@
 
 这个引擎不是“知识库写手”，而是：
 
-- 一个把“描述 + 路径”转成 `domain / flow / rule draft` 的受控工作流
+- 一个把“描述 + 路径”转成 `flow` 草稿，并按需补 `domain` 草稿的受控工作流
 
 ## 第一版产物范围
 
@@ -41,13 +42,12 @@
 
 1. `flow`
 2. 必要时补 `domain`
-3. 如规则足够稳定，再补 `rule`
 
 默认顺序：
 
 - `flow` 必做
 - `domain` 缺失时补
-- `rule` 有明显默认规则时补
+- `rule` 不默认生成，只有明确出现强稳定规则信号时再单独评估
 
 ## 总体架构图
 
@@ -61,7 +61,8 @@ flowchart LR
     C --> D["Repo Research
     按 repo 归纳角色与职责"]
     D --> E["Knowledge Synthesis
-    生成 flow / domain / rule draft"]
+    默认生成 flow draft
+    按需补 domain draft"]
     E --> F["Validation
     完整性检查"]
     F --> G["Write To knowledge_root
@@ -178,17 +179,16 @@ flowchart LR
 - `knowledge-draft.json`
 - Markdown 草稿文件
 
-第一版只生成三类文档：
+第一版默认只围绕两类文档：
 
-- `业务方向概览`
 - `系统链路`
-- `业务规则`
+- `业务方向概览`
 
 其中：
 
 - `系统链路` 是第一优先
 - `业务方向概览` 在 domain 不存在时补
-- `业务规则` 在规则信号足够明确时补
+- `业务规则` 不再作为第一版默认产物
 
 ### Stage 5: Validation
 
@@ -226,7 +226,6 @@ flowchart LR
 
 - `domains/*.md`
 - `flows/*.md`
-- `rules/*.md`
 - 若需要，可额外保留 trace 目录
 
 ## 细化架构图
@@ -398,7 +397,7 @@ stateDiagram-v2
 实现切口建议：
 
 - 第一版先只做 `flow`
-- `domain / rule` 先做可选补充
+- `domain` 先做可选补充
 - 先不做复杂 retry
 - 先不做 judge model
 

@@ -39,7 +39,7 @@ The first version focuses on a minimal but usable scaffold:
 - `POST /api/tasks/{task_id}/code-all` to batch-run remaining repos asynchronously
 - `POST /api/tasks/{task_id}/reset` to roll back code-stage state
 - `POST /api/tasks/{task_id}/archive` to archive coded tasks
-- `POST /api/knowledge/drafts` to generate `flow / domain / rule` knowledge drafts plus trace artifacts
+- `POST /api/knowledge/drafts` to generate `flow` knowledge drafts by default, with optional `domain` drafts plus trace artifacts
 - `PUT /api/tasks/{task_id}/artifact?name=...` to edit task-level Markdown artifacts
 - `GET /api/tasks/{task_id}/artifact?name=diff.patch&repo=...` / `diff.json` to inspect repo-level diff artifacts
 All task data lives under `~/.config/coco-flow/tasks` by default.

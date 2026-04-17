@@ -1,9 +1,9 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { createKnowledgeDrafts, deleteKnowledgeDocument, getKnowledgeGenerationJob, listKnowledge, retryKnowledgeGenerationJob, updateKnowledgeDocument } from '../api'
+import { createKnowledgeDrafts, deleteKnowledgeDocument, getKnowledgeGenerationJob, getKnowledgeTrace, listKnowledge, retryKnowledgeGenerationJob, updateKnowledgeDocument } from '../api'
 import { KnowledgeCreateDrawer } from '../components/knowledge/knowledge-create-drawer'
 import { KnowledgeSidebar } from '../components/knowledge/knowledge-sidebar'
 import { KnowledgeWorkbench } from '../components/knowledge/knowledge-workbench'
-import type { KnowledgeDocument, KnowledgeDraftInput, KnowledgeGenerationJob, KnowledgeKind, KnowledgeStatus } from '../knowledge/types'
+import type { KnowledgeDocument, KnowledgeDraftInput, KnowledgeGenerationJob, KnowledgeKind, KnowledgeStatus, KnowledgeTrace } from '../knowledge/types'
 
 type SelectionHint = {
   jobId: string
@@ -257,10 +257,19 @@ export function KnowledgePage() {
   }
 
   function handleRegenerateDocument(document: KnowledgeDocument) {
-    createDrafts(buildRegeneratePayload(document), {
-      domainName: document.domainName,
-      kind: document.kind,
-    })
+    setCreating(true)
+    setError('')
+    void buildRegeneratePayload(document)
+      .then((payload) => {
+        createDrafts(payload, {
+          domainName: document.domainName,
+          kind: document.kind,
+        })
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : '构造重新生成请求失败')
+        setCreating(false)
+      })
   }
 
   function handleDeleteDomain(domainName: string, items: KnowledgeDocument[]) {
@@ -436,15 +445,40 @@ function formatJobStatus(status: string): string {
   }[status] || status
 }
 
-function buildRegeneratePayload(document: KnowledgeDocument): KnowledgeDraftInput {
+async function buildRegeneratePayload(document: KnowledgeDocument): Promise<KnowledgeDraftInput> {
+  const tracePaths = await resolveRegeneratePaths(document)
+  const selectedPaths = tracePaths.length > 0 ? tracePaths : document.evidence.pathMatches
+  if (selectedPaths.length === 0) {
+    throw new Error('重新生成缺少原始 selected_paths，请先查看 trace 或重新创建知识任务')
+  }
   return {
     title: document.domainName || document.title,
     description: document.evidence.inputDescription || `${document.domainName}${document.title}`,
-    selected_paths: document.evidence.pathMatches,
-    repos: document.evidence.pathMatches,
+    selected_paths: selectedPaths,
+    repos: selectedPaths,
     kinds: [document.kind],
     notes: extractNotes(document),
   }
+}
+
+async function resolveRegeneratePaths(document: KnowledgeDocument): Promise<string[]> {
+  if (!document.traceId) {
+    return []
+  }
+  try {
+    const trace = await getKnowledgeTrace(document.traceId)
+    return extractRequestedPathsFromTrace(trace)
+  } catch {
+    return []
+  }
+}
+
+function extractRequestedPathsFromTrace(trace: KnowledgeTrace): string[] {
+  const repos = Array.isArray(trace.repo_discovery?.repos) ? trace.repo_discovery.repos : []
+  const values = repos
+    .map((item) => String(item.requested_path || '').trim())
+    .filter((item, index, current) => item && current.indexOf(item) === index)
+  return values
 }
 
 function extractNotes(document: KnowledgeDocument): string {

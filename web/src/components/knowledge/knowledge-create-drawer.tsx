@@ -116,7 +116,7 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
 
           <FormBlock label="生成类型">
             <div className="flex flex-wrap gap-2">
-              {(['flow', 'rule', 'domain'] as KnowledgeKind[]).map((kind) => (
+              {(['flow', 'domain', 'rule'] as KnowledgeKind[]).map((kind) => (
                 <ToggleChip
                   active={selectedKinds.includes(kind)}
                   key={kind}
@@ -125,7 +125,7 @@ export function KnowledgeCreateDrawer({ creating, open, onClose, onSubmit }: Kno
                 />
               ))}
             </div>
-            <div className="mt-3 text-xs text-[#87867f] dark:text-[#b0aea5]">默认推荐 `flow`。只有在 domain 缺失或你明确需要时，再补 `rule / domain`。</div>
+            <div className="mt-3 text-xs text-[#87867f] dark:text-[#b0aea5]">默认推荐 `flow`。只有在 domain 缺失或你明确需要时，再补 `domain`。`rule` 暂不作为默认产物。</div>
           </FormBlock>
 
           <FormBlock label="补充材料">

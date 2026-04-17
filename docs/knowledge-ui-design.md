@@ -87,7 +87,8 @@
 原因：
 
 - 用户天然先关心“我在看哪个业务方向”
-- 再关心这个方向下面有哪些 `flow / rule`
+- 再关心这个方向下面有哪些 `flow`
+- 如有必要，再补少量 `domain`
 - `kind` 和 `status` 更适合作为单条文件的 badge，不适合作为一级分组
 
 建议信息：
@@ -119,9 +120,9 @@
 
 ```text
 竞拍讲解卡
-  3 个知识文件 · 最近更新 2026-04-15
+  2 个知识文件 · 最近更新 2026-04-15
   - 表达层链路 [flow] [draft]
-  - 默认业务规则 [rule] [draft]
+  - 业务方向概览 [domain] [approved]
 ```
 
 左栏顶部保留一个显眼的入口：
@@ -147,7 +148,6 @@
 - `engines`
 - `domains`
 - `repos`
-- `paths`
 - `priority`
 - `status`
 - `confidence`
@@ -173,10 +173,8 @@
   - `Repo Hints`
   - `Open Questions`
 - `rule`
-  - `Statement`
-  - `Exceptions`
-  - `Scope`
-  - `Open Questions`
+  - 暂不作为第一版默认模板
+  - 仅在存在强稳定规则信号时再考虑开放
 #### 3. 发布
 
 负责控制这份知识是否进入主链路。
@@ -221,7 +219,6 @@
   - 多选
 - `生成类型`
   - `flow`
-  - `rule`
   - `domain`
 - `补充材料`
   - 可选
@@ -233,10 +230,12 @@
 - 系统默认优先生成：
   - `flow`
 
-只有在以下情况才补 `domain / rule`：
+只有在以下情况才补 `domain`：
 
 - `domain` 不存在
 - 或用户明确勾选
+
+`rule` 暂不作为第一版默认生成类型。
 
 ## 生成后的交互流
 
@@ -375,8 +374,8 @@ skill 只能规范：
 | 竞拍讲解卡                  | [摘要 tab] frontmatter 编辑区    |
 |   - 表达层链路              |                                 |
 |     [flow] [draft]          | [正文 tab] markdown 编辑区       |
-|   - 默认业务规则            |                                 |
-|     [rule] [draft]          |                                 |
+|   - 业务方向概览            |                                 |
+|     [domain] [approved]     |                                 |
 |                             |                                 |
 |                             | [发布 tab] 保存草稿 / 标记确认   |
 +-----------------------------+---------------------------------+
@@ -389,4 +388,4 @@ skill 只能规范：
 1. `Knowledge API Draft`
 2. `Knowledge File Template Draft`
 
-前者定义接口，后者定义 `domain / flow / rule` 的文件模板。
+前者定义接口，后者定义第一版默认的 `flow / domain` 文件模板。
