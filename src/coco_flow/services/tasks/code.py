@@ -11,6 +11,7 @@ from typing import Callable
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings, load_settings
 from coco_flow.services.runtime.repo_state import (
+    STATUS_ARCHIVED,
     STATUS_CODING,
     STATUS_CODED,
     STATUS_FAILED,
@@ -37,6 +38,7 @@ FAILURE_BUILD = "build_failed"
 FAILURE_VERIFY = "verify_failed"
 FAILURE_GIT = "git_failed"
 FAILURE_RUNTIME = "runtime_failed"
+FAILURE_BLOCKED = "blocked_by_dependency"
 LogHandler = Callable[[str], None]
 
 
@@ -62,8 +64,16 @@ def code_task(
     if not isinstance(raw_repos, list) or not raw_repos:
         raise ValueError("task has no bound repos")
 
+    plan_execution = load_plan_execution_artifact(task_dir)
     targets = resolve_target_repos(raw_repos, repo_id, all_repos, allow_coding_targets=allow_coding_targets)
+    targets = reorder_target_repos_by_plan(targets, plan_execution)
+    targets, blocked = split_ready_and_blocked_target_repos(targets, raw_repos, plan_execution, all_repos=all_repos)
+    persist_blocked_repos(task_dir, blocked)
     if not targets:
+        if blocked:
+            blocked_repo = blocked[0][0]
+            unmet = ", ".join(blocked[0][1])
+            raise ValueError(f"repo {blocked_repo} 依赖 {unmet}，当前没有可继续推进的 repo")
         raise ValueError("当前没有可继续推进的仓库")
 
     if cfg.code_executor.strip().lower() == EXECUTOR_LOCAL:
@@ -94,8 +104,16 @@ def start_coding_task(
     if not isinstance(raw_repos, list) or not raw_repos:
         raise ValueError("task has no bound repos")
 
+    plan_execution = load_plan_execution_artifact(task_dir)
     targets = resolve_target_repos(raw_repos, repo_id, all_repos)
+    targets = reorder_target_repos_by_plan(targets, plan_execution)
+    targets, blocked = split_ready_and_blocked_target_repos(targets, raw_repos, plan_execution, all_repos=all_repos)
+    persist_blocked_repos(task_dir, blocked)
     if not targets:
+        if blocked:
+            blocked_repo = blocked[0][0]
+            unmet = ", ".join(blocked[0][1])
+            raise ValueError(f"repo {blocked_repo} 依赖 {unmet}，当前没有可继续推进的 repo")
         raise ValueError("当前没有可继续推进的仓库")
 
     target_ids = {str(repo.get("id") or "") for repo in targets}
@@ -330,7 +348,11 @@ def execute_native_repo(
         settings=settings,
     )
     log = on_log or (lambda line: None)
-    prompt = build_native_code_prompt(task_id, repo_id)
+    plan_execution = load_plan_execution_artifact(task_dir)
+    repo_tasks = select_repo_tasks(plan_execution, repo_id)
+    task_scope = collect_repo_task_change_scope(repo_id, repo_tasks)
+    verify_rules = collect_repo_verify_rules(repo_tasks)
+    prompt = build_native_code_prompt(task_id, repo_id, plan_execution)
     agent_reply = ""
     parsed: dict[str, object] = {"status": "failed", "build_ok": False, "summary": ""}
     clean_files: list[str] = []
@@ -350,6 +372,8 @@ def execute_native_repo(
         verification_ok, verification_output = verify_repo_changes(
             worktree,
             clean_files,
+            task_scope=task_scope,
+            verify_rules=verify_rules,
             enable_go_test=settings.enable_go_test_verify,
         )
         for line in verification_output.splitlines():
@@ -366,7 +390,8 @@ def execute_native_repo(
         prompt = build_code_retry_prompt(
             task_id=task_id,
             repo_id=repo_id,
-            changed_files=clean_files,
+            plan_execution=plan_execution,
+            changed_files=select_retry_target_files(clean_files, task_scope),
             verification_output=verification_output,
         )
 
@@ -579,11 +604,294 @@ def sync_native_workspace(task_dir: Path, repo_root: Path, worktree_root: Path, 
         sync_local_tree(context_source, worktree_root / ".livecoding" / "context", replace=True)
 
 
-def build_native_code_prompt(task_id: str, repo_id: str) -> str:
+def load_plan_execution_artifact(task_dir: Path) -> dict[str, object]:
+    payload = read_json_file(task_dir / "plan-execution.json")
+    return payload if isinstance(payload, dict) else {}
+
+
+def select_repo_tasks(plan_execution: dict[str, object], repo_id: str) -> list[dict[str, object]]:
+    raw_tasks = plan_execution.get("tasks")
+    if not isinstance(raw_tasks, list):
+        return []
+    tasks: list[dict[str, object]] = []
+    for item in raw_tasks:
+        if not isinstance(item, dict):
+            continue
+        target = str(item.get("target_system_or_repo") or "")
+        if target not in {repo_id, "current-repo", ""}:
+            continue
+        tasks.append(item)
+    return tasks
+
+
+def reorder_target_repos_by_plan(targets: list[dict[str, object]], plan_execution: dict[str, object]) -> list[dict[str, object]]:
+    if len(targets) <= 1:
+        return targets
+    raw_tasks = plan_execution.get("tasks")
+    if not isinstance(raw_tasks, list) or not raw_tasks:
+        return targets
+
+    repo_rank: dict[str, int] = {}
+    for index, item in enumerate(raw_tasks):
+        if not isinstance(item, dict):
+            continue
+        repo_id = str(item.get("target_system_or_repo") or "")
+        if not repo_id or repo_id in repo_rank:
+            continue
+        repo_rank[repo_id] = index
+
+    def sort_key(repo: dict[str, object]) -> tuple[int, str]:
+        repo_id = str(repo.get("id") or "")
+        return (repo_rank.get(repo_id, len(raw_tasks) + 1000), repo_id)
+
+    return sorted(targets, key=sort_key)
+
+
+def build_task_repo_index(plan_execution: dict[str, object]) -> dict[str, str]:
+    raw_tasks = plan_execution.get("tasks")
+    if not isinstance(raw_tasks, list):
+        return {}
+    index: dict[str, str] = {}
+    for item in raw_tasks:
+        if not isinstance(item, dict):
+            continue
+        task_id = str(item.get("id") or "").strip()
+        repo_id = str(item.get("target_system_or_repo") or "").strip()
+        if task_id and repo_id:
+            index[task_id] = repo_id
+    return index
+
+
+def collect_repo_dependency_repos(plan_execution: dict[str, object], repo_id: str) -> list[str]:
+    task_repo_index = build_task_repo_index(plan_execution)
+    repo_tasks = select_repo_tasks(plan_execution, repo_id)
+    dependency_repos: list[str] = []
+    seen: set[str] = set()
+    for task in repo_tasks:
+        depends_on = task.get("depends_on")
+        if not isinstance(depends_on, list):
+            continue
+        for item in depends_on:
+            dep_repo = task_repo_index.get(str(item).strip(), "")
+            if not dep_repo or dep_repo == repo_id or dep_repo in seen:
+                continue
+            seen.add(dep_repo)
+            dependency_repos.append(dep_repo)
+    return dependency_repos
+
+
+def find_unmet_repo_dependencies(raw_repos: list[object], plan_execution: dict[str, object], repo_id: str) -> list[str]:
+    dependency_repos = collect_repo_dependency_repos(plan_execution, repo_id)
+    if not dependency_repos:
+        return []
+    status_by_repo: dict[str, str] = {}
+    for repo in raw_repos:
+        if not isinstance(repo, dict):
+            continue
+        status_by_repo[str(repo.get("id") or "")] = str(repo.get("status") or "")
+    unmet: list[str] = []
+    for dep_repo in dependency_repos:
+        if status_by_repo.get(dep_repo, "") not in {STATUS_CODED, STATUS_ARCHIVED}:
+            unmet.append(dep_repo)
+    return unmet
+
+
+def split_ready_and_blocked_target_repos(
+    targets: list[dict[str, object]],
+    raw_repos: list[object],
+    plan_execution: dict[str, object],
+    *,
+    all_repos: bool,
+) -> tuple[list[dict[str, object]], list[tuple[str, list[str]]]]:
+    ready: list[dict[str, object]] = []
+    blocked: list[tuple[str, list[str]]] = []
+    for repo in targets:
+        repo_id = str(repo.get("id") or "")
+        unmet = find_unmet_repo_dependencies(raw_repos, plan_execution, repo_id)
+        if not unmet:
+            ready.append(repo)
+            continue
+        blocked.append((repo_id, unmet))
+        if not all_repos:
+            return ready, blocked
+        if ready:
+            break
+    return ready, blocked
+
+
+def persist_blocked_repos(task_dir: Path, blocked: list[tuple[str, list[str]]]) -> None:
+    for repo_id, unmet in blocked:
+        report = build_blocked_report(task_dir, repo_id, unmet)
+        write_repo_code_result(task_dir, repo_id, report)
+        write_repo_code_log(task_dir, repo_id, build_repo_log(repo_id, report, "blocked before code execution\n"))
+
+
+def build_blocked_report(task_dir: Path, repo_id: str, unmet: list[str]) -> dict[str, object]:
+    unmet_text = ", ".join(unmet)
+    return {
+        "status": STATUS_PLANNED,
+        "task_id": task_dir.name,
+        "repo_id": repo_id,
+        "repo_path": "",
+        "branch": "",
+        "worktree": "",
+        "commit": "",
+        "build_ok": False,
+        "files_written": [],
+        "summary": f"repo {repo_id} 被依赖阻塞，需等待 {unmet_text}",
+        "failure_type": FAILURE_BLOCKED,
+        "failure_action": f"先推进上游 repo：{unmet_text}，完成 code 后再继续当前 repo。",
+        "error": f"blocked by dependencies: {unmet_text}",
+        "log": str(task_dir / "code.log"),
+        "started_at": datetime.now().astimezone().isoformat(),
+        "finished_at": datetime.now().astimezone().isoformat(),
+    }
+
+
+def normalize_repo_task_file(repo_id: str, file_path: str) -> str:
+    normalized = str(file_path).strip().lstrip("./")
+    if not normalized:
+        return ""
+    prefix = f"{repo_id}/"
+    if repo_id and normalized.startswith(prefix):
+        return normalized[len(prefix) :]
+    return normalized
+
+
+def collect_repo_task_change_scope(repo_id: str, tasks: list[dict[str, object]]) -> list[str]:
+    seen: set[str] = set()
+    files: list[str] = []
+    for task in tasks:
+        change_scope = task.get("change_scope")
+        if not isinstance(change_scope, list):
+            continue
+        for item in change_scope:
+            normalized = normalize_repo_task_file(repo_id, str(item))
+            lowered = normalized.lower()
+            if not normalized or lowered in seen:
+                continue
+            seen.add(lowered)
+            files.append(normalized)
+    return files
+
+
+def collect_repo_verify_rules(tasks: list[dict[str, object]]) -> list[str]:
+    seen: set[str] = set()
+    rules: list[str] = []
+    for task in tasks:
+        verify_rule = task.get("verify_rule")
+        if not isinstance(verify_rule, list):
+            continue
+        for item in verify_rule:
+            current = str(item).strip()
+            lowered = current.lower()
+            if not current or lowered in seen:
+                continue
+            seen.add(lowered)
+            rules.append(current)
+    return rules
+
+
+def select_verification_target_files(changed_files: list[str], task_scope: list[str]) -> list[str]:
+    if not task_scope:
+        return changed_files
+    normalized_changed = dedupe_relative_files(changed_files)
+    normalized_scope = dedupe_relative_files(task_scope)
+    if not normalized_changed:
+        return normalized_scope
+    scope_set = {item.lower() for item in normalized_scope}
+    overlapped = [item for item in normalized_changed if item.lower() in scope_set]
+    return overlapped or normalized_changed
+
+
+def select_retry_target_files(changed_files: list[str], task_scope: list[str]) -> list[str]:
+    targets = select_verification_target_files(changed_files, task_scope)
+    if targets:
+        return targets
+    return dedupe_relative_files(task_scope)
+
+
+def dedupe_relative_files(files: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in files:
+        current = str(item).strip().lstrip("./")
+        lowered = current.lower()
+        if not current or lowered in seen:
+            continue
+        seen.add(lowered)
+        result.append(current)
+    return result
+
+
+def render_plan_task_brief(tasks: list[dict[str, object]]) -> str:
+    if not tasks:
+        return "- 当前未提取到 repo 对应的结构化任务，回退到 design.md / plan.md 语义。"
+    lines: list[str] = []
+    for task in tasks[:6]:
+        title = str(task.get("title") or "")
+        task_id = str(task.get("id") or "")
+        goal = str(task.get("goal") or "")
+        depends_on = task.get("depends_on")
+        change_scope = task.get("change_scope")
+        actions = task.get("actions")
+        verify_rule = task.get("verify_rule")
+        lines.append(f"- {task_id} {title}".strip())
+        if goal:
+            lines.append(f"  goal: {goal}")
+        if isinstance(depends_on, list) and depends_on:
+            lines.append(f"  depends_on: {', '.join(str(item) for item in depends_on)}")
+        if isinstance(change_scope, list) and change_scope:
+            lines.append("  change_scope:")
+            lines.extend(f"    - {item}" for item in change_scope[:6])
+        if isinstance(actions, list) and actions:
+            lines.append("  actions:")
+            lines.extend(f"    - {item}" for item in actions[:6])
+        if isinstance(verify_rule, list) and verify_rule:
+            lines.append("  verify_rule:")
+            lines.extend(f"    - {item}" for item in verify_rule[:4])
+    return "\n".join(lines)
+
+
+def render_repo_task_execution_order(tasks: list[dict[str, object]]) -> str:
+    if not tasks:
+        return "- 当前 repo 未提取到结构化任务顺序。"
+    lines: list[str] = []
+    ordered_ids = [str(task.get("id") or "") for task in tasks if str(task.get("id") or "").strip()]
+    if ordered_ids:
+        lines.append(f"- task_order: {' -> '.join(ordered_ids)}")
+    for task in tasks:
+        task_id = str(task.get("id") or "").strip()
+        if not task_id:
+            continue
+        depends_on = task.get("depends_on")
+        if isinstance(depends_on, list) and depends_on:
+            lines.append(f"- {task_id} depends_on: {', '.join(str(item) for item in depends_on)}")
+        else:
+            lines.append(f"- {task_id} depends_on: none")
+    return "\n".join(lines)
+
+
+def render_repo_scope_summary(repo_id: str, plan_execution: dict[str, object]) -> str:
+    tasks = select_repo_tasks(plan_execution, repo_id)
+    scope = collect_repo_task_change_scope(repo_id, tasks)
+    rules = collect_repo_verify_rules(tasks)
+    lines: list[str] = []
+    if scope:
+        lines.append("- change_scope:")
+        lines.extend(f"  - {item}" for item in scope[:8])
+    if rules:
+        lines.append("- verify_rule:")
+        lines.extend(f"  - {item}" for item in rules[:6])
+    return "\n".join(lines) if lines else "- 当前 repo 未提取到额外的结构化范围约束。"
+
+
+def build_native_code_prompt(task_id: str, repo_id: str, plan_execution: dict[str, object]) -> str:
+    repo_tasks = select_repo_tasks(plan_execution, repo_id)
     return f"""你正在一个代码仓库的隔离 worktree 中执行实现任务。
 
 任务要求：
-1. 读取 `.coco-flow/tasks/{task_id}/prd-refined.md`、`design.md`、`plan.md`。
+1. 读取 `.coco-flow/tasks/{task_id}/prd-refined.md`、`design.md`、`plan.md`、`plan-execution.json`。
 2. 在当前 worktree 内完成最小实现，不要修改 `.coco-flow/` 下的任务产物。
 3. 优先做最小范围验证；如果仓库是 Go 项目，优先验证受影响包或最小构建。
 4. 如果不需要改动，请明确说明 no_change。
@@ -598,15 +906,31 @@ files:
 
 当前 repo_id: {repo_id}
 当前 task_id: {task_id}
+
+当前 repo 对应的结构化任务：
+{render_plan_task_brief(repo_tasks)}
+
+当前 repo 本轮优先范围与验证规则：
+{render_repo_scope_summary(repo_id, plan_execution)}
+
+当前 repo 任务顺序与依赖：
+{render_repo_task_execution_order(repo_tasks)}
 """
 
 
-def build_code_retry_prompt(task_id: str, repo_id: str, changed_files: list[str], verification_output: str) -> str:
-    file_block = "\n".join(f"- {item}" for item in changed_files) or "- 当前未检测到稳定变更文件"
+def build_code_retry_prompt(
+    task_id: str,
+    repo_id: str,
+    plan_execution: dict[str, object],
+    changed_files: list[str],
+    verification_output: str,
+) -> str:
+    file_block = "\n".join(f"- {item}" for item in changed_files) or "- 当前未检测到稳定变更文件，可优先围绕结构化任务 change_scope 收敛修复范围"
+    repo_tasks = select_repo_tasks(plan_execution, repo_id)
     return f"""刚才的实现未通过最小验证，请继续在当前 worktree 中直接修复，不要重置已有改动。
 
 任务要求：
-1. 继续围绕 `.coco-flow/tasks/{task_id}/prd-refined.md`、`design.md`、`plan.md` 修复问题。
+1. 继续围绕 `.coco-flow/tasks/{task_id}/prd-refined.md`、`design.md`、`plan.md`、`plan-execution.json` 修复问题。
 2. 仅修改当前 worktree 内与本次任务相关的代码，不要改 `.coco-flow/` 和 `.livecoding/`。
 3. 优先修复下面这些已经变更过的文件：
 {file_block}
@@ -626,6 +950,15 @@ files:
 
 当前 repo_id: {repo_id}
 当前 task_id: {task_id}
+
+当前 repo 对应的结构化任务：
+{render_plan_task_brief(repo_tasks)}
+
+当前 repo 本轮优先范围与验证规则：
+{render_repo_scope_summary(repo_id, plan_execution)}
+
+当前 repo 任务顺序与依赖：
+{render_repo_task_execution_order(repo_tasks)}
 """
 
 
@@ -709,19 +1042,36 @@ def commit_code_changes(repo_root: str, task_id: str) -> str:
     return result.stdout.strip()
 
 
-def verify_repo_changes(repo_root: str, files: list[str], enable_go_test: bool = False) -> tuple[bool, str]:
-    if not files:
+def verify_repo_changes(
+    repo_root: str,
+    files: list[str],
+    *,
+    task_scope: list[str] | None = None,
+    verify_rules: list[str] | None = None,
+    enable_go_test: bool = False,
+) -> tuple[bool, str]:
+    target_files = select_verification_target_files(files, task_scope or [])
+    if not target_files:
         return True, "no changed files"
 
-    go_files = [item for item in files if item.endswith(".go")]
+    go_files = [item for item in target_files if item.endswith(".go")]
     if go_files:
-        return verify_go_build(repo_root, go_files, enable_go_test=enable_go_test)
+        ok, output = verify_go_build(repo_root, go_files, enable_go_test=enable_go_test)
+        if verify_rules:
+            output = (output + "\n\nverify rules:\n" + "\n".join(f"- {item}" for item in verify_rules)).strip()
+        return ok, output
 
-    py_files = [item for item in files if item.endswith(".py")]
+    py_files = [item for item in target_files if item.endswith(".py")]
     if py_files:
-        return verify_python_files(repo_root, py_files)
+        ok, output = verify_python_files(repo_root, py_files)
+        if verify_rules:
+            output = (output + "\n\nverify rules:\n" + "\n".join(f"- {item}" for item in verify_rules)).strip()
+        return ok, output
 
-    return True, "no language-specific verification for current changed files"
+    output = "no language-specific verification for current changed files"
+    if verify_rules:
+        output += "\n\nverify rules:\n" + "\n".join(f"- {item}" for item in verify_rules)
+    return True, output
 
 
 def verify_go_build(repo_root: str, files: list[str], enable_go_test: bool = False) -> tuple[bool, str]:
@@ -836,6 +1186,8 @@ def classify_exception_failure_type(error: Exception) -> str:
 
 
 def suggest_failure_action(failure_type: str) -> str:
+    if failure_type == FAILURE_BLOCKED:
+        return "先推进依赖的上游 repo，再继续当前 repo。"
     if failure_type == FAILURE_BUILD:
         return "先修复编译错误，再重试实现。"
     if failure_type == FAILURE_VERIFY:

@@ -18,7 +18,16 @@ TRACKED_ARTIFACTS = [
     "source.json",
     "prd.source.md",
     "prd-refined.md",
+    "refine-intent.json",
+    "refine-knowledge-selection.json",
+    "refine-knowledge-brief.md",
+    "refine-verify.json",
     "refine-result.json",
+    "plan-knowledge-selection.json",
+    "plan-knowledge-brief.md",
+    "plan-scope.json",
+    "plan-execution.json",
+    "plan-verify.json",
     "design.md",
     "plan.md",
     "refine.log",
@@ -198,7 +207,16 @@ def build_next_action(
         next_repo = suggest_next_repo(repos)
         if next_repo:
             return f"coco-flow prd code --task {task_id} --repo {next_repo}"
+        blocked = summarize_blocked_repos(repos)
+        if blocked:
+            return f"当前可见 repo 受依赖阻塞：{blocked}。请先推进其依赖的上游 repo。"
     if status == "planned":
+        next_repo = suggest_next_repo(repos)
+        if next_repo:
+            return f"coco-flow prd code --task {task_id} --repo {next_repo}"
+        blocked = summarize_blocked_repos(repos)
+        if blocked:
+            return f"当前可见 repo 受依赖阻塞：{blocked}。请先推进其依赖的上游 repo。"
         return f"coco-flow prd code --task {task_id}"
     if status == "coded":
         return f"coco-flow tasks archive {task_id}"
@@ -209,6 +227,8 @@ def build_next_action(
 
 def suggest_next_repo(repos: list[RepoBinding]) -> str | None:
     for repo in repos:
+        if is_blocked_repo(repo):
+            continue
         if repo.status in {
             None,
             "",
@@ -220,6 +240,17 @@ def suggest_next_repo(repos: list[RepoBinding]) -> str | None:
         }:
             return repo.repo_id
     return None
+
+
+def is_blocked_repo(repo: RepoBinding) -> bool:
+    return (repo.failure_type or "") == "blocked_by_dependency"
+
+
+def summarize_blocked_repos(repos: list[RepoBinding]) -> str:
+    blocked = [repo.repo_id for repo in repos if repo.repo_id and is_blocked_repo(repo)]
+    if not blocked:
+        return ""
+    return ", ".join(blocked)
 
 
 def build_timeline(status: str, task_dir: Path) -> list[TimelineItem]:
@@ -254,12 +285,20 @@ def build_timeline(status: str, task_dir: Path) -> list[TimelineItem]:
         refine_state, plan_state, code_state = "done", "done", "current"
         refine_detail = "已生成 refined PRD"
         plan_detail = "已完成 plan"
-        code_detail = "可进入 code 阶段"
+        blocked = summarize_blocked_repos(parse_repos(read_json_file(task_dir / "repos.json"), task_dir))
+        if blocked and not suggest_next_repo(parse_repos(read_json_file(task_dir / "repos.json"), task_dir)):
+            code_detail = f"当前 code 受依赖阻塞：{blocked}"
+        else:
+            code_detail = "可进入 code 阶段"
     elif status in {"coding", "partially_coded"}:
         refine_state, plan_state, code_state = "done", "done", "current"
         refine_detail = "已生成 refined PRD"
         plan_detail = "已完成 plan"
-        code_detail = "至少一个 repo 正在执行 code"
+        blocked = summarize_blocked_repos(parse_repos(read_json_file(task_dir / "repos.json"), task_dir))
+        if blocked:
+            code_detail = f"至少一个 repo 正在执行 code；另有 repo 受依赖阻塞：{blocked}"
+        else:
+            code_detail = "至少一个 repo 正在执行 code"
     elif status == "coded":
         refine_state, plan_state, code_state, archive_state = (
             "done",
@@ -293,7 +332,11 @@ def build_timeline(status: str, task_dir: Path) -> list[TimelineItem]:
             refine_state, plan_state, code_state = "done", "done", "current"
             refine_detail = "已生成 refined PRD"
             plan_detail = "已完成 plan"
-            code_detail = "存在失败的 repo，需继续处理"
+            blocked = summarize_blocked_repos(parse_repos(read_json_file(task_dir / "repos.json"), task_dir))
+            if blocked:
+                code_detail = f"存在失败或阻塞的 repo，当前阻塞：{blocked}"
+            else:
+                code_detail = "存在失败的 repo，需继续处理"
 
     return [
         TimelineItem(label="Refine", state=refine_state, detail=refine_detail),

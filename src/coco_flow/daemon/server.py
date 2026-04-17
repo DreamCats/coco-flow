@@ -94,6 +94,7 @@ class DaemonServer:
                     query_timeout=str(raw.get("query_timeout") or self.settings.native_query_timeout),
                     prompt=str(raw.get("prompt") or ""),
                     idle_timeout_seconds=float(raw.get("acp_idle_timeout_seconds") or self.settings.acp_idle_timeout_seconds),
+                    fresh_session=bool(raw.get("fresh_session")),
                 )
                 self._write_json(conn, {"ok": True, "content": content})
             except Exception as error:

@@ -42,6 +42,8 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
     try:
         result = run_refine_engine(task_dir, task_meta, cfg, logger)
         _write_markdown_artifact(task_dir / "prd-refined.md", result.refined_markdown)
+        for name, payload in result.intermediate_artifacts.items():
+            _write_intermediate_artifact(task_dir / name, payload)
         _write_json_artifact(
             task_dir / "refine-result.json",
             {
@@ -52,6 +54,7 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
                 "business_memory_provider": result.business_memory_provider,
                 "business_memory_documents": result.business_memory_documents,
                 "risk_flags": result.risk_flags,
+                "intermediate_artifacts": sorted(result.intermediate_artifacts.keys()),
                 "updated_at": datetime.now().astimezone().isoformat(),
             },
         )
@@ -77,3 +80,10 @@ def _write_markdown_artifact(path: Path, content: str) -> None:
 
 def _write_json_artifact(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -> None:
+    if isinstance(payload, dict):
+        _write_json_artifact(path, payload)
+        return
+    _write_markdown_artifact(path, payload)

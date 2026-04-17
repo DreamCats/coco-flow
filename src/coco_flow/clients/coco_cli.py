@@ -24,7 +24,14 @@ class CocoCliClient(CocoClient):
     def __init__(self, coco_bin: str) -> None:
         self.coco_bin = coco_bin
 
-    def run_prompt_only(self, prompt: str, query_timeout: str, cwd: str | None = None) -> str:
+    def run_prompt_only(
+        self,
+        prompt: str,
+        query_timeout: str,
+        cwd: str | None = None,
+        *,
+        fresh_session: bool = False,
+    ) -> str:
         cmd = [
             self.coco_bin,
             "-p",
@@ -38,7 +45,14 @@ class CocoCliClient(CocoClient):
         cmd.append(prompt)
         return self._run_json_command(cmd, cwd=cwd)
 
-    def run_readonly_agent(self, prompt: str, query_timeout: str, cwd: str) -> str:
+    def run_readonly_agent(
+        self,
+        prompt: str,
+        query_timeout: str,
+        cwd: str,
+        *,
+        fresh_session: bool = False,
+    ) -> str:
         cmd = [
             self.coco_bin,
             "-p",
@@ -56,7 +70,14 @@ class CocoCliClient(CocoClient):
         ]
         return self._run_json_command(cmd, cwd=cwd)
 
-    def run_agent(self, prompt: str, query_timeout: str, cwd: str) -> str:
+    def run_agent(
+        self,
+        prompt: str,
+        query_timeout: str,
+        cwd: str,
+        *,
+        fresh_session: bool = False,
+    ) -> str:
         cmd = [
             self.coco_bin,
             "-p",

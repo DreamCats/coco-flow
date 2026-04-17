@@ -21,6 +21,7 @@ def run_prompt_via_daemon(
     query_timeout: str,
     prompt: str,
     acp_idle_timeout_seconds: float,
+    fresh_session: bool = False,
 ) -> str:
     ensure_daemon_running(settings)
     response = send_request(
@@ -33,6 +34,7 @@ def run_prompt_via_daemon(
             "query_timeout": query_timeout,
             "prompt": prompt,
             "acp_idle_timeout_seconds": acp_idle_timeout_seconds,
+            "fresh_session": fresh_session,
         },
     )
     if not response.get("ok"):
