@@ -207,6 +207,7 @@ def build_refine_knowledge_adjudication_payload(
             build_refine_knowledge_adjudication_prompt(prepared, intent, selected_documents),
             settings.native_query_timeout,
             cwd=prepared.repo_root,
+            fresh_session=True,
         )
         payload = parse_refine_knowledge_adjudication_output(raw, selected_documents)
         payload["mode"] = "llm_adjudicated"

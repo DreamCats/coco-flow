@@ -73,6 +73,7 @@ def extract_native_refine_intent(prepared: RefinePreparedInput, settings: Settin
         build_native_refine_intent_prompt(prepared),
         settings.native_query_timeout,
         cwd=prepared.repo_root,
+        fresh_session=True,
     )
     return parse_native_refine_intent_output(raw, prepared)
 

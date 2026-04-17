@@ -107,6 +107,7 @@ def plan_task_native(
             build_plan_scope_prompt(build),
             settings.native_query_timeout,
             cwd=build.repo_root,
+            fresh_session=True,
         )
         build.llm_scope = extract_plan_scope_output(scope_raw)
         on_log(f"scope_ok: {len(scope_raw)} bytes")
@@ -120,6 +121,7 @@ def plan_task_native(
             build_design_prompt(build),
             settings.native_query_timeout,
             build.repo_root or os.getcwd(),
+            fresh_session=True,
         )
     except ValueError as error:
         on_log(f"generate_design_with_native_error: {error}")
@@ -138,6 +140,7 @@ def plan_task_native(
             build_design_verify_prompt(build, design_ai),
             settings.native_query_timeout,
             cwd=build.repo_root,
+            fresh_session=True,
         )
         design_verify_payload = parse_plan_verify_output(design_verify_raw)
         on_log(f"design_verify_ok: {len(design_verify_raw)} bytes")
@@ -157,6 +160,7 @@ def plan_task_native(
             build_execution_prompt(build, design_ai),
             settings.native_query_timeout,
             cwd=build.repo_root,
+            fresh_session=True,
         )
     except ValueError as error:
         on_log(f"generate_execution_with_native_error: {error}")
@@ -183,6 +187,7 @@ def plan_task_native(
             build_execution_verify_prompt(build, execution_ai),
             settings.native_query_timeout,
             cwd=build.repo_root,
+            fresh_session=True,
         )
         execution_verify_payload = parse_plan_verify_output(execution_verify_raw)
         on_log(f"execution_verify_ok: {len(execution_verify_raw)} bytes")

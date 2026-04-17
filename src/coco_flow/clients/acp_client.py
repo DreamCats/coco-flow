@@ -78,7 +78,14 @@ class CocoACPClient(CocoClient):
         self.idle_timeout_seconds = idle_timeout_seconds
         self.settings = settings or load_settings()
 
-    def run_prompt_only(self, prompt: str, query_timeout: str, cwd: str | None = None) -> str:
+    def run_prompt_only(
+        self,
+        prompt: str,
+        query_timeout: str,
+        cwd: str | None = None,
+        *,
+        fresh_session: bool = False,
+    ) -> str:
         resolved_cwd = os.path.realpath(cwd or os.getcwd())
         return run_prompt_via_daemon(
             settings=self.settings,
@@ -88,9 +95,17 @@ class CocoACPClient(CocoClient):
             query_timeout=query_timeout,
             prompt=prompt,
             acp_idle_timeout_seconds=self.idle_timeout_seconds,
+            fresh_session=fresh_session,
         )
 
-    def run_readonly_agent(self, prompt: str, query_timeout: str, cwd: str) -> str:
+    def run_readonly_agent(
+        self,
+        prompt: str,
+        query_timeout: str,
+        cwd: str,
+        *,
+        fresh_session: bool = False,
+    ) -> str:
         return run_prompt_via_daemon(
             settings=self.settings,
             coco_bin=self.coco_bin,
@@ -99,9 +114,17 @@ class CocoACPClient(CocoClient):
             query_timeout=query_timeout,
             prompt=prompt,
             acp_idle_timeout_seconds=self.idle_timeout_seconds,
+            fresh_session=fresh_session,
         )
 
-    def run_agent(self, prompt: str, query_timeout: str, cwd: str) -> str:
+    def run_agent(
+        self,
+        prompt: str,
+        query_timeout: str,
+        cwd: str,
+        *,
+        fresh_session: bool = False,
+    ) -> str:
         return run_prompt_via_daemon(
             settings=self.settings,
             coco_bin=self.coco_bin,
@@ -110,6 +133,7 @@ class CocoACPClient(CocoClient):
             query_timeout=query_timeout,
             prompt=prompt,
             acp_idle_timeout_seconds=self.idle_timeout_seconds,
+            fresh_session=fresh_session,
         )
 
 
@@ -127,6 +151,7 @@ class _ACPSessionPool:
         query_timeout: str,
         prompt: str,
         idle_timeout_seconds: float,
+        fresh_session: bool = False,
     ) -> str:
         self._ensure_reaper_started()
         key = _SessionKey(coco_bin=coco_bin, cwd=cwd, mode=mode, query_timeout=query_timeout)
@@ -139,7 +164,7 @@ class _ACPSessionPool:
                     idle_timeout_seconds=idle_timeout_seconds,
                 )
                 self._sessions[key] = session
-        return session.prompt(prompt)
+        return session.prompt(prompt, fresh_session=fresh_session)
 
     def reap_idle_sessions(self) -> None:
         while True:
@@ -178,17 +203,19 @@ class _PooledSession:
         self._last_used = time.monotonic()
         self._busy = False
 
-    def prompt(self, prompt: str) -> str:
+    def prompt(self, prompt: str, *, fresh_session: bool = False) -> str:
         with self._lock:
             self._busy = True
             self._ensure_running()
             assert self._process is not None
+            session_id = self._new_session_id() if fresh_session else self._session_id
             try:
-                result = self._process.prompt(self._session_id, prompt)
+                result = self._process.prompt(session_id, prompt)
             except ValueError:
                 self._restart()
                 assert self._process is not None
-                result = self._process.prompt(self._session_id, prompt)
+                session_id = self._new_session_id() if fresh_session else self._session_id
+                result = self._process.prompt(session_id, prompt)
             finally:
                 self._last_used = time.monotonic()
                 self._busy = False
@@ -208,6 +235,10 @@ class _PooledSession:
         if self._process is not None and self._process.is_running():
             return
         self._restart()
+
+    def _new_session_id(self) -> str:
+        assert self._process is not None
+        return self._process.new_session(self.key.cwd)
 
     def _restart(self) -> None:
         if self._process is not None:
@@ -482,6 +513,7 @@ def run_prompt_with_pool(
     query_timeout: str,
     prompt: str,
     idle_timeout_seconds: float,
+    fresh_session: bool = False,
 ) -> str:
     resolved_mode = _resolve_mode(mode)
     return _SESSION_POOL.run_prompt(
@@ -491,6 +523,7 @@ def run_prompt_with_pool(
         query_timeout=query_timeout,
         prompt=prompt,
         idle_timeout_seconds=idle_timeout_seconds,
+        fresh_session=fresh_session,
     )
 
 

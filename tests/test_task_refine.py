@@ -345,7 +345,7 @@ class RefineTaskTest(unittest.TestCase):
                     "# PRD Refined\n\n## 需求概述\n\n- 竞拍讲解卡需求。\n\n## 功能点\n\n- 展示竞拍态提示。\n\n## 边界条件\n\n- 非竞拍态不展示。\n\n## 交互与展示\n\n- 保持当前样式。\n\n## 验收标准\n\n- 竞拍态可见。\n\n## 业务规则\n\n- 仅竞拍态展示。\n\n## 待确认问题\n\n- 无。\n",
                     json.dumps({"ok": True, "issues": [], "missing_sections": [], "reason": "结构完整"}),
                 ],
-            ):
+            ) as run_prompt_only_mock:
                 status = refine_task(task_id, settings=settings)
 
             self.assertEqual(status, "refined")
@@ -355,6 +355,10 @@ class RefineTaskTest(unittest.TestCase):
             self.assertEqual(selection["selected_ids"], ["domain-auction-card"])
             self.assertEqual(selection["adjudication"]["mode"], "llm_adjudicated")
             self.assertEqual(selection["adjudication"]["rejected_ids"], ["flow-weak"])
+            self.assertEqual(run_prompt_only_mock.call_args_list[0].kwargs.get("fresh_session"), True)
+            self.assertEqual(run_prompt_only_mock.call_args_list[1].kwargs.get("fresh_session"), True)
+            self.assertEqual(run_prompt_only_mock.call_args_list[2].kwargs.get("fresh_session"), True)
+            self.assertEqual(run_prompt_only_mock.call_args_list[3].kwargs.get("fresh_session"), True)
             verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
             self.assertEqual(verify["ok"], True)
             result = json.loads((task_dir / "refine-result.json").read_text(encoding="utf-8"))

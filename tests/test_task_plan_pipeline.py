@@ -318,7 +318,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
                     ),
                     json.dumps({"ok": True, "issues": [], "reason": "execution 结构完整"}),
                 ],
-            ), patch(
+            ) as run_prompt_only_mock, patch(
                 "coco_flow.clients.CocoACPClient.run_readonly_agent",
                 return_value=(
                     "=== SYSTEM CHANGE POINTS ===\n"
@@ -340,7 +340,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
                     "=== STAFFING ESTIMATE ===\n"
                     "- 预计以后端单仓收敛为主，前后协调成本较低。\n"
                 ),
-            ):
+            ) as run_readonly_agent_mock:
                 status = plan_task(task_id, settings=settings)
 
             self.assertEqual(status, "planned")
@@ -348,6 +348,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(scope["summary"], "优先收敛讲解卡状态提示边界")
             execution = json.loads((task_dir / "plan-execution.json").read_text(encoding="utf-8"))
             self.assertTrue(execution["tasks"])
+            self.assertEqual(run_prompt_only_mock.call_args_list[0].kwargs.get("fresh_session"), True)
+            self.assertEqual(run_readonly_agent_mock.call_args.kwargs.get("fresh_session"), True)
+            self.assertEqual(run_prompt_only_mock.call_args_list[1].kwargs.get("fresh_session"), True)
+            self.assertEqual(run_prompt_only_mock.call_args_list[2].kwargs.get("fresh_session"), True)
+            self.assertEqual(run_prompt_only_mock.call_args_list[3].kwargs.get("fresh_session"), True)
             verify = json.loads((task_dir / "plan-verify.json").read_text(encoding="utf-8"))
             self.assertEqual(verify["design"]["ok"], True)
             self.assertEqual(verify["execution"]["ok"], True)

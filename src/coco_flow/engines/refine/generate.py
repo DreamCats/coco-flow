@@ -81,6 +81,7 @@ def generate_native_refine(
         build_refine_prompt(prepared, intent, knowledge_brief),
         settings.native_query_timeout,
         cwd=prepared.repo_root,
+        fresh_session=True,
     )
     on_log(f"prompt_ok: {len(raw)} bytes")
     refined = extract_refined_content(raw)
@@ -91,6 +92,7 @@ def generate_native_refine(
         build_refine_verify_prompt(prepared, intent, refined),
         settings.native_query_timeout,
         cwd=prepared.repo_root,
+        fresh_session=True,
     )
     on_log(f"verify_ok: {len(verify_raw)} bytes")
     verify_payload = parse_refine_verify_output(verify_raw)
