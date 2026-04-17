@@ -9,12 +9,23 @@ from .common import (
     EXECUTOR_LOCAL,
     EXECUTOR_NATIVE,
     KNOWLEDGE_KIND_ORDER,
-    build_display_paths,
-    clean_document_keywords,
-    normalize_selected_paths_section,
     soften_weak_claims,
     unique_questions,
     unique_strings,
+)
+
+
+FLOW_REQUIRED_SECTIONS = (
+    "## Summary",
+    "## Main Flow",
+    "## Dependencies",
+    "## Repo Hints",
+    "## Open Questions",
+)
+DOMAIN_REQUIRED_SECTIONS = (
+    "## Summary",
+    "## Repo Coverage",
+    "## Open Questions",
 )
 
 
@@ -34,139 +45,96 @@ def build_title(kind: str) -> str:
 
 def build_description(kind: str, normalized_intent: str) -> str:
     if kind == "flow":
-        return f"归纳 {normalized_intent} 的主链路、关键 repo 角色和 repo hints。"
+        return f"归纳 {normalized_intent} 的主链路、关键仓库职责和系统依赖。"
     if kind == "rule":
-        return f"整理 {normalized_intent} 相关的默认规则线索和待确认边界。"
-    return f"概览 {normalized_intent} 对应的业务方向、相关 repo 和上下文线索。"
+        return f"整理 {normalized_intent} 相关的稳定约束和待确认边界。"
+    return f"概览 {normalized_intent} 对应的业务方向、关键仓库和边界范围。"
 
 
 def build_body(
     kind: str,
     intent_payload: dict[str, object],
     repo_research_payloads: list[dict[str, object]],
-    selected_paths: list[str],
+    storyline_outline_payload: dict[str, object],
     open_questions: list[str],
 ) -> str:
     if kind == "flow":
-        return build_flow_body(intent_payload, repo_research_payloads, selected_paths, open_questions)
+        return build_flow_body(intent_payload, repo_research_payloads, storyline_outline_payload, open_questions)
     if kind == "rule":
         return build_rule_body(intent_payload, repo_research_payloads, open_questions)
-    return build_domain_body(intent_payload, repo_research_payloads, open_questions)
+    return build_domain_body(intent_payload, storyline_outline_payload, open_questions)
 
 
 def build_flow_body(
     intent_payload: dict[str, object],
     repo_research_payloads: list[dict[str, object]],
-    selected_paths: list[str],
+    storyline_outline_payload: dict[str, object],
     open_questions: list[str],
 ) -> str:
-    dependency_lines = []
-    for item in repo_research_payloads:
-        module_hint = ", ".join(item["likely_modules"][:3]) if item["likely_modules"] else "待补充"
-        dependency_lines.append(f"- `{item['repo_id']}`: role={item['role']}，模块线索={module_hint}")
-
-    repo_hint_sections = []
-    for item in repo_research_payloads:
-        anchors = item.get("anchors", {})
-        dirs = "\n".join(f"- `{path}`" for path in item["likely_modules"]) or "- 待补充"
-        files = "\n".join(f"- `{path}`" for path in item["candidate_files"]) or "- 待补充"
-        route_hits = "\n".join(f"- {hit}" for hit in item.get("route_hits", [])) or "- 未命中明确路由入口"
-        symbol_hits = "\n".join(f"- {hit}" for hit in item.get("symbol_hits", [])) or "- 未命中高信号符号"
-        commit_hits = "\n".join(f"- {hit}" for hit in item.get("commit_hits", [])) or "- 未命中相关提交标题"
-        context_hits = "\n".join(f"- {hit}" for hit in item["context_hits"]) or "- 未命中 repo context"
-        anchor_files = "\n".join(f"- `{path}`" for path in anchors.get("entry_files", [])) or "- 待补充"
-        anchor_symbols = "\n".join(f"- `{value}`" for value in anchors.get("business_symbols", [])) or "- 待补充"
-        repo_hint_sections.append(
-            "\n".join(
-                [
-                    f"### `{item['repo_id']}`",
-                    "",
-                    f"- requested path: `{item['requested_path']}`",
-                    f"- repo path: `{item['repo_path']}`",
-                    f"- role: `{item['role']}`",
-                    "",
-                    "#### Candidate Dirs",
-                    dirs,
-                    "",
-                    "#### Candidate Files",
-                    files,
-                    "",
-                    "#### Key Entry Files",
-                    anchor_files,
-                    "",
-                    "#### Route Hits",
-                    route_hits,
-                    "",
-                    "#### Business Symbols",
-                    anchor_symbols,
-                    "",
-                    "#### Symbol Hits",
-                    symbol_hits,
-                    "",
-                    "#### Recent Commit Hits",
-                    commit_hits,
-                    "",
-                    "#### Context Hits",
-                    context_hits,
-                ]
-            )
-        )
-
-    question_lines = "\n".join(f"- {question}" for question in open_questions) or "- 待补充"
-    path_lines = "\n".join(f"- `{path}`" for path in selected_paths)
+    repo_hints = _as_outline_hints(storyline_outline_payload.get("repo_hints"))
+    summary_lines = _normalize_lines(storyline_outline_payload.get("system_summary"))
+    if not summary_lines:
+        summary_lines = [
+            f"{intent_payload['normalized_intent']} 主要围绕入口收敛、主数据编排和前端展示装配展开。"
+        ]
+    main_flow_steps = _normalize_lines(storyline_outline_payload.get("main_flow_steps"))
+    if not main_flow_steps:
+        main_flow_steps = build_storyline_steps_from_research(repo_hints, repo_research_payloads)
+    dependency_lines = _normalize_lines(storyline_outline_payload.get("dependencies"))
+    if not dependency_lines:
+        dependency_lines = build_dependency_lines_from_research(repo_hints, repo_research_payloads)
+    question_lines = unique_questions(open_questions) or ["当前仍需确认是否存在额外上游或下游仓库。"]
     return "\n".join(
         [
             "## Summary",
             "",
-            f"{intent_payload['normalized_intent']} 当前处于第一阶段知识草稿，重点先确认主链路涉及哪些 repo、入口目录和高信号文件，再决定是否继续补 domain / rule。",
+            *_paragraphs(summary_lines),
             "",
             "## Main Flow",
             "",
-            "1. 根据用户标题、描述和补充材料收敛业务意图，并把选中的路径映射到 repo 或工作目录。",
-            "2. 先做术语映射，把用户语言对齐到 repo 中的目录名、符号名和业务枚举。",
-            "3. 基于目录结构、文件名、符号命中、提交标题、AGENTS.md 和 `.livecoding/context/` 做轻量 discovery。",
-            "4. 先从 primary repo 开始确认入口和关键模块，再补 supporting repo 的依赖关系。",
-            "5. 所有未确认内容都保留在 `Open Questions`，不直接提升为已批准知识。",
-            "",
-            "## Selected Paths",
-            "",
-            path_lines,
+            *_numbered_lines(main_flow_steps),
             "",
             "## Dependencies",
             "",
-            *dependency_lines,
+            *_bulleted_lines(dependency_lines),
             "",
             "## Repo Hints",
             "",
-            "\n\n".join(repo_hint_sections),
+            render_repo_hints(repo_hints),
             "",
             "## Open Questions",
             "",
-            question_lines,
+            *_bulleted_lines(question_lines),
         ]
     ).strip()
 
 
 def build_domain_body(
     intent_payload: dict[str, object],
-    repo_research_payloads: list[dict[str, object]],
+    storyline_outline_payload: dict[str, object],
     open_questions: list[str],
 ) -> str:
-    repo_lines = "\n".join(f"- `{item['repo_id']}`: {item['role']}" for item in repo_research_payloads) or "- 待补充"
-    question_lines = "\n".join(f"- {question}" for question in open_questions) or "- 待补充"
+    summary_lines = _normalize_lines(storyline_outline_payload.get("domain_summary"))
+    if not summary_lines:
+        summary_lines = [
+            f"{intent_payload['domain_name']} 当前主要关注入口、状态、数据编排与前端展示之间的协作关系。"
+        ]
+    repo_hints = _as_outline_hints(storyline_outline_payload.get("repo_hints"))
+    repo_coverage = build_domain_repo_coverage(repo_hints)
+    question_lines = unique_questions(open_questions) or ["当前仍需确认是否存在被遗漏的业务边界。"]
     return "\n".join(
         [
             "## Summary",
             "",
-            f"`{intent_payload['domain_name']}` 当前作为领域入口草稿，用于聚合相关 flow / rule，并记录多 repo 的基础发现。",
+            *_paragraphs(summary_lines),
             "",
             "## Repo Coverage",
             "",
-            repo_lines,
+            *_bulleted_lines(repo_coverage),
             "",
             "## Open Questions",
             "",
-            question_lines,
+            *_bulleted_lines(question_lines),
         ]
     ).strip()
 
@@ -176,21 +144,23 @@ def build_rule_body(
     repo_research_payloads: list[dict[str, object]],
     open_questions: list[str],
 ) -> str:
-    risk_lines = "\n".join(f"- {risk}" for item in repo_research_payloads for risk in item["risks"]) or "- 待补充"
-    question_lines = "\n".join(f"- {question}" for question in open_questions) or "- 待补充"
+    risk_lines = unique_strings([str(risk) for item in repo_research_payloads for risk in item.get("risks", [])])
+    if not risk_lines:
+        risk_lines = [f"{intent_payload['normalized_intent']} 当前没有足够稳定的规则证据，暂不宜提升为规则知识。"]
+    question_lines = unique_questions(open_questions) or ["当前是否存在跨多个需求反复出现的稳定约束。"]
     return "\n".join(
         [
             "## Statement",
             "",
-            f"`{intent_payload['normalized_intent']}` 当前只发现规则线索，不直接宣称为稳定业务规则。",
+            f"`{intent_payload['normalized_intent']}` 当前只保留稳定约束线索，不把实现注意事项直接提升为规则。",
             "",
             "## Evidence Risks",
             "",
-            risk_lines,
+            *_bulleted_lines(risk_lines),
             "",
             "## Open Questions",
             "",
-            question_lines,
+            *_bulleted_lines(question_lines),
         ]
     ).strip()
 
@@ -204,8 +174,14 @@ def validate_documents(documents: list[KnowledgeDocument]) -> list[str]:
             errors.append(f"{document.id}: title is empty")
         if not document.body.strip():
             errors.append(f"{document.id}: body is empty")
-        if document.kind == "flow" and "## Repo Hints" not in document.body:
-            errors.append(f"{document.id}: flow body missing Repo Hints")
+        if document.kind == "flow":
+            for marker in FLOW_REQUIRED_SECTIONS:
+                if marker not in document.body:
+                    errors.append(f"{document.id}: flow body missing {marker}")
+        if document.kind == "domain":
+            for marker in DOMAIN_REQUIRED_SECTIONS:
+                if marker not in document.body:
+                    errors.append(f"{document.id}: domain body missing {marker}")
         if "## Open Questions" not in document.body:
             errors.append(f"{document.id}: body missing Open Questions")
         errors.extend(validate_document_evidence(document))
@@ -265,9 +241,8 @@ def is_supported_route(route: str, supported_routes: list[str], supported_action
 
 def extract_supported_symbols(document: KnowledgeDocument) -> list[str]:
     supported: list[str] = []
-    for value in [*document.keywords, *document.evidence.contextHits, *document.evidence.candidateFiles]:
+    for value in [*document.evidence.contextHits, extract_repo_hints_section(document.body)]:
         supported.extend(re.findall(r"\b[A-Z][A-Za-z0-9_]{5,}\b", str(value)))
-    supported.extend(re.findall(r"\b[A-Z][A-Za-z0-9_]{5,}\b", extract_repo_hints_section(document.body)))
     return unique_strings(supported)
 
 
@@ -277,24 +252,22 @@ def extract_body_symbols(body: str) -> list[str]:
         "Summary",
         "Main",
         "Flow",
-        "Selected",
-        "Paths",
         "Dependencies",
         "Repo",
         "Hints",
-        "Candidate",
-        "Files",
-        "Route",
-        "Hits",
-        "Business",
-        "Symbols",
-        "Recent",
-        "Commit",
-        "Context",
+        "Key",
+        "Modules",
+        "Role",
+        "Responsibilities",
+        "Upstream",
+        "Downstream",
+        "Notes",
         "Open",
         "Questions",
-        "Role",
-        "AGENTS",
+        "Coverage",
+        "Statement",
+        "Evidence",
+        "Risks",
     }
     values = [
         value
@@ -306,16 +279,11 @@ def extract_body_symbols(body: str) -> list[str]:
 
 def is_supported_symbol(symbol: str, supported_symbols: list[str]) -> bool:
     current = str(symbol).strip()
-    return any(
-        current == supported
-        or current in supported
-        or supported in current
-        for supported in supported_symbols
-    )
+    return any(current == supported or current in supported or supported in current for supported in supported_symbols)
 
 
 def extract_narrative_body(body: str) -> str:
-    marker = "\n## Selected Paths"
+    marker = "\n## Repo Hints"
     if marker in body:
         return body.split(marker, 1)[0]
     return body
@@ -341,8 +309,7 @@ def is_business_route_ref(route: str) -> bool:
 
 def extract_supported_route_actions(document: KnowledgeDocument) -> list[str]:
     actions: list[str] = []
-    sources = [*document.keywords, *document.evidence.candidateFiles, *document.evidence.contextHits]
-    for value in sources:
+    for value in document.evidence.contextHits:
         lowered = str(value).lower()
         for action in generic_route_actions():
             if action in lowered:
@@ -355,7 +322,7 @@ def has_supported_route_family(supported_routes: list[str]) -> bool:
 
 
 def generic_route_actions() -> tuple[str, ...]:
-    return ("create", "save", "update", "edit", "launch", "start", "deactivate", "delete", "remove", "status", "get", "list", "detail")
+    return ("create", "save", "update", "edit", "launch", "start", "deactivate", "delete", "remove", "status", "get", "list", "detail", "preview")
 
 
 def serialize_document(document: KnowledgeDocument) -> dict[str, object]:
@@ -365,11 +332,11 @@ def serialize_document(document: KnowledgeDocument) -> dict[str, object]:
 
 
 def collect_repo_questions(repo_research_payloads: list[dict[str, object]]) -> list[str]:
-    return [str(question) for item in repo_research_payloads for question in item["open_questions"]]
+    return [str(question) for item in repo_research_payloads for question in item.get("open_questions", [])]
 
 
 def collect_anchor_questions(anchor_selection_payloads: list[dict[str, object]]) -> list[str]:
-    return [str(question) for item in anchor_selection_payloads for question in item["open_questions"]]
+    return [str(question) for item in anchor_selection_payloads for question in item.get("open_questions", [])]
 
 
 def collect_document_questions(documents: list[KnowledgeDocument]) -> list[str]:
@@ -378,16 +345,12 @@ def collect_document_questions(documents: list[KnowledgeDocument]) -> list[str]:
 
 def summarize_research_executors(repo_research_payloads: list[dict[str, object]]) -> str:
     executors = unique_strings([str(item.get("executor") or EXECUTOR_LOCAL) for item in repo_research_payloads])
-    if not executors:
-        return EXECUTOR_LOCAL
-    return ", ".join(executors)
+    return ", ".join(executors) if executors else EXECUTOR_LOCAL
 
 
 def summarize_anchor_executors(anchor_selection_payloads: list[dict[str, object]]) -> str:
     executors = unique_strings([str(item.get("executor") or EXECUTOR_LOCAL) for item in anchor_selection_payloads])
-    if not executors:
-        return EXECUTOR_LOCAL
-    return ", ".join(executors)
+    return ", ".join(executors) if executors else EXECUTOR_LOCAL
 
 
 def annotate_documents(
@@ -419,7 +382,7 @@ def annotate_documents(
             else "anchor selection executor: local。"
         ),
         f"knowledge synthesis executor: {synthesis_executor} (requested={requested_executor})。",
-        "候选目录和文件只作为 Repo Hints，不应直接固化成长期代码地图。",
+        "正式文档只保留稳定知识，候选文件和检索词留在 trace 中。",
     ]
     if term_mapping_payload and term_mapping_payload.get("fallback_reason"):
         retrieval_notes.append(f"term mapping fallback: {term_mapping_payload['fallback_reason']}")
@@ -444,20 +407,17 @@ def apply_synthesis_outputs(
     outputs: dict[str, dict[str, object]],
     display_paths: list[str],
 ) -> list[KnowledgeDocument]:
+    del display_paths
     documents: list[KnowledgeDocument] = []
     for document in fallback_documents:
-        output = outputs.get(document.kind)
-        if output is None:
-            raise ValueError(f"missing synthesis output for kind: {document.kind}")
-        open_questions = unique_strings([*output["open_questions"], *document.evidence.openQuestions])
-        body = str(output["body"] or document.body)
-        body = normalize_selected_paths_section(body, display_paths)
-        body = soften_weak_claims(body)
+        output = outputs.get(document.kind, {})
+        open_questions = unique_strings([*_as_string_list(output.get("open_questions")), *document.evidence.openQuestions])
+        body = soften_weak_claims(str(output.get("body") or document.body))
         documents.append(
             document.model_copy(
                 update={
                     "title": build_title(document.kind),
-                    "desc": str(output["desc"] or document.desc),
+                    "desc": str(output.get("desc") or document.desc),
                     "body": body,
                     "evidence": document.evidence.model_copy(update={"openQuestions": unique_questions(open_questions)}),
                 }
@@ -471,6 +431,8 @@ def build_documents_local(
     intent_payload: dict[str, object],
     term_mapping_payload: dict[str, object],
     term_family_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+    storyline_outline_payload: dict[str, object],
     anchor_selection_payloads: list[dict[str, object]],
     repo_research_payloads: list[dict[str, object]],
     selected_paths: list[str],
@@ -480,20 +442,25 @@ def build_documents_local(
     requested_executor: str,
     synthesis_executor: str,
 ) -> list[KnowledgeDocument]:
+    del term_family_payload
+    del focus_boundary_payload
     domain_name = str(intent_payload["domain_name"])
     domain_id = str(intent_payload["domain_candidate"])
     repo_ids = [str(item["repo_id"]) for item in repo_research_payloads]
-    repo_paths = [str(item["repo_path"]) for item in repo_research_payloads]
-    display_paths = build_display_paths(selected_paths, repo_research_payloads)
-    route_hits = unique_strings([str(hit) for item in repo_research_payloads for hit in item.get("route_hits", [])])
-    candidate_files = unique_strings([str(path) for item in repo_research_payloads for path in item["candidate_files"]])
-    symbol_hits = unique_strings([str(hit) for item in repo_research_payloads for hit in item.get("symbol_hits", [])])
-    strongest_terms = unique_strings([str(term) for item in repo_research_payloads for term in item.get("anchors", {}).get("keywords", [])])
-    keyword_matches = clean_document_keywords(
-        [*[str(keyword) for item in repo_research_payloads for keyword in item["matched_keywords"]], *strongest_terms]
+    repo_display_names = [str(item.get("repo_display_name") or item["repo_id"]) for item in repo_research_payloads]
+    context_hits = unique_strings(
+        [
+            *[str(hit) for item in repo_research_payloads for hit in item.get("route_hits", [])[:3]],
+            *[str(hit) for item in repo_research_payloads for hit in item.get("symbol_hits", [])[:4]],
+            *[str(hit) for item in repo_research_payloads for hit in item.get("context_hits", [])[:4]],
+        ]
     )
-    context_hits = unique_strings([str(hit) for item in repo_research_payloads for hit in item["context_hits"]])
-    open_questions = unique_questions([str(question) for item in repo_research_payloads for question in item["open_questions"]])
+    open_questions = unique_questions(
+        [
+            *[str(question) for question in storyline_outline_payload.get("open_questions", [])],
+            *[str(question) for item in repo_research_payloads for question in item.get("open_questions", [])[:1]],
+        ]
+    )
     documents: list[KnowledgeDocument] = []
     for kind in requested_kinds:
         document = KnowledgeDocument(
@@ -506,22 +473,24 @@ def build_documents_local(
             domainId=domain_id,
             domainName=domain_name,
             engines=infer_engines(kind),
-            repos=repo_ids,
-            paths=repo_paths,
-            keywords=keyword_matches,
+            repos=repo_display_names,
+            paths=[],
+            keywords=[],
             priority="high" if kind == "flow" else "medium",
-            confidence="medium" if candidate_files else "low",
+            confidence="medium" if repo_ids else "low",
             updatedAt=timestamp,
             owner="Maifeng",
-            body=soften_weak_claims(build_body(kind, intent_payload, repo_research_payloads, display_paths, open_questions)),
+            body=soften_weak_claims(
+                build_body(kind, intent_payload, repo_research_payloads, storyline_outline_payload, open_questions)
+            ),
             evidence=KnowledgeEvidence(
                 inputDescription=str(intent_payload["description"]),
                 inputTitle=str(intent_payload["title"]),
-                repoMatches=repo_ids,
-                keywordMatches=keyword_matches,
-                pathMatches=selected_paths,
-                candidateFiles=candidate_files,
-                contextHits=unique_strings([*route_hits[:4], *symbol_hits[:6], *context_hits]),
+                repoMatches=repo_display_names,
+                keywordMatches=[],
+                pathMatches=list(selected_paths),
+                candidateFiles=[],
+                contextHits=context_hits,
                 retrievalNotes=[],
                 openQuestions=open_questions,
             ),
@@ -536,3 +505,136 @@ def build_documents_local(
         notes=str(intent_payload["notes"]),
         repo_research_payloads=repo_research_payloads,
     )
+
+
+def render_repo_hints(repo_hints: list[dict[str, object]]) -> str:
+    sections: list[str] = []
+    for item in repo_hints:
+        sections.extend(
+            [
+                f"### `{item.get('repo_display_name', item['repo_id'])}`",
+                "",
+                f"- repo: `{item.get('repo_display_name', item['repo_id'])}`",
+                f"- role: `{item['role_label']}`",
+                "",
+                "#### Key Modules",
+                *_bulleted_lines(item.get("key_modules") or ["待补充"]),
+                "",
+                "#### Responsibilities",
+                *_bulleted_lines(item.get("responsibilities") or ["待补充"]),
+                "",
+            ]
+        )
+        if item.get("upstream"):
+            sections.extend(["#### Upstream", *_bulleted_lines(item["upstream"]), ""])
+        if item.get("downstream"):
+            sections.extend(["#### Downstream", *_bulleted_lines(item["downstream"]), ""])
+        if item.get("notes"):
+            sections.extend(["#### Notes", *_bulleted_lines(item["notes"]), ""])
+    return "\n".join(sections).strip()
+
+
+def build_domain_repo_coverage(repo_hints: list[dict[str, object]]) -> list[str]:
+    coverage: list[str] = []
+    for item in repo_hints:
+        first_responsibility = (item.get("responsibilities") or ["承担当前领域的一部分职责。"])[0]
+        coverage.append(f"`{item.get('repo_display_name', item['repo_id'])}`：{item['role_label']}，{first_responsibility}")
+    return coverage or ["当前尚未收敛出稳定的仓库分工。"]
+
+
+def build_storyline_steps_from_research(
+    repo_hints: list[dict[str, object]],
+    repo_research_payloads: list[dict[str, object]],
+) -> list[str]:
+    del repo_research_payloads
+    steps: list[str] = []
+    entry_repos = [item for item in repo_hints if item["role_label"] in {"服务聚合入口", "HTTP/API 入口"}]
+    orchestration_repos = [item for item in repo_hints if item["role_label"] == "数据编排层"]
+    bff_repos = [item for item in repo_hints if item["role_label"] == "前端/BFF 装配层"]
+    support_repos = [item for item in repo_hints if item["role_label"] == "公共能力底座"]
+    if entry_repos:
+        steps.append(f"入口请求通常先由 {', '.join(f'`{item['repo_id']}`' for item in entry_repos[:2])} 收敛场景参数和展示条件。")
+    if orchestration_repos:
+        steps.append(f"主数据随后由 {', '.join(f'`{item['repo_id']}`' for item in orchestration_repos[:2])} 编排状态、配置和展示所需模型。")
+    if bff_repos:
+        steps.append(f"前端展示前，会由 {', '.join(f'`{item['repo_id']}`' for item in bff_repos[:2])} 转成前端或 BFF 可消费结构。")
+    if support_repos:
+        steps.append(f"公共配置、AB 或 schema 能力由 {', '.join(f'`{item['repo_id']}`' for item in support_repos[:2])} 提供支撑。")
+    return steps or ["当前仍需结合更多 repo 线索确认稳定的主链路步骤。"]
+
+
+def build_dependency_lines_from_research(
+    repo_hints: list[dict[str, object]],
+    repo_research_payloads: list[dict[str, object]],
+) -> list[str]:
+    research_map = {str(item.get("repo_id") or ""): item for item in repo_research_payloads}
+    lines: list[str] = []
+    for item in repo_hints:
+        repo_name = str(item.get("repo_display_name") or item["repo_id"])
+        role_label = str(item.get("role_label") or "")
+        research = research_map.get(str(item.get("repo_id") or ""), {})
+        facts_blob = " ".join(str(value) for value in research.get("facts", []))
+        modules_blob = " ".join(str(value) for value in research.get("likely_modules", []))
+        if role_label == "数据编排层":
+            lines.append(f"`{repo_name}` 消费配置、session 和商品 relation 等依赖，收敛主链路所需数据结构。")
+        elif role_label == "服务聚合入口":
+            if "notify" in facts_blob.lower() or "notify" in modules_blob.lower():
+                lines.append(f"`{repo_name}` 通过通知或刷新出口把运行时状态变化下发到客户端。")
+            else:
+                lines.append(f"`{repo_name}` 聚合同步进房或房间侧数据，并向下游入口或客户端返回初始化结果。")
+        elif role_label == "HTTP/API 入口":
+            lines.append(f"`{repo_name}` 消费上游编排结果，提供 preview/pop 等异步或 API 场景入口。")
+        elif role_label == "前端/BFF 装配层":
+            lines.append(f"`{repo_name}` 依赖上游入口或编排层提供的数据，装配前端/BFF 可消费结构。")
+        elif role_label == "公共能力底座":
+            lines.append(f"`{repo_name}` 提供配置、AB、schema 或共享工具能力，不直接承接业务主链。")
+    return lines or ["当前仍需补充更明确的系统依赖关系。"]
+
+
+def _normalize_lines(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _as_outline_hints(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    hints: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        repo_id = str(item.get("repo_id") or "").strip()
+        if not repo_id:
+            continue
+        hints.append(
+            {
+                "repo_id": repo_id,
+                "repo_display_name": str(item.get("repo_display_name") or repo_id).strip(),
+                "role_label": str(item.get("role_label") or "系统支撑仓库").strip(),
+                "key_modules": _normalize_lines(item.get("key_modules")),
+                "responsibilities": _normalize_lines(item.get("responsibilities")),
+                "upstream": _normalize_lines(item.get("upstream")),
+                "downstream": _normalize_lines(item.get("downstream")),
+                "notes": _normalize_lines(item.get("notes")),
+            }
+        )
+    return hints
+
+
+def _paragraphs(lines: list[str]) -> list[str]:
+    return [str(line).strip() for line in lines if str(line).strip()]
+
+
+def _bulleted_lines(lines: list[str]) -> list[str]:
+    return [f"- {str(line).strip()}" for line in lines if str(line).strip()]
+
+
+def _numbered_lines(lines: list[str]) -> list[str]:
+    return [f"{index}. {str(line).strip()}" for index, line in enumerate(lines, start=1) if str(line).strip()]
+
+
+def _as_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]

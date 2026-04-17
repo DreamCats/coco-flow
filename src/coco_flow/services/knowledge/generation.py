@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import json
+import re
 import uuid
 
 from coco_flow.clients import CocoACPClient
@@ -54,16 +55,32 @@ from .document_builder import (
 from .prompting import (
     build_candidate_ranking_prompt,
     build_anchor_selection_prompt,
+    build_focus_boundary_prompt,
+    build_flow_judge_prompt,
+    build_flow_final_editor_prompt,
+    build_flow_final_polisher_prompt,
     build_knowledge_synthesis_prompt,
+    build_flow_slot_extraction_prompt,
+    build_repo_role_signals_prompt,
     build_repo_research_prompt,
+    build_storyline_outline_prompt,
     build_term_family_prompt,
     build_term_mapping_prompt,
+    build_topic_adjudication_prompt,
     extract_candidate_ranking_output,
     extract_anchor_selection_output,
+    extract_flow_slot_extraction_output,
+    extract_focus_boundary_output,
+    extract_flow_judge_output,
+    extract_flow_final_editor_output,
+    extract_flow_final_polisher_output,
     extract_knowledge_synthesis_output,
+    extract_repo_role_signals_output,
     extract_repo_research_output,
+    extract_storyline_outline_output,
     extract_term_family_output,
     extract_term_mapping_output,
+    extract_topic_adjudication_output,
 )
 from .scan import (
     collect_context_aliases,
@@ -138,7 +155,17 @@ def generate_knowledge_drafts(
         settings,
         requested_executor,
     )
-    _emit_progress(on_progress, "repo_researching", 78, "正在归纳各 repo 在链路中的角色")
+    _emit_progress(on_progress, "focus_boundary", 74, "正在收敛主题边界和旁支噪音")
+    focus_boundary_payload = build_focus_boundary(
+        intent_payload,
+        term_mapping_payload,
+        term_family_payload,
+        candidate_ranking_payloads,
+        anchor_selection_payloads,
+        settings,
+        requested_executor,
+    )
+    _emit_progress(on_progress, "repo_researching", 80, "正在归纳各 repo 在链路中的角色")
     repo_research_payloads = [
         build_repo_research(
             intent_payload,
@@ -146,6 +173,7 @@ def generate_knowledge_drafts(
             candidate_ranking,
             anchor_selection,
             term_family_payload,
+            focus_boundary_payload,
             settings,
             requested_executor,
         )
@@ -153,11 +181,46 @@ def generate_knowledge_drafts(
             discovery_payload, candidate_ranking_payloads, anchor_selection_payloads, strict=False
         )
     ]
-    _emit_progress(on_progress, "synthesizing", 88, "正在生成知识草稿")
+    topic_adjudication_payload = build_topic_adjudication(
+        intent_payload,
+        focus_boundary_payload,
+        repo_research_payloads,
+        settings,
+        requested_executor,
+    )
+    repo_role_signal_payloads = build_repo_role_signals(
+        intent_payload,
+        topic_adjudication_payload,
+        repo_research_payloads,
+        settings,
+        requested_executor,
+    )
+    flow_slot_payload = build_flow_slot_extraction(
+        intent_payload,
+        topic_adjudication_payload,
+        repo_role_signal_payloads,
+        repo_research_payloads,
+        settings,
+        requested_executor,
+    )
+    _emit_progress(on_progress, "storyline_outline", 88, "正在收敛系统级知识骨架")
+    storyline_outline_payload = build_storyline_outline(
+        intent_payload,
+        focus_boundary_payload,
+        topic_adjudication_payload,
+        repo_role_signal_payloads,
+        flow_slot_payload,
+        repo_research_payloads,
+        settings,
+        requested_executor,
+    )
+    _emit_progress(on_progress, "synthesizing", 92, "正在生成知识草稿")
     documents = build_documents(
         intent_payload=intent_payload,
         term_mapping_payload=term_mapping_payload,
         term_family_payload=term_family_payload,
+        focus_boundary_payload=focus_boundary_payload,
+        storyline_outline_payload=storyline_outline_payload,
         anchor_selection_payloads=anchor_selection_payloads,
         repo_research_payloads=repo_research_payloads,
         selected_paths=selected_paths,
@@ -167,6 +230,44 @@ def generate_knowledge_drafts(
         settings=settings,
         requested_executor=requested_executor,
     )
+    flow_judge_payload = build_flow_judge(
+        documents,
+        topic_adjudication_payload,
+        repo_role_signal_payloads,
+        flow_slot_payload,
+        settings,
+        requested_executor,
+    )
+    documents = apply_flow_judge_notes(
+        documents,
+        flow_judge_payload,
+        intent_payload=intent_payload,
+        storyline_outline_payload=storyline_outline_payload,
+        flow_slot_payload=flow_slot_payload,
+        repo_research_payloads=repo_research_payloads,
+        topic_adjudication_payload=topic_adjudication_payload,
+    )
+    flow_final_editor_payload = build_flow_final_editor(
+        documents,
+        topic_adjudication_payload,
+        repo_role_signal_payloads,
+        flow_slot_payload,
+        storyline_outline_payload,
+        flow_judge_payload,
+        settings,
+        requested_executor,
+    )
+    documents = apply_flow_final_editor(documents, flow_final_editor_payload)
+    flow_final_polisher_payload = build_flow_final_polisher(
+        documents,
+        flow_final_editor_payload,
+        topic_adjudication_payload,
+        repo_role_signal_payloads,
+        flow_judge_payload,
+        settings,
+        requested_executor,
+    )
+    documents = apply_flow_final_polisher(documents, flow_final_polisher_payload)
     open_questions = unique_strings(
         [
             *intent_payload["open_questions"],
@@ -174,10 +275,17 @@ def generate_knowledge_drafts(
             *[str(question) for question in term_family_payload["open_questions"]],
             *collect_anchor_questions(anchor_selection_payloads),
             *collect_repo_questions(repo_research_payloads),
+            *[str(question) for question in topic_adjudication_payload.get("open_questions", [])],
+            *[
+                str(question)
+                for item in repo_role_signal_payloads
+                for question in item.get("open_questions", [])
+            ],
+            *[str(question) for question in flow_slot_payload.get("open_questions", [])],
             *collect_document_questions(documents),
         ]
     )
-    open_questions = unique_questions(open_questions)
+    open_questions = filter_publishable_open_questions(open_questions, limit=8)
     knowledge_draft_payload = {
         "trace_id": trace_id,
         "documents": [serialize_document(document) for document in documents],
@@ -206,11 +314,23 @@ def generate_knowledge_drafts(
             "repos": candidate_ranking_payloads,
         },
         "term-family.json": term_family_payload,
+        "focus-boundary.json": focus_boundary_payload,
+        "topic-adjudication.json": topic_adjudication_payload,
         "anchor-selection.json": {
             "trace_id": trace_id,
             "requested_executor": requested_executor,
             "repos": anchor_selection_payloads,
         },
+        "repo-role-signals.json": {
+            "trace_id": trace_id,
+            "requested_executor": requested_executor,
+            "repos": repo_role_signal_payloads,
+        },
+        "flow-slots.json": flow_slot_payload,
+        "storyline-outline.json": storyline_outline_payload,
+        "flow-judge.json": flow_judge_payload,
+        "flow-final-edit.json": flow_final_editor_payload,
+        "flow-final-polish.json": flow_final_polisher_payload,
         "knowledge-draft.json": knowledge_draft_payload,
         "validation-result.json": validation_payload,
     }
@@ -248,6 +368,7 @@ def resolve_selected_path(raw_path: Path) -> dict[str, object]:
     context_root = scan_root / ".livecoding" / "context"
     return {
         "repo_id": scan_root.name or requested_path.name,
+        "repo_display_name": scan_root.name or requested_path.name,
         "requested_path": str(requested_path),
         "repo_path": str(scan_root),
         "is_git_repo": repo_root is not None,
@@ -326,6 +447,7 @@ def discover_repo(target: dict[str, object], search_terms: list[str]) -> dict[st
     context_hits = scan_context_hits(context_root, search_terms)
     return {
         "repo_id": target["repo_id"],
+        "repo_display_name": target.get("repo_display_name", target["repo_id"]),
         "requested_path": target["requested_path"],
         "repo_path": target["repo_path"],
         "is_git_repo": target["is_git_repo"],
@@ -350,7 +472,7 @@ def assign_repo_ids(discovery_payload: list[dict[str, object]]) -> list[dict[str
         next_count = counts.get(base_id, 0) + 1
         counts[base_id] = next_count
         repo_id = base_id if next_count == 1 else f"{base_id}-{next_count}"
-        normalized_payload.append({**item, "repo_id": repo_id})
+        normalized_payload.append({**item, "repo_id": repo_id, "repo_display_name": item.get("repo_display_name", item["repo_id"])})
     return normalized_payload
 
 
@@ -364,7 +486,7 @@ def build_term_mapping(
     if requested_executor == EXECUTOR_NATIVE:
         try:
             return build_term_mapping_native(intent_payload, repo_candidates, settings)
-        except ValueError as error:
+        except Exception as error:
             local = build_term_mapping_local(intent_payload, repo_candidates)
             local["requested_executor"] = requested_executor
             local["fallback_reason"] = str(error)
@@ -376,6 +498,7 @@ def collect_repo_term_candidates(target: dict[str, object]) -> dict[str, object]
     root = Path(str(target["repo_path"]))
     return {
         "repo_id": target["repo_id"],
+        "repo_display_name": target.get("repo_display_name", target["repo_id"]),
         "repo_path": target["repo_path"],
         "requested_path": target["requested_path"],
         "top_level_dirs": list_top_level_dirs(root),
@@ -460,6 +583,122 @@ def build_term_mapping_native(
     }
 
 
+def build_focus_boundary(
+    intent_payload: dict[str, object],
+    term_mapping_payload: dict[str, object],
+    term_family_payload: dict[str, object],
+    candidate_ranking_payloads: list[dict[str, object]],
+    anchor_selection_payloads: list[dict[str, object]],
+    settings: Settings,
+    requested_executor: str,
+) -> dict[str, object]:
+    del settings
+    if requested_executor == EXECUTOR_NATIVE:
+        local = build_focus_boundary_local(
+            intent_payload,
+            term_mapping_payload,
+            term_family_payload,
+            candidate_ranking_payloads,
+            anchor_selection_payloads,
+        )
+        local["requested_executor"] = requested_executor
+        return local
+    return build_focus_boundary_local(
+        intent_payload,
+        term_mapping_payload,
+        term_family_payload,
+        candidate_ranking_payloads,
+        anchor_selection_payloads,
+    )
+
+
+def build_focus_boundary_local(
+    intent_payload: dict[str, object],
+    term_mapping_payload: dict[str, object],
+    term_family_payload: dict[str, object],
+    candidate_ranking_payloads: list[dict[str, object]],
+    anchor_selection_payloads: list[dict[str, object]],
+) -> dict[str, object]:
+    in_scope_terms = unique_strings(
+        [str(item) for item in term_family_payload.get("primary_family", []) if is_meaningful_term(str(item))]
+    )[:8]
+    supporting_terms = unique_strings(
+        [
+            *[str(item) for item in term_family_payload.get("generic_terms", []) if is_meaningful_term(str(item))],
+            *[
+                str(item)
+                for family in term_family_payload.get("secondary_families", [])
+                if isinstance(family, list)
+                for item in family
+                if is_meaningful_term(str(item))
+            ],
+        ]
+    )[:6]
+    out_of_scope_terms = unique_strings(
+        [
+            *[str(item) for item in term_family_payload.get("noise_terms", [])],
+            *[str(item) for item in term_mapping_payload.get("search_terms", []) if not is_meaningful_term(str(item))],
+        ]
+    )[:8]
+    if not in_scope_terms:
+        in_scope_terms = unique_strings([str(term) for term in intent_payload["query_terms"] if is_meaningful_term(str(term))])[:6]
+    return {
+        "executor": EXECUTOR_LOCAL,
+        "requested_executor": EXECUTOR_LOCAL,
+        "canonical_subject": str(intent_payload["normalized_intent"]),
+        "in_scope_terms": in_scope_terms,
+        "supporting_terms": supporting_terms,
+        "out_of_scope_terms": out_of_scope_terms,
+        "reason": "基于主术语族群、次级族群和噪音词做本地主题边界收敛。",
+        "open_questions": unique_questions(_as_string_list(term_family_payload.get("open_questions"))[:4]),
+    }
+
+
+def build_focus_boundary_native(
+    intent_payload: dict[str, object],
+    term_mapping_payload: dict[str, object],
+    term_family_payload: dict[str, object],
+    candidate_ranking_payloads: list[dict[str, object]],
+    anchor_selection_payloads: list[dict[str, object]],
+    settings: Settings,
+) -> dict[str, object]:
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    cwd = str(candidate_ranking_payloads[0]["repo_path"]) if candidate_ranking_payloads else None
+    raw = client.run_prompt_only(
+        build_focus_boundary_prompt(
+            intent_payload,
+            term_mapping_payload,
+            term_family_payload,
+            anchor_selection_payloads,
+            candidate_ranking_payloads,
+        ),
+        settings.native_query_timeout,
+        cwd=cwd,
+    )
+    parsed = extract_focus_boundary_output(raw)
+    fallback = build_focus_boundary_local(
+        intent_payload,
+        term_mapping_payload,
+        term_family_payload,
+        candidate_ranking_payloads,
+        anchor_selection_payloads,
+    )
+    return fallback | {
+        "executor": EXECUTOR_NATIVE,
+        "requested_executor": EXECUTOR_NATIVE,
+        "canonical_subject": parsed["canonical_subject"] or fallback["canonical_subject"],
+        "in_scope_terms": unique_strings(parsed["in_scope_terms"] or fallback["in_scope_terms"]),
+        "supporting_terms": unique_strings(parsed["supporting_terms"] + fallback["supporting_terms"]),
+        "out_of_scope_terms": unique_strings(parsed["out_of_scope_terms"] + fallback["out_of_scope_terms"]),
+        "reason": parsed["reason"] or fallback["reason"],
+        "open_questions": unique_questions(parsed["open_questions"] + fallback["open_questions"]),
+    }
+
+
 def build_candidate_ranking(
     intent_payload: dict[str, object],
     discovery: dict[str, object],
@@ -469,7 +708,7 @@ def build_candidate_ranking(
     if requested_executor == EXECUTOR_NATIVE:
         try:
             return build_candidate_ranking_native(intent_payload, discovery, settings)
-        except ValueError as error:
+        except Exception as error:
             local = build_candidate_ranking_local(intent_payload, discovery)
             local["requested_executor"] = requested_executor
             local["fallback_reason"] = str(error)
@@ -523,6 +762,7 @@ def build_candidate_ranking_local(intent_payload: dict[str, object], discovery: 
         open_questions.append("当前还没有稳定筛出主候选文件，可能需要更具体的动作或业务术语。")
     return {
         "repo_id": discovery["repo_id"],
+        "repo_display_name": discovery.get("repo_display_name", discovery["repo_id"]),
         "repo_path": discovery["repo_path"],
         "requested_path": discovery["requested_path"],
         "executor": EXECUTOR_LOCAL,
@@ -587,7 +827,7 @@ def build_term_family(
                 anchor_selection_payloads,
                 settings,
             )
-        except ValueError as error:
+        except Exception as error:
             local = build_term_family_local(intent_payload, term_mapping_payload, candidate_ranking_payloads, anchor_selection_payloads)
             local["requested_executor"] = requested_executor
             local["fallback_reason"] = str(error)
@@ -722,7 +962,7 @@ def build_anchor_selection(
     if requested_executor == EXECUTOR_NATIVE:
         try:
             return build_anchor_selection_native(intent_payload, discovery, candidate_ranking, settings)
-        except ValueError as error:
+        except Exception as error:
             local = build_anchor_selection_local(intent_payload, discovery, candidate_ranking)
             local["requested_executor"] = requested_executor
             local["fallback_reason"] = str(error)
@@ -761,6 +1001,7 @@ def build_anchor_selection_local(
     open_questions.extend([str(item) for item in candidate_ranking.get("open_questions", [])])
     return {
         "repo_id": discovery["repo_id"],
+        "repo_display_name": discovery.get("repo_display_name", discovery["repo_id"]),
         "repo_path": discovery["repo_path"],
         "requested_path": discovery["requested_path"],
         "executor": EXECUTOR_LOCAL,
@@ -813,18 +1054,19 @@ def build_repo_research(
     candidate_ranking: dict[str, object],
     anchor_selection: dict[str, object],
     term_family: dict[str, object],
+    focus_boundary: dict[str, object],
     settings: Settings,
     requested_executor: str,
 ) -> dict[str, object]:
     if requested_executor == EXECUTOR_NATIVE:
         try:
-            return build_repo_research_native(intent_payload, discovery, candidate_ranking, anchor_selection, term_family, settings)
-        except ValueError as error:
-            local = build_repo_research_local(intent_payload, discovery, candidate_ranking, anchor_selection, term_family)
+            return build_repo_research_native(intent_payload, discovery, candidate_ranking, anchor_selection, term_family, focus_boundary, settings)
+        except Exception as error:
+            local = build_repo_research_local(intent_payload, discovery, candidate_ranking, anchor_selection, term_family, focus_boundary)
             local["requested_executor"] = requested_executor
             local["fallback_reason"] = str(error)
             return local
-    return build_repo_research_local(intent_payload, discovery, candidate_ranking, anchor_selection, term_family)
+    return build_repo_research_local(intent_payload, discovery, candidate_ranking, anchor_selection, term_family, focus_boundary)
 
 
 def build_repo_research_local(
@@ -833,14 +1075,18 @@ def build_repo_research_local(
     candidate_ranking: dict[str, object],
     anchor_selection: dict[str, object],
     term_family: dict[str, object],
+    focus_boundary: dict[str, object],
 ) -> dict[str, object]:
     matched_keywords = [str(item) for item in discovery["matched_keywords"]]
     candidate_dirs = [str(item) for item in discovery["candidate_dirs"]]
     candidate_files = [str(item) for item in discovery["candidate_files"]]
-    route_hits = select_core_route_signals([str(item) for item in discovery.get("route_hits", [])], intent_payload)
-    symbol_hits = [str(item) for item in discovery.get("symbol_hits", [])]
-    commit_hits = [str(item) for item in discovery.get("commit_hits", [])]
-    context_hits = [str(item) for item in discovery["context_hits"]]
+    route_hits = filter_text_signals_by_focus_boundary(
+        select_core_route_signals([str(item) for item in discovery.get("route_hits", [])], intent_payload),
+        focus_boundary,
+    )
+    symbol_hits = filter_text_signals_by_focus_boundary([str(item) for item in discovery.get("symbol_hits", [])], focus_boundary)
+    commit_hits = filter_text_signals_by_focus_boundary([str(item) for item in discovery.get("commit_hits", [])], focus_boundary)
+    context_hits = filter_text_signals_by_focus_boundary([str(item) for item in discovery["context_hits"]], focus_boundary)[:8]
     ranked_primary_dirs = [str(item) for item in candidate_ranking.get("primary_dirs", [])]
     ranked_primary_files = [str(item) for item in candidate_ranking.get("primary_files", [])]
     ranked_secondary_files = [str(item) for item in candidate_ranking.get("secondary_files", [])]
@@ -850,16 +1096,18 @@ def build_repo_research_local(
         "route_signals": [str(item) for item in anchor_selection.get("route_signals", [])],
         "keywords": [str(item) for item in anchor_selection.get("strongest_terms", [])],
     }
-    ranked_candidate_files = unique_strings([*ranked_primary_files, *anchors["entry_files"], *ranked_secondary_files, *candidate_files])[:8]
-    ranked_candidate_dirs = unique_strings([*ranked_primary_dirs, *candidate_dirs])
+    ranked_candidate_files = filter_candidate_files_by_focus_boundary(
+        unique_strings([*ranked_primary_files, *anchors["entry_files"], *ranked_secondary_files, *candidate_files])[:8],
+        focus_boundary,
+    )
+    ranked_candidate_dirs = filter_candidate_files_by_focus_boundary(unique_strings([*ranked_primary_dirs, *candidate_dirs]), focus_boundary)
     primary = bool(ranked_candidate_files or matched_keywords or context_hits or symbol_hits or route_hits or commit_hits)
     role = "primary" if primary else "supporting"
-    facts = [
-        f"repo_path={discovery['repo_path']}",
-        "git repo" if discovery["is_git_repo"] else "selected path is not inside a git repo",
-        "AGENTS.md present" if discovery["agents_present"] else "AGENTS.md missing",
-        "context present" if discovery["context_present"] else "context missing",
-    ]
+    facts: list[str] = []
+    if discovery["agents_present"]:
+        facts.append("AGENTS.md present")
+    if discovery["context_present"]:
+        facts.append("context present")
     if anchor_selection.get("strongest_terms"):
         facts.append(f"anchor strongest_terms={', '.join([str(item) for item in anchor_selection['strongest_terms'][:4]])}")
     if symbol_hits:
@@ -886,7 +1134,7 @@ def build_repo_research_local(
         risks.append("未命中 repo context，链路推断主要来自目录、文件名和符号名。")
     if not discovery["agents_present"]:
         risks.append("缺少 AGENTS.md，仓库协作约束需要人工确认。")
-    strongest_terms = [str(item) for item in term_family.get("primary_family", [])] or [str(item) for item in anchor_selection.get("strongest_terms", [])]
+    strongest_terms = [str(item) for item in focus_boundary.get("in_scope_terms", [])] or [str(item) for item in term_family.get("primary_family", [])] or [str(item) for item in anchor_selection.get("strongest_terms", [])]
     generic_terms = {normalize_match_text(str(item)) for item in term_family.get("generic_terms", [])}
     secondary_terms = [
         str(item)
@@ -905,25 +1153,26 @@ def build_repo_research_local(
         keyword for keyword in matched_keywords if normalize_match_text(keyword) not in generic_terms
     ]
     entry_files = [str(item) for item in anchor_selection.get("entry_files", [])]
-    open_questions = [str(question) for question in term_family.get("open_questions", [])] + [str(question) for question in anchor_selection.get("open_questions", [])]
+    open_questions = [str(question) for question in focus_boundary.get("open_questions", [])] + [str(question) for question in term_family.get("open_questions", [])] + [str(question) for question in anchor_selection.get("open_questions", [])]
     if not discovery["is_git_repo"]:
         open_questions.append("该路径不是 git repo，是否应上卷到真实仓库根目录。")
     if not matched_keywords:
         open_questions.append("当前关键词未命中明显模块名，是否需要补充别名或业务术语。")
-    if entry_files:
-        open_questions.append(f"是否以 `{entry_files[0]}` 为第一跳入口文件。")
-    elif candidate_dirs:
-        open_questions.append(f"是否以 `{candidate_dirs[0]}` 为第一跳入口目录。")
     if strongest_terms and not route_hits:
-        open_questions.append(f"缺少明确路由信息，`{strongest_terms[0]}` 对应的 API 路径是什么？")
+        open_questions.append(f"`{strongest_terms[0]}` 对应的外部入口和上下游边界是否已经确认。")
+    likely_modules = filter_candidate_files_by_focus_boundary(
+        rank_likely_modules(ranked_candidate_dirs, anchors, discovery)[:6],
+        focus_boundary,
+    )[:6]
     return {
         "repo_id": discovery["repo_id"],
+        "repo_display_name": discovery.get("repo_display_name", discovery["repo_id"]),
         "repo_path": discovery["repo_path"],
         "requested_path": discovery["requested_path"],
         "executor": EXECUTOR_LOCAL,
         "requested_executor": EXECUTOR_LOCAL,
         "role": role,
-        "likely_modules": rank_likely_modules(ranked_candidate_dirs, anchors, discovery)[:6],
+        "likely_modules": likely_modules,
         "candidate_files": ranked_candidate_files,
         "route_hits": route_hits,
         "risks": risks,
@@ -944,9 +1193,10 @@ def build_repo_research_native(
     candidate_ranking: dict[str, object],
     anchor_selection: dict[str, object],
     term_family: dict[str, object],
+    focus_boundary: dict[str, object],
     settings: Settings,
 ) -> dict[str, object]:
-    fallback = build_repo_research_local(intent_payload, discovery, candidate_ranking, anchor_selection, term_family)
+    fallback = build_repo_research_local(intent_payload, discovery, candidate_ranking, anchor_selection, term_family, focus_boundary)
     repo_path = str(discovery["repo_path"]).strip()
     if not repo_path:
         raise ValueError("native repo research missing repo_path")
@@ -956,7 +1206,7 @@ def build_repo_research_native(
         settings=settings,
     )
     raw = client.run_readonly_agent(
-        build_repo_research_prompt(intent_payload, discovery, candidate_ranking, anchor_selection, term_family),
+        build_repo_research_prompt(intent_payload, discovery, candidate_ranking, anchor_selection, term_family, focus_boundary),
         settings.native_query_timeout,
         cwd=repo_path,
     )
@@ -995,10 +1245,1867 @@ def filter_candidate_files_by_term_family(
     return result[:8]
 
 
+def filter_text_signals_by_focus_boundary(
+    values: list[str],
+    focus_boundary: dict[str, object],
+) -> list[str]:
+    in_scope = [
+        normalize_match_text(str(term))
+        for term in focus_boundary.get("in_scope_terms", [])
+        if normalize_match_text(str(term))
+    ]
+    supporting = [
+        normalize_match_text(str(term))
+        for term in focus_boundary.get("supporting_terms", [])
+        if normalize_match_text(str(term))
+    ]
+    out_of_scope = [
+        normalize_match_text(str(term))
+        for term in focus_boundary.get("out_of_scope_terms", [])
+        if normalize_match_text(str(term))
+    ]
+    if not any([in_scope, supporting, out_of_scope]):
+        return unique_strings(values)
+
+    scored: list[tuple[int, str]] = []
+    for value in unique_strings(values):
+        normalized = normalize_match_text(value)
+        if not normalized:
+            continue
+        score = 0
+        if any(term and term in normalized for term in in_scope):
+            score += 6
+        if any(term and term in normalized for term in supporting):
+            score += 2
+        if any(term and term in normalized for term in out_of_scope):
+            score -= 8
+        if score >= 0:
+            scored.append((score, value))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    filtered = [value for _, value in scored]
+    return filtered or unique_strings(values[:4])
+
+
+def filter_candidate_files_by_focus_boundary(
+    values: list[str],
+    focus_boundary: dict[str, object],
+) -> list[str]:
+    in_scope = [
+        normalize_match_text(str(term))
+        for term in focus_boundary.get("in_scope_terms", [])
+        if normalize_match_text(str(term))
+    ]
+    supporting = [
+        normalize_match_text(str(term))
+        for term in focus_boundary.get("supporting_terms", [])
+        if normalize_match_text(str(term))
+    ]
+    out_of_scope = [
+        normalize_match_text(str(term))
+        for term in focus_boundary.get("out_of_scope_terms", [])
+        if normalize_match_text(str(term))
+    ]
+    if not any([in_scope, supporting, out_of_scope]):
+        return unique_strings(values)
+
+    scored: list[tuple[int, str]] = []
+    for value in unique_strings(values):
+        normalized = normalize_match_text(value)
+        if not normalized:
+            continue
+        score = 0
+        if any(term and term in normalized for term in in_scope):
+            score += 8
+        if any(term and term in normalized for term in supporting):
+            score += 2
+        if any(term and term in normalized for term in out_of_scope):
+            score -= 10
+        if score >= 0:
+            scored.append((score, value))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    filtered = [value for _, value in scored]
+    return filtered or unique_strings(values[:4])
+
+
+def build_topic_adjudication(
+    intent_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+    settings: Settings,
+    requested_executor: str,
+) -> dict[str, object]:
+    if requested_executor == EXECUTOR_NATIVE:
+        try:
+            return build_topic_adjudication_native(
+                intent_payload,
+                focus_boundary_payload,
+                repo_research_payloads,
+                settings,
+            )
+        except Exception as error:
+            local = build_topic_adjudication_local(intent_payload, focus_boundary_payload, repo_research_payloads)
+            local["requested_executor"] = requested_executor
+            local["fallback_reason"] = str(error)
+            return local
+    return build_topic_adjudication_local(intent_payload, focus_boundary_payload, repo_research_payloads)
+
+
+TOPIC_CONFIG_MARKERS = (
+    "config",
+    "schema",
+    "abtest",
+    "ab_test",
+    "experiment",
+    "gray",
+    "grey",
+    "flag",
+    "switch",
+    "toggle",
+    "enable",
+    "enabled",
+    "setting",
+    "param",
+    "option",
+)
+
+OPEN_QUESTION_SELF_REFLECTION_MARKERS = (
+    "当前相邻主题是否只应保留为背景",
+    "当前主链路场景槽位是否已经覆盖",
+    "是否应保留为背景",
+    "槽位是否已经覆盖",
+)
+
+OPEN_QUESTION_DISCOVERY_MARKERS = (
+    "具体实现位置",
+    "具体实现文件",
+    "具体入口文件",
+    "具体对应符号",
+    "具体handler",
+    "具体 handler",
+    "handler 文件",
+    "engine 和 converter",
+    "engine文件",
+    "converter文件",
+    "路由是什么",
+    "路由入口",
+    "相关路由或 handler",
+    "未扫描",
+    "实现逻辑在哪个文件",
+)
+
+OPEN_QUESTION_BOUNDARY_MARKERS = (
+    "边界",
+    "分工",
+    "职责",
+    "生产边界",
+    "兼容层",
+    "交互方式",
+)
+
+OPEN_QUESTION_AUTHORITY_MARKERS = (
+    "权威源",
+    "默认权威源",
+    "主来源",
+    "来源是否稳定",
+    "是否已经成为",
+)
+
+OPEN_QUESTION_COMPAT_MARKERS = (
+    "新旧架构",
+    "双轨",
+    "兼容",
+    "region",
+    "区域",
+    "是否仍有有效主链路",
+)
+
+
+def is_publishable_open_question(question: str) -> bool:
+    current = str(question).strip()
+    if not current:
+        return False
+    normalized = normalize_match_text(current)
+    if any(marker in current for marker in OPEN_QUESTION_SELF_REFLECTION_MARKERS):
+        return False
+    if any(normalize_match_text(marker) in normalized for marker in OPEN_QUESTION_DISCOVERY_MARKERS):
+        return False
+    return True
+
+
+def classify_open_question(question: str) -> str | None:
+    current = str(question).strip()
+    if not is_publishable_open_question(current):
+        return None
+    normalized = normalize_match_text(current)
+    if any(normalize_match_text(marker) in normalized for marker in OPEN_QUESTION_BOUNDARY_MARKERS):
+        return "boundary_question"
+    if any(normalize_match_text(marker) in normalized for marker in OPEN_QUESTION_AUTHORITY_MARKERS):
+        return "authority_question"
+    if any(normalize_match_text(marker) in normalized for marker in OPEN_QUESTION_COMPAT_MARKERS):
+        return "compat_question"
+    return "general_question"
+
+
+def filter_publishable_open_questions(questions: list[str], limit: int = 6) -> list[str]:
+    classified: dict[str, list[str]] = {
+        "boundary_question": [],
+        "authority_question": [],
+        "compat_question": [],
+        "general_question": [],
+    }
+    for question in unique_questions(questions):
+        category = classify_open_question(question)
+        if category is None:
+            continue
+        classified.setdefault(category, []).append(question)
+    ordered = [
+        *classified["boundary_question"],
+        *classified["authority_question"],
+        *classified["compat_question"],
+        *classified["general_question"],
+    ]
+    return ordered[:limit]
+
+
+def soften_repo_responsibility(value: str) -> str:
+    current = str(value).strip()
+    replacements = (
+        ("该repo是竞拍讲解卡系统的核心服务，负责数据组装和业务逻辑处理", "该 repo 负责竞拍讲解卡相关的数据组装与状态收敛"),
+        ("核心服务实现", "关键实现层"),
+        ("核心服务", "关键环节"),
+        ("业务逻辑处理", "数据处理与装配"),
+        ("承接竞拍（auction）讲解卡相关的业务逻辑", "承接竞拍讲解卡相关的数据装配与转换"),
+        ("承接竞拍讲解卡相关的业务逻辑", "承接竞拍讲解卡相关的数据装配与转换"),
+        ("该 repo 是竞拍讲解卡链路的核心服务实现", "该 repo 是竞拍讲解卡链路中的关键实现层"),
+    )
+    for source, target in replacements:
+        current = current.replace(source, target)
+    return current
+
+
+def classify_topic_term(
+    term: str,
+    intent_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+) -> str:
+    normalized = normalize_match_text(term)
+    if not normalized:
+        return "adjacent"
+    title_blob = normalize_match_text(
+        " ".join(
+            [
+                str(intent_payload.get("title") or ""),
+                str(intent_payload.get("description") or ""),
+                str(intent_payload.get("normalized_intent") or ""),
+                str(focus_boundary_payload.get("canonical_subject") or ""),
+            ]
+        )
+    )
+    in_scope = " ".join(str(item) for item in focus_boundary_payload.get("in_scope_terms", []))
+    supporting = " ".join(str(item) for item in focus_boundary_payload.get("supporting_terms", []))
+    if any(marker in normalized for marker in TOPIC_CONFIG_MARKERS):
+        return "config"
+    if "/" in term or "." in term or "_" in term:
+        return "technical"
+    if normalized in title_blob or title_blob in normalized:
+        return "core"
+    if normalized in normalize_match_text(in_scope):
+        return "core"
+    if normalized in normalize_match_text(supporting):
+        return "supporting"
+    return "adjacent"
+
+
+def collect_blocked_topic_terms(topic_adjudication_payload: dict[str, object]) -> list[str]:
+    return unique_strings(
+        [
+            *[str(item) for item in topic_adjudication_payload.get("adjacent_subjects", [])],
+            *[str(item) for item in topic_adjudication_payload.get("suppressed_terms", [])],
+        ]
+    )
+
+
+def post_process_topic_adjudication(
+    payload: dict[str, object],
+    intent_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+) -> dict[str, object]:
+    related: list[str] = []
+    adjacent: list[str] = []
+    suppressed: list[str] = []
+    for term in unique_strings(
+        [
+            *[str(item) for item in payload.get("related_subjects", [])],
+            *[str(item) for item in payload.get("adjacent_subjects", [])],
+            *[str(item) for item in payload.get("suppressed_terms", [])],
+        ]
+    ):
+        classification = classify_topic_term(term, intent_payload, focus_boundary_payload)
+        if classification in {"config", "technical", "adjacent"}:
+            adjacent.append(term)
+            suppressed.append(term)
+        else:
+            related.append(term)
+    suppressed_normalized = [normalize_match_text(value) for value in unique_strings(suppressed)]
+    suppressed_modules = unique_strings(
+        [
+            str(module)
+            for repo in repo_research_payloads
+            for module in _as_string_list(repo.get("likely_modules"))
+            if any(term and term in normalize_match_text(str(module)) for term in suppressed_normalized)
+        ]
+    )[:10]
+    suppressed_routes = unique_strings(
+        [
+            str(route)
+            for repo in repo_research_payloads
+            for route in _as_string_list(repo.get("route_hits"))
+            if any(term and term in normalize_match_text(str(route)) for term in suppressed_normalized)
+        ]
+    )[:10]
+    return {
+        **payload,
+        "related_subjects": unique_strings(related)[:10],
+        "adjacent_subjects": unique_strings(adjacent)[:8],
+        "suppressed_terms": unique_strings(suppressed)[:8],
+        "suppressed_modules": unique_strings(
+            [*suppressed_modules, *[str(item) for item in payload.get("suppressed_modules", [])]]
+        )[:10],
+        "suppressed_routes": unique_strings(
+            [*suppressed_routes, *[str(item) for item in payload.get("suppressed_routes", [])]]
+        )[:10],
+        "open_questions": filter_publishable_open_questions(
+            [
+                *[str(item) for item in payload.get("open_questions", [])],
+                "当前相邻主题是否只应保留为背景，而不进入主链路正文。" if adjacent else "",
+            ],
+            limit=6,
+        ),
+    }
+
+
+def build_topic_adjudication_local(
+    intent_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+) -> dict[str, object]:
+    related_subjects = unique_strings(
+        [
+            *[str(item) for item in focus_boundary_payload.get("in_scope_terms", [])],
+            *[str(item) for item in focus_boundary_payload.get("supporting_terms", [])],
+        ]
+    )[:10]
+    adjacent_subjects = unique_strings(
+        [str(item) for item in focus_boundary_payload.get("out_of_scope_terms", [])]
+    )[:8]
+    suppressed_modules = unique_strings(
+        [
+            module
+            for repo in repo_research_payloads
+            for module in _as_string_list(repo.get("likely_modules"))
+            if any(term and term in normalize_match_text(module) for term in [normalize_match_text(value) for value in adjacent_subjects])
+        ]
+    )[:10]
+    suppressed_routes = unique_strings(
+        [
+            route
+            for repo in repo_research_payloads
+            for route in _as_string_list(repo.get("route_hits"))
+            if any(term and term in normalize_match_text(route) for term in [normalize_match_text(value) for value in adjacent_subjects])
+        ]
+    )[:10]
+    open_questions = filter_publishable_open_questions(
+        [
+            *[str(item) for item in focus_boundary_payload.get("open_questions", [])[:2]],
+            "当前相邻主题是否只应保留为背景，而不进入主链路正文。" if adjacent_subjects else "",
+        ],
+    )
+    payload = {
+        "executor": EXECUTOR_LOCAL,
+        "requested_executor": EXECUTOR_LOCAL,
+        "primary_subject": str(focus_boundary_payload.get("canonical_subject") or intent_payload["normalized_intent"]),
+        "related_subjects": related_subjects,
+        "adjacent_subjects": adjacent_subjects,
+        "suppressed_terms": adjacent_subjects,
+        "suppressed_modules": suppressed_modules,
+        "suppressed_routes": suppressed_routes,
+        "reason": "基于主题边界的主术语、辅助术语和旁支术语，先收敛主主题与相邻主题。",
+        "open_questions": open_questions,
+    }
+    return post_process_topic_adjudication(payload, intent_payload, focus_boundary_payload, repo_research_payloads)
+
+
+def build_topic_adjudication_native(
+    intent_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+    settings: Settings,
+) -> dict[str, object]:
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    cwd = str(repo_research_payloads[0]["repo_path"]) if repo_research_payloads else None
+    raw = client.run_prompt_only(
+        build_topic_adjudication_prompt(intent_payload, focus_boundary_payload, repo_research_payloads),
+        settings.native_query_timeout,
+        cwd=cwd,
+    )
+    parsed = extract_topic_adjudication_output(raw)
+    fallback = build_topic_adjudication_local(intent_payload, focus_boundary_payload, repo_research_payloads)
+    merged = fallback | {
+        "executor": EXECUTOR_NATIVE,
+        "requested_executor": EXECUTOR_NATIVE,
+        "primary_subject": str(parsed.get("primary_subject") or fallback["primary_subject"]),
+        "related_subjects": unique_strings(parsed.get("related_subjects", []) + fallback["related_subjects"])[:10],
+        "adjacent_subjects": unique_strings(parsed.get("adjacent_subjects", []) + fallback["adjacent_subjects"])[:8],
+        "suppressed_terms": unique_strings(parsed.get("suppressed_terms", []) + fallback["suppressed_terms"])[:8],
+        "suppressed_modules": unique_strings(parsed.get("suppressed_modules", []) + fallback["suppressed_modules"])[:10],
+        "suppressed_routes": unique_strings(parsed.get("suppressed_routes", []) + fallback["suppressed_routes"])[:10],
+        "reason": str(parsed.get("reason") or fallback["reason"]),
+        "open_questions": unique_questions(parsed.get("open_questions", []) + fallback["open_questions"]),
+    }
+    return post_process_topic_adjudication(merged, intent_payload, focus_boundary_payload, repo_research_payloads)
+
+
+def build_repo_role_signals(
+    intent_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+    settings: Settings,
+    requested_executor: str,
+) -> list[dict[str, object]]:
+    if requested_executor == EXECUTOR_NATIVE:
+        try:
+            return build_repo_role_signals_native(
+                intent_payload,
+                topic_adjudication_payload,
+                repo_research_payloads,
+                settings,
+            )
+        except Exception:
+            results = build_repo_role_signals_local(intent_payload, topic_adjudication_payload, repo_research_payloads)
+            for item in results:
+                item["requested_executor"] = requested_executor
+            return results
+    return build_repo_role_signals_local(intent_payload, topic_adjudication_payload, repo_research_payloads)
+
+
+def build_repo_role_signals_local(
+    intent_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    del intent_payload
+    suppressed_terms = [normalize_match_text(item) for item in topic_adjudication_payload.get("suppressed_terms", [])]
+    results: list[dict[str, object]] = []
+    for item in repo_research_payloads:
+        modules = " ".join(_as_string_list(item.get("likely_modules"))).lower()
+        route_hits = _as_string_list(item.get("route_hits"))
+        route_blob = " ".join(route_hits).lower()
+        context_blob = " ".join(_as_string_list(item.get("context_hits"))).lower()
+        symbol_blob = " ".join(_as_string_list(item.get("symbol_hits"))).lower()
+        note_blob = " ".join(_as_string_list(item.get("facts")) + _as_string_list(item.get("inferences"))).lower()
+        service_or_room_signal = any(
+            token in modules or token in context_blob or token in symbol_blob
+            for token in ("enter_room", "room_preview", "room init", "room_info", "notify", "refresh")
+        )
+        has_external_entry_signal = bool(route_hits) or any(token in modules for token in ("handler", "router", "api", "http"))
+        has_http_api_signal = bool(route_hits) or any(token in modules for token in ("router", "api", "http", "preview", "pop"))
+        has_orchestration_signal = any(token in modules for token in ("engine", "converter", "provider", "loader", "dto", "assemble", "pack"))
+        if "dal/rpc" in modules or ("rpc" in modules and not has_http_api_signal):
+            has_orchestration_signal = False
+        has_service_aggregation_signal = service_or_room_signal or any(
+            token in modules for token in ("service", "handler", "dal/rpc", "notify")
+        )
+        has_frontend_assembly_signal = any(token in modules for token in ("bff", "lynx", "pincard", "view", "render"))
+        has_shared_capability_signal = any(token in modules for token in ("abtest", "schema", "config", "common", "cache", "relation", "util"))
+        has_runtime_update_signal = any(token in modules for token in ("notify", "message", "refresh", "im", "callback"))
+        suppressed_overlap = sum(
+            1
+            for term in suppressed_terms
+            if term and term in normalize_match_text(" ".join([modules, route_blob, context_blob, symbol_blob, note_blob]))
+        )
+        if suppressed_overlap >= 2 and has_shared_capability_signal:
+            has_external_entry_signal = False
+        role_label = resolve_role_label_from_signals(
+            has_external_entry_signal=has_external_entry_signal,
+            has_http_api_signal=has_http_api_signal,
+            has_orchestration_signal=has_orchestration_signal,
+            has_service_aggregation_signal=has_service_aggregation_signal,
+            has_frontend_assembly_signal=has_frontend_assembly_signal,
+            has_shared_capability_signal=has_shared_capability_signal,
+            has_runtime_update_signal=has_runtime_update_signal,
+        )
+        signal_notes = unique_strings(
+            [
+                "存在对外入口信号" if has_external_entry_signal else "",
+                "存在 HTTP/API 信号" if has_http_api_signal else "",
+                "存在数据编排信号" if has_orchestration_signal else "",
+                "存在服务聚合信号" if has_service_aggregation_signal else "",
+                "存在前端/BFF 装配信号" if has_frontend_assembly_signal else "",
+                "存在公共能力信号" if has_shared_capability_signal else "",
+                "存在运行时刷新信号" if has_runtime_update_signal else "",
+                "相邻主题命中较多，已对入口判断降权" if suppressed_overlap >= 2 else "",
+            ]
+        )
+        results.append(
+            {
+                "repo_id": str(item["repo_id"]),
+                "repo_display_name": str(item.get("repo_display_name") or item["repo_id"]),
+                "executor": EXECUTOR_LOCAL,
+                "requested_executor": EXECUTOR_LOCAL,
+                "has_external_entry_signal": has_external_entry_signal,
+                "has_http_api_signal": has_http_api_signal,
+                "has_orchestration_signal": has_orchestration_signal,
+                "has_frontend_assembly_signal": has_frontend_assembly_signal,
+                "has_shared_capability_signal": has_shared_capability_signal,
+                "has_runtime_update_signal": has_runtime_update_signal,
+                "signal_notes": signal_notes,
+                "resolved_role_label": role_label,
+                "open_questions": filter_publishable_open_questions(
+                    ["该 repo 的角色判断是否仍受到相邻主题噪音影响。" if suppressed_overlap >= 2 else ""]
+                ),
+            }
+        )
+    return results
+
+
+def build_repo_role_signals_native(
+    intent_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+    settings: Settings,
+) -> list[dict[str, object]]:
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    cwd = str(repo_research_payloads[0]["repo_path"]) if repo_research_payloads else None
+    raw = client.run_prompt_only(
+        build_repo_role_signals_prompt(intent_payload, topic_adjudication_payload, repo_research_payloads),
+        settings.native_query_timeout,
+        cwd=cwd,
+    )
+    parsed = extract_repo_role_signals_output(raw)
+    fallback = {
+        item["repo_id"]: item
+        for item in build_repo_role_signals_local(intent_payload, topic_adjudication_payload, repo_research_payloads)
+    }
+    merged: list[dict[str, object]] = []
+    for item in parsed:
+        repo_id = str(item["repo_id"])
+        base = fallback.get(repo_id, {})
+        merged.append(
+            {
+                **base,
+                **item,
+                "executor": EXECUTOR_NATIVE,
+                "requested_executor": EXECUTOR_NATIVE,
+                "repo_display_name": str(item.get("repo_display_name") or base.get("repo_display_name") or repo_id),
+                "signal_notes": unique_strings(_as_string_list(item.get("signal_notes")) + _as_string_list(base.get("signal_notes"))),
+                "open_questions": filter_publishable_open_questions(
+                    _as_string_list(item.get("open_questions")) + _as_string_list(base.get("open_questions"))
+                ),
+            }
+        )
+    for repo_id, item in fallback.items():
+        if not any(str(existing.get("repo_id")) == repo_id for existing in merged):
+            merged.append(item)
+    return merged
+
+
+def resolve_role_label_from_signals(
+    *,
+    has_external_entry_signal: bool,
+    has_http_api_signal: bool,
+    has_orchestration_signal: bool,
+    has_service_aggregation_signal: bool,
+    has_frontend_assembly_signal: bool,
+    has_shared_capability_signal: bool,
+    has_runtime_update_signal: bool,
+) -> str:
+    if has_frontend_assembly_signal:
+        return "前端/BFF 装配层"
+    if has_http_api_signal and has_external_entry_signal:
+        return "HTTP/API 入口"
+    if has_service_aggregation_signal and (has_runtime_update_signal or has_external_entry_signal):
+        return "服务聚合入口"
+    if has_orchestration_signal and not has_shared_capability_signal:
+        return "数据编排层"
+    if has_shared_capability_signal and not has_external_entry_signal and not has_http_api_signal:
+        return "公共能力底座"
+    if has_runtime_update_signal or has_service_aggregation_signal or has_external_entry_signal:
+        return "服务聚合入口"
+    if has_shared_capability_signal:
+        return "公共能力底座"
+    return "系统支撑仓库"
+
+
+def build_flow_slot_extraction(
+    intent_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    repo_research_payloads: list[dict[str, object]],
+    settings: Settings,
+    requested_executor: str,
+) -> dict[str, object]:
+    if requested_executor == EXECUTOR_NATIVE:
+        try:
+            return build_flow_slot_extraction_native(
+                intent_payload,
+                topic_adjudication_payload,
+                repo_role_signal_payloads,
+                repo_research_payloads,
+                settings,
+            )
+        except Exception as error:
+            local = build_flow_slot_extraction_local(
+                intent_payload,
+                topic_adjudication_payload,
+                repo_role_signal_payloads,
+                repo_research_payloads,
+            )
+            local["requested_executor"] = requested_executor
+            local["fallback_reason"] = str(error)
+            return local
+    return build_flow_slot_extraction_local(intent_payload, topic_adjudication_payload, repo_role_signal_payloads, repo_research_payloads)
+
+
+def build_flow_slot_extraction_local(
+    intent_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    repo_research_payloads: list[dict[str, object]],
+) -> dict[str, object]:
+    del intent_payload
+    signal_map = {str(item["repo_id"]): item for item in repo_role_signal_payloads}
+    repo_map = {str(item["repo_id"]): item for item in repo_research_payloads}
+
+    def build_slot(repo_ids: list[str], summary: str, action: str, output: str) -> dict[str, object]:
+        evidence = unique_strings(
+            [
+                *[
+                    str(value)
+                    for repo_id in repo_ids
+                    for value in repo_map.get(repo_id, {}).get("facts", [])[:2]
+                ],
+                *[
+                    str(value)
+                    for repo_id in repo_ids
+                    for value in signal_map.get(repo_id, {}).get("signal_notes", [])[:2]
+                ],
+            ]
+        )[:6]
+        return {
+            "repos": repo_ids,
+            "primary_repos": repo_ids[:2],
+            "summary": summary,
+            "action": action,
+            "output": output,
+            "evidence": evidence,
+        }
+
+    sync_repos = [repo_id for repo_id, signal in signal_map.items() if signal.get("resolved_role_label") == "服务聚合入口"]
+    async_repos = [repo_id for repo_id, signal in signal_map.items() if signal.get("resolved_role_label") == "HTTP/API 入口"]
+    orchestration_repos = [repo_id for repo_id, signal in signal_map.items() if signal.get("resolved_role_label") == "数据编排层"]
+    runtime_repos = [repo_id for repo_id, signal in signal_map.items() if signal.get("has_runtime_update_signal")]
+    frontend_repos = [repo_id for repo_id, signal in signal_map.items() if signal.get("resolved_role_label") == "前端/BFF 装配层"]
+    support_repos = [repo_id for repo_id, signal in signal_map.items() if signal.get("resolved_role_label") == "公共能力底座"]
+
+    slots = {
+        "executor": EXECUTOR_LOCAL,
+        "requested_executor": EXECUTOR_LOCAL,
+        "sync_entry_or_init": build_slot(sync_repos[:2], f"同步入口或初始化通常由 {', '.join(f'`{repo_id}`' for repo_id in sync_repos[:2])} 承接。", "聚合同步进房或初始化参数", "进房初始化数据") if sync_repos else {},
+        "async_preview_or_pre_enter": build_slot(async_repos[:2], f"异步预览或进房前链路通常由 {', '.join(f'`{repo_id}`' for repo_id in async_repos[:2])} 承接。", "提供 preview/pop 等异步入口", "预览态讲解卡数据") if async_repos else {},
+        "data_orchestration": build_slot(orchestration_repos[:2], f"主数据编排通常由 {', '.join(f'`{repo_id}`' for repo_id in orchestration_repos[:2])} 完成。", "收敛配置、状态和商品模型", "竞拍卡数据结构") if orchestration_repos else {},
+        "runtime_update_or_notification": build_slot(runtime_repos[:2], f"运行时刷新或通知通常由 {', '.join(f'`{repo_id}`' for repo_id in runtime_repos[:2])} 负责。", "处理事件刷新或通知分发", "客户端刷新或通知事件") if runtime_repos else {},
+        "frontend_bff_transform": build_slot(frontend_repos[:2], f"前端/BFF 形态转换通常由 {', '.join(f'`{repo_id}`' for repo_id in frontend_repos[:2])} 承担。", "把上游数据装配成展示形态", "前端/BFF 可消费结构") if frontend_repos else {},
+        "config_or_experiment_support": build_slot(support_repos[:2], f"配置或实验支撑通常由 {', '.join(f'`{repo_id}`' for repo_id in support_repos[:2])} 提供。", "提供配置、AB 和 schema 支撑", "开关与共享配置能力") if support_repos else {},
+        "open_questions": filter_publishable_open_questions(
+            [
+                "当前主链路场景槽位是否已经覆盖同步、异步、编排和展示四类关键阶段。",
+            ],
+        ),
+    }
+    return sanitize_flow_slot_payload(slots, topic_adjudication_payload)
+
+
+def build_flow_slot_extraction_native(
+    intent_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    repo_research_payloads: list[dict[str, object]],
+    settings: Settings,
+) -> dict[str, object]:
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    cwd = str(repo_research_payloads[0]["repo_path"]) if repo_research_payloads else None
+    raw = client.run_prompt_only(
+        build_flow_slot_extraction_prompt(intent_payload, topic_adjudication_payload, repo_role_signal_payloads, repo_research_payloads),
+        settings.native_query_timeout,
+        cwd=cwd,
+    )
+    parsed = extract_flow_slot_extraction_output(raw)
+    fallback = build_flow_slot_extraction_local(intent_payload, topic_adjudication_payload, repo_role_signal_payloads, repo_research_payloads)
+    merged = fallback | {
+        "executor": EXECUTOR_NATIVE,
+        "requested_executor": EXECUTOR_NATIVE,
+        "open_questions": filter_publishable_open_questions(
+            parsed.get("open_questions", []) + fallback.get("open_questions", [])
+        ),
+    }
+    for slot in (
+        "sync_entry_or_init",
+        "async_preview_or_pre_enter",
+        "data_orchestration",
+        "runtime_update_or_notification",
+        "frontend_bff_transform",
+        "config_or_experiment_support",
+    ):
+        current = parsed.get(slot) if isinstance(parsed.get(slot), dict) else {}
+        merged[slot] = current or fallback.get(slot, {})
+    return sanitize_flow_slot_payload(merged, topic_adjudication_payload)
+
+
+def slot_default_summary(slot: str, repos: list[str]) -> str:
+    repo_text = "、".join(f"`{repo_id}`" for repo_id in repos[:3]) or "相关仓库"
+    if slot == "sync_entry_or_init":
+        return f"同步进房初始化链路由 {repo_text} 承接，负责基础信息和初始化数据聚合。"
+    if slot == "async_preview_or_pre_enter":
+        return f"异步预览或进房前链路由 {repo_text} 承接，负责预览态或进房前数据获取。"
+    if slot == "data_orchestration":
+        return f"主数据编排链路由 {repo_text} 完成，负责状态与展示数据收敛。"
+    if slot == "runtime_update_or_notification":
+        return f"运行时刷新或通知链路由 {repo_text} 负责，承接事件变化后的更新分发。"
+    if slot == "frontend_bff_transform":
+        return f"前端/BFF 形态转换由 {repo_text} 承担，负责把上游数据组装成前端可消费结构。"
+    if slot == "config_or_experiment_support":
+        return f"配置与实验支撑由 {repo_text} 提供，负责开关、实验和 schema 等辅助能力。"
+    return ""
+
+
+def render_flow_slot_sentence(slot: dict[str, object], fallback_summary: str) -> str:
+    primary_repos = _as_string_list(slot.get("primary_repos")) or _as_string_list(slot.get("repos"))
+    action = str(slot.get("action") or "").strip()
+    output = str(slot.get("output") or "").strip()
+    if not primary_repos or not action or not output:
+        return fallback_summary
+    repo_text = "、".join(f"`{repo}`" for repo in primary_repos[:2])
+    return f"{repo_text} 负责{action}，输出{output}。"
+
+
+def contains_implementation_symbol(text: str) -> bool:
+    return bool(text and re.search(r"\b[A-Z][A-Za-z0-9_]{5,}\b", text))
+
+
+def sanitize_flow_slot_payload(
+    payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+) -> dict[str, object]:
+    blocked_terms = [normalize_match_text(item) for item in collect_blocked_topic_terms(topic_adjudication_payload)]
+    result = dict(payload)
+    for slot in (
+        "sync_entry_or_init",
+        "async_preview_or_pre_enter",
+        "data_orchestration",
+        "runtime_update_or_notification",
+        "frontend_bff_transform",
+        "config_or_experiment_support",
+    ):
+        current = result.get(slot)
+        if not isinstance(current, dict) or not current:
+            continue
+        summary = str(current.get("summary") or "").strip()
+        repos = _as_string_list(current.get("repos"))
+        normalized = normalize_match_text(summary)
+        if slot != "config_or_experiment_support" and any(
+            term and term in normalized for term in blocked_terms
+        ):
+            current = {**current, "summary": slot_default_summary(slot, repos)}
+        elif slot != "config_or_experiment_support" and contains_implementation_symbol(summary):
+            current = {**current, "summary": slot_default_summary(slot, repos)}
+        elif slot == "config_or_experiment_support" and (
+            not summary or any(marker in normalized for marker in TOPIC_CONFIG_MARKERS)
+        ):
+            current = {**current, "summary": slot_default_summary(slot, repos)}
+        if current.get("summary"):
+            current = {**current, "summary": render_flow_slot_sentence(current, str(current.get("summary") or ""))}
+        result[slot] = current
+    return result
+
+
+def build_flow_judge(
+    documents: list[KnowledgeDocument],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    flow_slot_payload: dict[str, object],
+    settings: Settings,
+    requested_executor: str,
+) -> dict[str, object]:
+    if requested_executor == EXECUTOR_NATIVE:
+        try:
+            return build_flow_judge_native(
+                documents,
+                topic_adjudication_payload,
+                repo_role_signal_payloads,
+                flow_slot_payload,
+                settings,
+            )
+        except Exception as error:
+            local = build_flow_judge_local(documents, topic_adjudication_payload, repo_role_signal_payloads, flow_slot_payload)
+            local["requested_executor"] = requested_executor
+            local["fallback_reason"] = str(error)
+            return local
+    return build_flow_judge_local(documents, topic_adjudication_payload, repo_role_signal_payloads, flow_slot_payload)
+
+
+def build_flow_judge_local(
+    documents: list[KnowledgeDocument],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    flow_slot_payload: dict[str, object],
+) -> dict[str, object]:
+    blocked_terms = [normalize_match_text(item) for item in collect_blocked_topic_terms(topic_adjudication_payload)]
+    public_repos = {
+        str(item["repo_id"])
+        for item in repo_role_signal_payloads
+        if str(item.get("resolved_role_label") or "") == "公共能力底座"
+    }
+    findings: list[dict[str, object]] = []
+    for document in documents:
+        if document.kind != "flow":
+            continue
+        summary_text = extract_markdown_section(document.body, "## Summary")
+        main_flow_text = extract_markdown_section(document.body, "## Main Flow")
+        open_question_text = extract_markdown_section(document.body, "## Open Questions")
+        normalized_summary = normalize_match_text(summary_text)
+        normalized_main_flow = normalize_match_text(main_flow_text)
+        normalized_questions = normalize_match_text(open_question_text)
+
+        summary_first_paragraph = normalize_match_text(summary_text.split("\n\n")[0] if summary_text else "")
+        main_flow_lines = [normalize_match_text(line) for line in main_flow_text.splitlines() if line.strip()]
+        main_flow_primary_lines = [
+            line for line in main_flow_lines
+            if not any(token in line for token in ("配置", "实验", "支撑", "schema", "ab"))
+        ]
+        hit_terms = [
+            term
+            for term in blocked_terms
+            if term and (term in summary_first_paragraph or any(term in line for line in main_flow_primary_lines[:4]))
+        ]
+        if hit_terms:
+            findings.append(
+                {
+                    "severity": "high",
+                    "code": "suppressed_topic_in_mainline",
+                    "document_id": document.id,
+                    "message": f"主线正文仍出现被压制的相邻主题：{', '.join(hit_terms[:3])}",
+                }
+            )
+
+        question_terms = [term for term in blocked_terms if term and term in normalized_questions]
+        if question_terms:
+            findings.append(
+                {
+                    "severity": "medium",
+                    "code": "suppressed_topic_in_questions",
+                    "document_id": document.id,
+                    "message": f"Open Questions 仍围绕被压制主题展开：{', '.join(question_terms[:3])}",
+                }
+            )
+
+        first_step = main_flow_text.splitlines()[0] if main_flow_text.strip() else ""
+        for repo_id in public_repos:
+            if repo_id in first_step or repo_id in summary_text.splitlines()[0:1]:
+                findings.append(
+                    {
+                        "severity": "medium",
+                        "code": "shared_repo_as_entry",
+                        "document_id": document.id,
+                        "message": f"公共能力仓库 `{repo_id}` 被写到了主入口位置。",
+                    }
+                )
+
+        if not any(isinstance(flow_slot_payload.get(slot), dict) and flow_slot_payload.get(slot) for slot in (
+            "sync_entry_or_init",
+            "async_preview_or_pre_enter",
+            "data_orchestration",
+            "frontend_bff_transform",
+        )):
+            findings.append(
+                {
+                    "severity": "medium",
+                    "code": "flow_slots_too_sparse",
+                    "document_id": document.id,
+                    "message": "Main Flow 槽位仍然过 sparse，主链路阶段覆盖不足。",
+                }
+            )
+    must_rewrite_summary = any(item.get("code") == "suppressed_topic_in_mainline" for item in findings)
+    must_prune_open_questions = any(
+        item.get("code") in {"suppressed_topic_in_questions", "open_questions_around_suppressed_adjacent"}
+        for item in findings
+    )
+    must_rewrite_flow_steps = must_rewrite_summary or any(
+        item.get("code") == "shared_repo_as_entry" for item in findings
+    )
+    return {
+        "executor": EXECUTOR_LOCAL,
+        "requested_executor": EXECUTOR_LOCAL,
+        "passed": not findings,
+        "findings": findings,
+        "must_rewrite_summary": must_rewrite_summary,
+        "must_rewrite_flow_steps": must_rewrite_flow_steps,
+        "must_prune_open_questions": must_prune_open_questions,
+    }
+
+
+def build_flow_judge_native(
+    documents: list[KnowledgeDocument],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    flow_slot_payload: dict[str, object],
+    settings: Settings,
+) -> dict[str, object]:
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    cwd = None
+    raw = client.run_prompt_only(
+        build_flow_judge_prompt(
+            [serialize_document(document) for document in documents],
+            topic_adjudication_payload,
+            repo_role_signal_payloads,
+            flow_slot_payload,
+        ),
+        settings.native_query_timeout,
+        cwd=cwd,
+    )
+    parsed = extract_flow_judge_output(raw)
+    fallback = build_flow_judge_local(documents, topic_adjudication_payload, repo_role_signal_payloads, flow_slot_payload)
+    merged_findings = list(fallback.get("findings", []))
+    seen = {
+        (
+            str(item.get("document_id") or ""),
+            str(item.get("code") or ""),
+            str(item.get("message") or ""),
+        )
+        for item in merged_findings
+        if isinstance(item, dict)
+    }
+    for item in parsed.get("findings", []):
+        if not isinstance(item, dict):
+            continue
+        key = (
+            str(item.get("document_id") or ""),
+            str(item.get("code") or ""),
+            str(item.get("message") or ""),
+        )
+        if key in seen:
+            continue
+        merged_findings.append(item)
+        seen.add(key)
+    return {
+        "executor": EXECUTOR_NATIVE,
+        "requested_executor": EXECUTOR_NATIVE,
+        "passed": not merged_findings,
+        "findings": merged_findings,
+        "must_rewrite_summary": any(item.get("code") == "suppressed_topic_in_mainline" for item in merged_findings),
+        "must_rewrite_flow_steps": any(
+            item.get("code") in {"suppressed_topic_in_mainline", "shared_repo_as_entry"} for item in merged_findings
+        ),
+        "must_prune_open_questions": any(
+            item.get("code") in {"suppressed_topic_in_questions", "open_questions_around_suppressed_adjacent"}
+            for item in merged_findings
+        ),
+    }
+
+
+def apply_flow_judge_notes(
+    documents: list[KnowledgeDocument],
+    flow_judge_payload: dict[str, object],
+    *,
+    intent_payload: dict[str, object],
+    storyline_outline_payload: dict[str, object],
+    flow_slot_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+    topic_adjudication_payload: dict[str, object],
+) -> list[KnowledgeDocument]:
+    findings_by_doc: dict[str, list[str]] = {}
+    for item in flow_judge_payload.get("findings", []):
+        if not isinstance(item, dict):
+            continue
+        document_id = str(item.get("document_id") or "").strip()
+        message = str(item.get("message") or "").strip()
+        if not document_id or not message:
+            continue
+        findings_by_doc.setdefault(document_id, []).append(message)
+    if not findings_by_doc:
+        return documents
+    result: list[KnowledgeDocument] = []
+    blocked_terms = [normalize_match_text(item) for item in collect_blocked_topic_terms(topic_adjudication_payload)]
+    for document in documents:
+        notes = findings_by_doc.get(document.id)
+        if not notes:
+            result.append(document)
+            continue
+        retrieval_notes = list(document.evidence.retrievalNotes)
+        retrieval_notes.append(f"flow judge findings: {'；'.join(notes[:3])}")
+        updated_document = document
+        if document.kind == "flow":
+            rewritten_outline = sanitize_storyline_outline(
+                dict(storyline_outline_payload),
+                intent_payload,
+                topic_adjudication_payload,
+            )
+            if flow_judge_payload.get("must_rewrite_summary"):
+                rewritten_outline["system_summary"] = sanitize_storyline_summary_lines(
+                    _as_string_list(rewritten_outline.get("system_summary")),
+                    intent_payload,
+                )
+            if flow_judge_payload.get("must_rewrite_flow_steps"):
+                rewritten_outline["main_flow_steps"] = sanitize_storyline_steps(
+                    build_storyline_steps_local(flow_slot_payload, rewritten_outline.get("repo_hints", [])),
+                    topic_adjudication_payload,
+                )
+            open_questions = list(document.evidence.openQuestions)
+            if flow_judge_payload.get("must_prune_open_questions"):
+                open_questions = filter_publishable_open_questions(
+                    [
+                        question
+                        for question in open_questions
+                        if not any(term and term in normalize_match_text(question) for term in blocked_terms)
+                    ],
+                    limit=8,
+                )
+            rebuilt_body = soften_weak_claims(
+                build_body("flow", intent_payload, repo_research_payloads, rewritten_outline, open_questions)
+            )
+            updated_document = document.model_copy(
+                update={
+                    "body": rebuilt_body,
+                    "evidence": document.evidence.model_copy(
+                        update={
+                            "openQuestions": filter_publishable_open_questions(open_questions, limit=8),
+                            "retrievalNotes": retrieval_notes,
+                        }
+                    ),
+                }
+            )
+        else:
+            updated_document = document.model_copy(
+                update={
+                    "evidence": document.evidence.model_copy(update={"retrievalNotes": retrieval_notes})
+                }
+            )
+        result.append(updated_document)
+    return result
+
+
+def build_flow_final_editor(
+    documents: list[KnowledgeDocument],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    flow_slot_payload: dict[str, object],
+    storyline_outline_payload: dict[str, object],
+    flow_judge_payload: dict[str, object],
+    settings: Settings,
+    requested_executor: str,
+) -> dict[str, object]:
+    if requested_executor == EXECUTOR_NATIVE:
+        try:
+            return build_flow_final_editor_native(
+                documents,
+                topic_adjudication_payload,
+                repo_role_signal_payloads,
+                flow_slot_payload,
+                storyline_outline_payload,
+                flow_judge_payload,
+                settings,
+            )
+        except Exception as error:
+            return {
+                "executor": EXECUTOR_LOCAL,
+                "requested_executor": requested_executor,
+                "fallback_reason": str(error),
+                "documents": [],
+            }
+    return {
+        "executor": EXECUTOR_LOCAL,
+        "requested_executor": requested_executor,
+        "documents": [],
+    }
+
+
+def build_flow_final_editor_native(
+    documents: list[KnowledgeDocument],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    flow_slot_payload: dict[str, object],
+    storyline_outline_payload: dict[str, object],
+    flow_judge_payload: dict[str, object],
+    settings: Settings,
+) -> dict[str, object]:
+    flow_document = next((document for document in documents if document.kind == "flow"), None)
+    if flow_document is None:
+        return {"executor": EXECUTOR_NATIVE, "requested_executor": EXECUTOR_NATIVE, "documents": []}
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    raw = client.run_prompt_only(
+        build_flow_final_editor_prompt(
+            serialize_document(flow_document),
+            topic_adjudication_payload,
+            repo_role_signal_payloads,
+            flow_slot_payload,
+            storyline_outline_payload,
+            flow_judge_payload,
+        ),
+        settings.native_query_timeout,
+        cwd=None,
+    )
+    parsed = extract_flow_final_editor_output(raw)
+    return {
+        "executor": EXECUTOR_NATIVE,
+        "requested_executor": EXECUTOR_NATIVE,
+        "documents": [{"document_id": flow_document.id, **parsed}],
+    }
+
+
+def apply_flow_final_editor(
+    documents: list[KnowledgeDocument],
+    flow_final_editor_payload: dict[str, object],
+) -> list[KnowledgeDocument]:
+    edits = {
+        str(item.get("document_id") or ""): item
+        for item in flow_final_editor_payload.get("documents", [])
+        if isinstance(item, dict)
+    }
+    if not edits:
+        return documents
+    result: list[KnowledgeDocument] = []
+    for document in documents:
+        edit = edits.get(document.id)
+        if not edit or document.kind != "flow":
+            result.append(document)
+            continue
+        body = document.body
+        body = replace_markdown_section(body, "## Summary", "\n\n".join(_as_string_list(edit.get("summary_lines"))))
+        body = replace_markdown_section(body, "## Main Flow", "\n".join(render_numbered_lines(_as_string_list(edit.get("main_flow_steps")))))
+        body = replace_markdown_section(body, "## Dependencies", "\n".join(render_bulleted_lines(_as_string_list(edit.get("dependency_lines")))))
+        body = replace_markdown_section(body, "## Open Questions", "\n".join(render_bulleted_lines(_as_string_list(edit.get("open_questions")))))
+        result.append(
+            document.model_copy(
+                update={
+                    "body": body,
+                    "evidence": document.evidence.model_copy(
+                        update={"openQuestions": filter_publishable_open_questions(_as_string_list(edit.get("open_questions")), limit=6)}
+                    ),
+                }
+            )
+        )
+    return result
+
+
+def build_flow_final_polisher(
+    documents: list[KnowledgeDocument],
+    flow_final_editor_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    flow_judge_payload: dict[str, object],
+    settings: Settings,
+    requested_executor: str,
+) -> dict[str, object]:
+    if requested_executor == EXECUTOR_NATIVE:
+        try:
+            return build_flow_final_polisher_native(
+                documents,
+                flow_final_editor_payload,
+                topic_adjudication_payload,
+                repo_role_signal_payloads,
+                flow_judge_payload,
+                settings,
+            )
+        except Exception as error:
+            return {
+                "executor": EXECUTOR_LOCAL,
+                "requested_executor": requested_executor,
+                "fallback_reason": str(error),
+                "documents": [],
+            }
+    return {
+        "executor": EXECUTOR_LOCAL,
+        "requested_executor": requested_executor,
+        "documents": [],
+    }
+
+
+def build_flow_final_polisher_native(
+    documents: list[KnowledgeDocument],
+    flow_final_editor_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    flow_judge_payload: dict[str, object],
+    settings: Settings,
+) -> dict[str, object]:
+    flow_document = next((document for document in documents if document.kind == "flow"), None)
+    if flow_document is None:
+        return {"executor": EXECUTOR_NATIVE, "requested_executor": EXECUTOR_NATIVE, "documents": []}
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    raw = client.run_prompt_only(
+        build_flow_final_polisher_prompt(
+            serialize_document(flow_document),
+            flow_final_editor_payload,
+            topic_adjudication_payload,
+            repo_role_signal_payloads,
+            flow_judge_payload,
+        ),
+        settings.native_query_timeout,
+        cwd=None,
+    )
+    parsed = extract_flow_final_polisher_output(raw)
+    return {
+        "executor": EXECUTOR_NATIVE,
+        "requested_executor": EXECUTOR_NATIVE,
+        "documents": [{"document_id": flow_document.id, **parsed}],
+    }
+
+
+def apply_flow_final_polisher(
+    documents: list[KnowledgeDocument],
+    flow_final_polisher_payload: dict[str, object],
+) -> list[KnowledgeDocument]:
+    edits = {
+        str(item.get("document_id") or ""): item
+        for item in flow_final_polisher_payload.get("documents", [])
+        if isinstance(item, dict)
+    }
+    if not edits:
+        return documents
+    result: list[KnowledgeDocument] = []
+    for document in documents:
+        edit = edits.get(document.id)
+        if not edit or document.kind != "flow":
+            result.append(document)
+            continue
+        body = document.body
+        body = replace_markdown_section(body, "## Summary", "\n\n".join(_as_string_list(edit.get("summary_lines"))))
+        body = replace_markdown_section(body, "## Main Flow", "\n".join(render_numbered_lines(_as_string_list(edit.get("main_flow_steps")))))
+        body = replace_markdown_section(body, "## Dependencies", "\n".join(render_bulleted_lines(_as_string_list(edit.get("dependency_lines")))))
+        body = replace_markdown_section(body, "## Open Questions", "\n".join(render_bulleted_lines(_as_string_list(edit.get("open_questions")))))
+        result.append(
+            document.model_copy(
+                update={
+                    "body": body,
+                    "evidence": document.evidence.model_copy(
+                        update={"openQuestions": filter_publishable_open_questions(_as_string_list(edit.get("open_questions")), limit=6)}
+                    ),
+                }
+            )
+        )
+    return result
+
+
+def replace_markdown_section(body: str, heading: str, new_content: str) -> str:
+    marker = f"{heading}\n"
+    start = body.find(marker)
+    if start == -1:
+        return body
+    content_start = start + len(marker)
+    remainder = body[content_start:]
+    next_heading = remainder.find("\n## ")
+    if next_heading == -1:
+        return body[:content_start] + new_content.strip()
+    return body[:content_start] + new_content.strip() + remainder[next_heading:]
+
+
+def render_numbered_lines(lines: list[str]) -> list[str]:
+    return [f"{index}. {str(line).strip()}" for index, line in enumerate(lines, start=1) if str(line).strip()]
+
+
+def render_bulleted_lines(lines: list[str]) -> list[str]:
+    return [f"- {str(line).strip()}" for line in lines if str(line).strip()]
+
+
+def extract_markdown_section(body: str, heading: str) -> str:
+    marker = f"{heading}\n"
+    start = body.find(marker)
+    if start == -1:
+        return ""
+    content_start = start + len(marker)
+    remainder = body[content_start:]
+    next_heading = remainder.find("\n## ")
+    if next_heading == -1:
+        return remainder.strip()
+    return remainder[:next_heading].strip()
+
+
+def build_storyline_outline(
+    intent_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    flow_slot_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+    settings: Settings,
+    requested_executor: str,
+) -> dict[str, object]:
+    if requested_executor == EXECUTOR_NATIVE:
+        try:
+            return build_storyline_outline_native(
+                intent_payload,
+                focus_boundary_payload,
+                topic_adjudication_payload,
+                repo_role_signal_payloads,
+                flow_slot_payload,
+                repo_research_payloads,
+                settings,
+            )
+        except Exception as error:
+            local = build_storyline_outline_local(
+                intent_payload,
+                focus_boundary_payload,
+                topic_adjudication_payload,
+                repo_role_signal_payloads,
+                flow_slot_payload,
+                repo_research_payloads,
+            )
+            local["requested_executor"] = requested_executor
+            local["fallback_reason"] = str(error)
+            return local
+    return build_storyline_outline_local(
+        intent_payload,
+        focus_boundary_payload,
+        topic_adjudication_payload,
+        repo_role_signal_payloads,
+        flow_slot_payload,
+        repo_research_payloads,
+    )
+
+
+def build_storyline_outline_local(
+    intent_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    flow_slot_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+) -> dict[str, object]:
+    signal_map = {str(item["repo_id"]): item for item in repo_role_signal_payloads}
+    repo_hints = [
+        build_repo_hint_outline(item, signal_map.get(str(item["repo_id"]), {}), topic_adjudication_payload)
+        for item in repo_research_payloads
+    ]
+    ordered_hints = sorted(repo_hints, key=repo_outline_sort_key)
+    primary_subject = str(
+        topic_adjudication_payload.get("primary_subject")
+        or focus_boundary_payload.get("canonical_subject")
+        or intent_payload["normalized_intent"]
+    )
+    system_summary = [
+        f"{primary_subject} 主要由 {', '.join(f'`{item['repo_id']}`' for item in ordered_hints[:3])} 等仓库协作完成。"
+    ]
+    if any(item["role_label"] == "公共能力底座" for item in ordered_hints):
+        system_summary.append("公共能力仓库更多提供 AB、schema、配置或共享工具，不直接承担主链路编排。")
+    main_flow_steps = build_storyline_steps_local(flow_slot_payload, ordered_hints)
+    dependencies = build_dependency_lines_local(ordered_hints, repo_research_payloads)
+    open_questions = filter_publishable_open_questions(
+        [
+            *[str(item) for item in focus_boundary_payload.get("open_questions", [])],
+            *[str(item) for item in topic_adjudication_payload.get("open_questions", [])],
+            *[str(item) for item in flow_slot_payload.get("open_questions", [])],
+            *[str(question) for repo in repo_research_payloads for question in repo.get("open_questions", [])[:1]],
+        ],
+        limit=6,
+    )
+    domain_summary = [
+        f"{primary_subject} 关注入口、状态、编排和前端展示之间的协作关系。"
+    ]
+    outline = {
+        "executor": EXECUTOR_LOCAL,
+        "requested_executor": EXECUTOR_LOCAL,
+        "system_summary": system_summary[:4],
+        "main_flow_steps": main_flow_steps[:6],
+        "dependencies": dependencies[:8],
+        "repo_hints": ordered_hints,
+        "domain_summary": domain_summary[:4],
+        "open_questions": open_questions,
+    }
+    return sanitize_storyline_outline(outline, intent_payload, topic_adjudication_payload)
+
+
+def build_storyline_outline_native(
+    intent_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+    repo_role_signal_payloads: list[dict[str, object]],
+    flow_slot_payload: dict[str, object],
+    repo_research_payloads: list[dict[str, object]],
+    settings: Settings,
+) -> dict[str, object]:
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    cwd = str(repo_research_payloads[0]["repo_path"]) if repo_research_payloads else None
+    raw = client.run_prompt_only(
+        build_storyline_outline_prompt(
+            intent_payload,
+            focus_boundary_payload,
+            topic_adjudication_payload,
+            repo_role_signal_payloads,
+            flow_slot_payload,
+            repo_research_payloads,
+        ),
+        settings.native_query_timeout,
+        cwd=cwd,
+    )
+    parsed = extract_storyline_outline_output(raw)
+    fallback = build_storyline_outline_local(
+        intent_payload,
+        focus_boundary_payload,
+        topic_adjudication_payload,
+        repo_role_signal_payloads,
+        flow_slot_payload,
+        repo_research_payloads,
+    )
+    merged_repo_hints = merge_storyline_repo_hints(fallback["repo_hints"], parsed["repo_hints"])
+    outline = fallback | {
+        "executor": EXECUTOR_NATIVE,
+        "requested_executor": EXECUTOR_NATIVE,
+        "system_summary": parsed["system_summary"] or fallback["system_summary"],
+        "main_flow_steps": parsed["main_flow_steps"] or fallback["main_flow_steps"],
+        "dependencies": parsed["dependencies"] or fallback["dependencies"],
+        "repo_hints": merged_repo_hints or fallback["repo_hints"],
+        "domain_summary": parsed["domain_summary"] or fallback["domain_summary"],
+        "open_questions": unique_questions(parsed["open_questions"] + fallback["open_questions"]),
+    }
+    return sanitize_storyline_outline(outline, intent_payload, topic_adjudication_payload)
+
+
+def build_repo_hint_outline(
+    item: dict[str, object],
+    role_signal: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+) -> dict[str, object]:
+    repo_id = str(item["repo_id"])
+    repo_display_name = str(item.get("repo_display_name") or repo_id)
+    role = str(item.get("role") or "unknown")
+    suppressed_terms = [normalize_match_text(value) for value in topic_adjudication_payload.get("suppressed_terms", [])]
+    likely_modules = [
+        str(value)
+        for value in item.get("likely_modules", [])
+        if not any(term and term in normalize_match_text(str(value)) for term in suppressed_terms)
+    ][:5]
+    role_label = str(role_signal.get("resolved_role_label") or infer_repo_role_label(role, likely_modules, item))
+    responsibilities = infer_repo_responsibilities(item, role_label)
+    upstream = infer_repo_connections(item, "upstream")
+    downstream = infer_repo_connections(item, "downstream")
+    notes = unique_strings(
+        [
+            *[str(value) for value in role_signal.get("signal_notes", [])[:2]],
+            *[str(value) for value in item.get("risks", [])[:2]],
+        ]
+    )[:4]
+    return {
+        "repo_id": repo_id,
+        "repo_display_name": repo_display_name,
+        "role_label": role_label,
+        "key_modules": normalize_outline_modules(likely_modules),
+        "responsibilities": responsibilities,
+        "upstream": upstream,
+        "downstream": downstream,
+        "notes": notes,
+    }
+
+
+def sanitize_storyline_summary_lines(
+    summary_lines: list[str],
+    intent_payload: dict[str, object],
+) -> list[str]:
+    if not summary_lines:
+        return [f"{intent_payload['normalized_intent']} 主要围绕入口收敛、主数据编排和前端展示装配展开。"]
+    normalized_intent = str(intent_payload.get("normalized_intent") or "")
+    rewritten: list[str] = []
+    for line in summary_lines:
+        current = str(line).strip()
+        if not current:
+            continue
+        if "由" in current and "承接" in current and "负责" in current and "提供" in current:
+            rewritten.append(
+                f"{normalized_intent} 由 HTTP/API 入口、数据编排层、前端/BFF 装配层和公共能力底座共同组成。"
+            )
+            continue
+        rewritten.append(current)
+    return unique_strings(rewritten)[:4]
+
+
+def build_role_driven_summary(repo_hints: list[dict[str, object]], intent_payload: dict[str, object]) -> list[str]:
+    role_map = {str(item.get("role_label") or ""): str(item.get("repo_display_name") or item.get("repo_id") or "") for item in repo_hints}
+    http_repo = role_map.get("HTTP/API 入口", "")
+    service_repos = [str(item.get("repo_display_name") or item.get("repo_id") or "") for item in repo_hints if str(item.get("role_label") or "") == "服务聚合入口"]
+    orchestration_repos = [str(item.get("repo_display_name") or item.get("repo_id") or "") for item in repo_hints if str(item.get("role_label") or "") == "数据编排层"]
+    bff_repo = role_map.get("前端/BFF 装配层", "")
+    support_repo = role_map.get("公共能力底座", "")
+    parts: list[str] = []
+    if http_repo:
+        parts.append(f"`{http_repo}` 是 HTTP/API 入口")
+    if service_repos:
+        parts.append(f"{'、'.join(f'`{repo}`' for repo in service_repos[:2])} 负责服务聚合")
+    if orchestration_repos:
+        parts.append(f"{'、'.join(f'`{repo}`' for repo in orchestration_repos[:2])} 负责编排")
+    if bff_repo:
+        parts.append(f"`{bff_repo}` 负责前端/BFF 装配")
+    if support_repo:
+        parts.append(f"`{support_repo}` 提供公共能力")
+    if parts:
+        return [f"{intent_payload['normalized_intent']} 中，" + "，".join(parts) + "。"]
+    return sanitize_storyline_summary_lines([], intent_payload)
+
+
+def sanitize_storyline_steps(
+    steps: list[str],
+    topic_adjudication_payload: dict[str, object],
+) -> list[str]:
+    blocked_terms = [normalize_match_text(item) for item in collect_blocked_topic_terms(topic_adjudication_payload)]
+    sanitized: list[str] = []
+    for step in steps:
+        current = str(step).strip()
+        normalized = normalize_match_text(current)
+        if any(term and term in normalized for term in blocked_terms):
+            continue
+        if contains_implementation_symbol(current):
+            continue
+        sanitized.append(current)
+    return unique_strings(sanitized)[:6]
+
+
+def sanitize_repo_hint_item(
+    item: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+) -> dict[str, object]:
+    blocked_terms = [normalize_match_text(item) for item in collect_blocked_topic_terms(topic_adjudication_payload)]
+
+    def keep(values: list[str]) -> list[str]:
+        return [
+            soften_repo_responsibility(value)
+            for value in values
+            if not any(term and term in normalize_match_text(value) for term in blocked_terms)
+            and not contains_implementation_symbol(value)
+        ]
+
+    role_label = str(item.get("role_label") or "")
+    responsibilities = keep(_as_string_list(item.get("responsibilities")))
+    if not responsibilities:
+        responsibilities = infer_repo_responsibilities({"facts": [], "inferences": []}, role_label)
+    notes = keep(_as_string_list(item.get("notes")))
+    key_modules = keep(_as_string_list(item.get("key_modules")))
+    responsibilities = enforce_role_specific_responsibilities(role_label, responsibilities)
+    notes = enforce_role_specific_notes(role_label, notes)
+    return {
+        **item,
+        "key_modules": unique_strings(key_modules)[:6],
+        "responsibilities": unique_strings(responsibilities)[:4],
+        "notes": unique_strings(notes)[:4],
+    }
+
+
+def sanitize_storyline_outline(
+    outline: dict[str, object],
+    intent_payload: dict[str, object],
+    topic_adjudication_payload: dict[str, object],
+) -> dict[str, object]:
+    sanitized_hints = [
+        sanitize_repo_hint_item(item, topic_adjudication_payload)
+        for item in outline.get("repo_hints", [])
+        if isinstance(item, dict)
+    ]
+    sanitized = {
+        **outline,
+        "system_summary": build_role_driven_summary(sanitized_hints, intent_payload),
+        "main_flow_steps": sanitize_storyline_steps(
+            _as_string_list(outline.get("main_flow_steps")),
+            topic_adjudication_payload,
+        ),
+        "repo_hints": sanitized_hints,
+        "open_questions": filter_publishable_open_questions(
+            [
+                question
+                for question in _as_string_list(outline.get("open_questions"))
+                if not any(
+                    term and term in normalize_match_text(question)
+                    for term in [normalize_match_text(item) for item in collect_blocked_topic_terms(topic_adjudication_payload)]
+                )
+            ],
+            limit=6,
+        ),
+    }
+    return sanitized
+
+
+
+
+def repo_outline_sort_key(item: dict[str, object]) -> tuple[int, str]:
+    role_label = str(item.get("role_label") or "")
+    if role_label == "服务聚合入口":
+        return (0, str(item.get("repo_id") or ""))
+    if role_label == "HTTP/API 入口":
+        return (1, str(item.get("repo_id") or ""))
+    if role_label == "服务聚合入口":
+        return (2, str(item.get("repo_id") or ""))
+    if role_label == "数据编排层":
+        return (3, str(item.get("repo_id") or ""))
+    if role_label == "前端/BFF 装配层":
+        return (4, str(item.get("repo_id") or ""))
+    if role_label == "公共能力底座":
+        return (5, str(item.get("repo_id") or ""))
+    return (6, str(item.get("repo_id") or ""))
+
+
+def enforce_role_specific_responsibilities(role_label: str, responsibilities: list[str]) -> list[str]:
+    values = [str(value).strip() for value in responsibilities if str(value).strip()]
+    if role_label == "HTTP/API 入口":
+        filtered = [
+            value
+            for value in values
+            if "BFF层主入口" not in value and "BFF 层主入口" not in value and "主 BFF 层" not in value
+        ]
+        return filtered or ["承接 preview/pop 等异步或 API 场景请求，并决定是否走新架构或 BFF 路径。"]
+    if role_label == "服务聚合入口":
+        filtered = [
+            value
+            for value in values
+            if "BFF层" not in value and "BFF 层" not in value
+        ]
+        return filtered or ["承接入口请求，并聚合同步进房或主链路场景参数。"]
+    if role_label == "数据编排层":
+        filtered = [
+            value
+            for value in values
+            if "BFF层" not in value and "BFF 层" not in value and "关键环节" not in value and "主入口" not in value
+        ]
+        return filtered or ["收敛竞拍配置、状态和商品模型，输出主链路所需数据结构。"]
+    if role_label == "前端/BFF 装配层":
+        filtered = [
+            value
+            for value in values
+            if "主入口" not in value and "HTTP/API 入口" not in value
+        ]
+        return filtered or ["把上游竞拍数据转换成前端或 BFF 可消费的展示结构。"]
+    if role_label == "公共能力底座":
+        return ["提供 AB、schema、配置或共享工具能力，不直接承接主链路。"]
+    return values
+
+
+def enforce_role_specific_notes(role_label: str, notes: list[str]) -> list[str]:
+    values = [str(value).strip() for value in notes if str(value).strip()]
+    if role_label == "公共能力底座":
+        return [value for value in values if "路由" not in value and "入口" not in value][:4]
+    if role_label == "前端/BFF 装配层":
+        return [value for value in values if "主入口" not in value][:4]
+    return values[:4]
+
+
+def infer_repo_role_label(role: str, likely_modules: list[str], item: dict[str, object]) -> str:
+    modules = " ".join(likely_modules).lower()
+    route_hits = " ".join(str(value) for value in item.get("route_hits", [])).lower()
+    if (
+        "handler" in modules
+        and (
+            route_hits
+            or any(token in modules for token in ("router", "api", "http", "preview", "pop"))
+        )
+    ):
+        return "HTTP/API 入口"
+    if any(token in modules for token in ("pincard", "bff")):
+        return "前端/BFF 装配层"
+    if any(token in modules for token in ("engine", "converter", "provider", "loader", "dto")):
+        return "数据编排层"
+    if any(token in modules for token in ("notify", "enter_room", "room_preview", "dal/rpc", "service", "preview_handler", "handler")):
+        return "服务聚合入口"
+    if "abtest" in modules or "schema" in modules:
+        return "公共能力底座"
+    if role == "supporting":
+        return "公共能力底座"
+    return "系统支撑仓库"
+
+
+def normalize_outline_modules(modules: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for module in modules:
+        current = str(module).strip().replace(".go", "")
+        if current and current not in normalized:
+            normalized.append(current)
+    return normalized[:5]
+
+
+def infer_repo_responsibilities(item: dict[str, object], role_label: str) -> list[str]:
+    facts = [str(value) for value in item.get("facts", [])]
+    inferences = [str(value) for value in item.get("inferences", [])]
+    responsibilities: list[str] = []
+    if role_label == "服务聚合入口":
+        responsibilities.append("承接入口请求，并聚合同步进房或主链路场景参数。")
+    elif role_label == "HTTP/API 入口":
+        responsibilities.append("承接 preview/pop 等异步或 API 场景请求，并决定是否走新架构或 BFF 路径。")
+    elif role_label == "数据编排层":
+        responsibilities.append("收敛竞拍配置、状态和商品模型，输出主链路所需数据结构。")
+    elif role_label == "前端/BFF 装配层":
+        responsibilities.append("把上游竞拍数据转换成前端或 BFF 可消费的展示结构。")
+    elif role_label == "公共能力底座":
+        responsibilities.append("提供 AB、schema、配置或共享工具能力，不直接承接主链路。")
+    stable_fact_prefixes = ("symbol_hits", "route_hits", "recent_commit_hits", "anchor strongest_terms")
+    stable_facts = [value for value in facts if value.startswith(stable_fact_prefixes)]
+    for value in [*inferences[:2], *stable_facts[:2]]:
+        current = str(value).strip()
+        if current and current not in responsibilities:
+            responsibilities.append(current)
+    return responsibilities[:4]
+
+
+def infer_repo_connections(item: dict[str, object], direction: str) -> list[str]:
+    facts = " ".join(str(value) for value in item.get("facts", []))
+    likely_modules = " ".join(str(value) for value in item.get("likely_modules", []))
+    current: list[str] = []
+    if direction == "upstream":
+        if "handler" in likely_modules or "route" in facts:
+            current.append("客户端或上游调用方")
+    else:
+        if "dal/rpc" in likely_modules or "rpc" in facts.lower():
+            current.append("下游 RPC / 配置服务")
+        if "service/im" in likely_modules:
+            current.append("消息或刷新通道")
+    return current[:3]
+
+
+def build_storyline_steps_local(
+    flow_slot_payload: dict[str, object],
+    repo_hints: list[dict[str, object]],
+) -> list[str]:
+    steps: list[str] = []
+    primary_slots = (
+        "sync_entry_or_init",
+        "async_preview_or_pre_enter",
+        "data_orchestration",
+        "frontend_bff_transform",
+    )
+    for slot in primary_slots:
+        current = flow_slot_payload.get(slot)
+        if isinstance(current, dict):
+            summary = str(current.get("summary") or "").strip()
+            if summary:
+                steps.append(summary)
+    runtime_slot = flow_slot_payload.get("runtime_update_or_notification")
+    if steps and isinstance(runtime_slot, dict):
+        runtime_summary = str(runtime_slot.get("summary") or "").strip()
+        if runtime_summary:
+            steps.append(runtime_summary)
+        return steps[:5]
+    if steps:
+        return steps[:4]
+    http_repos = [item for item in repo_hints if item["role_label"] == "HTTP/API 入口"]
+    service_repos = [item for item in repo_hints if item["role_label"] == "服务聚合入口"]
+    entry_repos = [*http_repos, *service_repos]
+    orchestration_repos = [item for item in repo_hints if item["role_label"] == "数据编排层"]
+    bff_repos = [item for item in repo_hints if item["role_label"] == "前端/BFF 装配层"]
+    if entry_repos:
+        sync_repos = [*service_repos[:1], *http_repos[:1]] or entry_repos[:2]
+        async_repos = http_repos[:1] or entry_repos[:1]
+        steps.append(f"同步进房初始化通常由 {', '.join(f'`{item.get('repo_display_name', item['repo_id'])}`' for item in sync_repos[:2])} 承接入口与基础信息聚合。")
+        steps.append(f"异步预览或进房前链路通常由 {', '.join(f'`{item.get('repo_display_name', item['repo_id'])}`' for item in async_repos[:2])} 提供 preview/pop 等预览态数据。")
+    if orchestration_repos:
+        steps.append(f"主数据随后由 {', '.join(f'`{item.get('repo_display_name', item['repo_id'])}`' for item in orchestration_repos[:2])} 编排竞拍配置、状态和商品模型。")
+    if bff_repos:
+        steps.append(f"前端展示前，会由 {', '.join(f'`{item.get('repo_display_name', item['repo_id'])}`' for item in bff_repos[:2])} 转成前端/BFF 可消费结构。")
+    runtime_repos = [item for item in repo_hints if item["role_label"] == "服务聚合入口" and any("notify" in note.lower() or "刷新" in note for note in item.get("notes", []))]
+    if runtime_repos:
+        steps.append(f"运行时状态变化后，会由 {', '.join(f'`{item.get('repo_display_name', item['repo_id'])}`' for item in runtime_repos[:1])} 负责刷新或通知分发。")
+    return steps[:5]
+
+
+def build_dependency_lines_local(
+    repo_hints: list[dict[str, object]],
+    repo_research_payloads: list[dict[str, object]],
+) -> list[str]:
+    research_map = {str(item.get("repo_id") or ""): item for item in repo_research_payloads}
+    lines: list[str] = []
+    for item in repo_hints:
+        repo_name = str(item.get("repo_display_name") or item["repo_id"])
+        role_label = str(item.get("role_label") or "")
+        facts_blob = " ".join(str(value) for value in research_map.get(str(item.get("repo_id") or ""), {}).get("facts", []))
+        modules_blob = " ".join(str(value) for value in research_map.get(str(item.get("repo_id") or ""), {}).get("likely_modules", []))
+        if role_label == "数据编排层":
+            lines.append(f"`{repo_name}` 消费配置、session 和商品 relation 等依赖，收敛成主链路所需数据结构。")
+        elif role_label == "服务聚合入口":
+            if "notify" in facts_blob.lower() or "notify" in modules_blob.lower():
+                lines.append(f"`{repo_name}` 通过通知或刷新出口把运行时状态变化下发到客户端。")
+            else:
+                lines.append(f"`{repo_name}` 聚合同步进房或房间侧数据，并向下游入口或客户端返回初始化结果。")
+        elif role_label == "HTTP/API 入口":
+            lines.append(f"`{repo_name}` 消费上游编排结果，提供 preview/pop 等异步或 API 场景入口。")
+        elif role_label == "前端/BFF 装配层":
+            lines.append(f"`{repo_name}` 依赖上游入口或编排层提供的数据，装配前端/BFF 可消费结构。")
+        elif role_label == "公共能力底座":
+            lines.append(f"`{repo_name}` 提供配置、AB、schema 或共享工具能力，不直接承接业务主链。")
+    return unique_strings(lines)[:8]
+
+
+def merge_storyline_repo_hints(
+    fallback_hints: list[dict[str, object]],
+    parsed_hints: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    parsed_map = {str(item.get("repo_id") or ""): item for item in parsed_hints}
+    merged: list[dict[str, object]] = []
+    for item in fallback_hints:
+        repo_id = str(item.get("repo_id") or "")
+        parsed = parsed_map.get(repo_id)
+        if not parsed:
+            merged.append(item)
+            continue
+        merged.append(
+            {
+                "repo_id": repo_id,
+                "repo_display_name": str(parsed.get("repo_display_name") or item.get("repo_display_name") or repo_id),
+                "role_label": str(parsed.get("role_label") or item.get("role_label") or ""),
+                "key_modules": unique_strings(
+                    [*[_ for _ in parsed.get("key_modules", [])], *[_ for _ in item.get("key_modules", [])]]
+                )[:6],
+                "responsibilities": unique_strings(
+                    [*[_ for _ in parsed.get("responsibilities", [])], *[_ for _ in item.get("responsibilities", [])]]
+                )[:6],
+                "upstream": unique_strings([*[_ for _ in parsed.get("upstream", [])], *[_ for _ in item.get("upstream", [])]])[:6],
+                "downstream": unique_strings(
+                    [*[_ for _ in parsed.get("downstream", [])], *[_ for _ in item.get("downstream", [])]]
+                )[:6],
+                "notes": unique_strings([*[_ for _ in parsed.get("notes", [])], *[_ for _ in item.get("notes", [])]])[:6],
+            }
+        )
+    for repo_id, item in parsed_map.items():
+        if repo_id and not any(str(existing.get("repo_id") or "") == repo_id for existing in merged):
+            merged.append(item)
+    return merged
+
+
 def build_documents(
     intent_payload: dict[str, object],
     term_mapping_payload: dict[str, object],
     term_family_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+    storyline_outline_payload: dict[str, object],
     anchor_selection_payloads: list[dict[str, object]],
     repo_research_payloads: list[dict[str, object]],
     selected_paths: list[str],
@@ -1012,6 +3119,8 @@ def build_documents(
         intent_payload=intent_payload,
         term_mapping_payload=term_mapping_payload,
         term_family_payload=term_family_payload,
+        focus_boundary_payload=focus_boundary_payload,
+        storyline_outline_payload=storyline_outline_payload,
         anchor_selection_payloads=anchor_selection_payloads,
         repo_research_payloads=repo_research_payloads,
         selected_paths=selected_paths,
@@ -1028,6 +3137,8 @@ def build_documents(
             intent_payload=intent_payload,
             term_mapping_payload=term_mapping_payload,
             term_family_payload=term_family_payload,
+            focus_boundary_payload=focus_boundary_payload,
+            storyline_outline_payload=storyline_outline_payload,
             anchor_selection_payloads=anchor_selection_payloads,
             repo_research_payloads=repo_research_payloads,
             selected_paths=selected_paths,
@@ -1037,7 +3148,7 @@ def build_documents(
             settings=settings,
             fallback_documents=local_documents,
         )
-    except ValueError as error:
+    except Exception as error:
         return annotate_documents(
             local_documents,
             requested_executor=requested_executor,
@@ -1053,6 +3164,8 @@ def build_documents_native(
     intent_payload: dict[str, object],
     term_mapping_payload: dict[str, object],
     term_family_payload: dict[str, object],
+    focus_boundary_payload: dict[str, object],
+    storyline_outline_payload: dict[str, object],
     anchor_selection_payloads: list[dict[str, object]],
     repo_research_payloads: list[dict[str, object]],
     selected_paths: list[str],
@@ -1074,6 +3187,8 @@ def build_documents_native(
             intent_payload,
             term_mapping_payload,
             term_family_payload,
+            focus_boundary_payload,
+            storyline_outline_payload,
             anchor_selection_payloads,
             repo_research_payloads,
             display_paths,
@@ -1083,6 +3198,8 @@ def build_documents_native(
         cwd=cwd,
     )
     outputs = extract_knowledge_synthesis_output(raw, requested_kinds)
+    if not outputs:
+        raise ValueError("native knowledge synthesis returned empty outputs")
     documents = apply_synthesis_outputs(fallback_documents, outputs, display_paths)
     documents = annotate_documents(
         documents,

@@ -12,10 +12,27 @@ from typer.testing import CliRunner
 
 from coco_flow.cli import app
 from coco_flow.config import Settings
-from coco_flow.models.knowledge import CreateKnowledgeDraftsRequest
+from coco_flow.models.knowledge import CreateKnowledgeDraftsRequest, KnowledgeDocument, KnowledgeEvidence
 from coco_flow.services.knowledge.background import get_generation_job, retry_background_generation, start_background_generation
 from coco_flow.services.knowledge import KnowledgeDraftInput
-from coco_flow.services.knowledge.generation import soften_weak_claims, unique_questions
+from coco_flow.services.knowledge.generation import (
+    apply_flow_final_editor,
+    apply_flow_final_polisher,
+    apply_flow_judge_notes,
+    build_role_driven_summary,
+    build_dependency_lines_local,
+    build_storyline_steps_local,
+    build_flow_judge_local,
+    build_topic_adjudication_local,
+    enforce_role_specific_responsibilities,
+    filter_publishable_open_questions,
+    sanitize_storyline_summary_lines,
+    soften_repo_responsibility,
+    sanitize_flow_slot_payload,
+    soften_weak_claims,
+    unique_questions,
+)
+from coco_flow.services.knowledge.prompting import extract_flow_judge_output
 from coco_flow.services.queries.knowledge import KnowledgeStore
 
 
@@ -43,6 +60,471 @@ def make_settings(root: Path, knowledge_executor: str = "local") -> Settings:
 
 
 class KnowledgeGenerationTest(unittest.TestCase):
+    def test_topic_adjudication_demotes_technical_and_config_terms(self) -> None:
+        intent_payload = {
+            "title": "竞拍讲解卡",
+            "description": "竞拍讲解卡系统链路",
+            "normalized_intent": "竞拍讲解卡系统链路",
+        }
+        focus_boundary_payload = {
+            "canonical_subject": "竞拍讲解卡",
+            "in_scope_terms": ["竞拍讲解卡", "popcard auction"],
+            "supporting_terms": ["AuctionInBagEnabled", "auction_lynx_schema_param", "preview"],
+            "out_of_scope_terms": ["live_bag"],
+            "open_questions": [],
+        }
+        repo_research_payloads = [
+            {
+                "repo_id": "auction-live",
+                "likely_modules": ["biz/handler", "config", "schema", "live_bag"],
+                "route_hits": ["router.go#/auction", "router.go#/bag"],
+            }
+        ]
+        payload = build_topic_adjudication_local(intent_payload, focus_boundary_payload, repo_research_payloads)
+        self.assertIn("竞拍讲解卡", payload["related_subjects"])
+        self.assertNotIn("AuctionInBagEnabled", payload["related_subjects"])
+        self.assertIn("AuctionInBagEnabled", payload["suppressed_terms"])
+        self.assertIn("live_bag", payload["suppressed_terms"])
+
+    def test_flow_judge_flags_adjacent_topic_in_mainline(self) -> None:
+        document = KnowledgeDocument(
+            id="flow-1",
+            traceId="trace-1",
+            kind="flow",
+            status="draft",
+            title="系统链路",
+            desc="desc",
+            domainId="domain-1",
+            domainName="竞拍讲解卡",
+            engines=["plan"],
+            repos=["live-shopapi"],
+            paths=[],
+            keywords=[],
+            priority="high",
+            confidence="medium",
+            updatedAt="2026-04-17 22:00",
+            owner="Maifeng",
+            body=(
+                "## Summary\n\n"
+                "系统围绕 live_bag 展开。\n\n"
+                "## Main Flow\n\n"
+                "1. live_bag 预览链路。\n"
+                "2. 配置支撑。\n\n"
+                "## Dependencies\n\n"
+                "- live-shopapi 依赖 live-pack\n\n"
+                "## Repo Hints\n\n"
+                "### `live-shopapi`\n\n"
+                "- repo: `live-shopapi`\n- role: `HTTP/API 入口`\n\n"
+                "#### Key Modules\n- biz/handler\n\n"
+                "#### Responsibilities\n- 提供 API\n\n"
+                "## Open Questions\n\n"
+                "- live_bag 是否为主线\n"
+            ),
+            evidence=KnowledgeEvidence(
+                inputTitle="竞拍讲解卡",
+                inputDescription="竞拍讲解卡系统链路",
+                repoMatches=["live-shopapi"],
+                keywordMatches=[],
+                pathMatches=[],
+                candidateFiles=[],
+                contextHits=[],
+                retrievalNotes=[],
+                openQuestions=["live_bag 是否为主线"],
+            ),
+        )
+        topic_adjudication_payload = {
+            "adjacent_subjects": ["live_bag"],
+            "suppressed_terms": ["AuctionInBagEnabled"],
+        }
+        repo_role_signal_payloads = [{"repo_id": "live-common", "resolved_role_label": "公共能力底座"}]
+        flow_slot_payload = {"sync_entry_or_init": {"repos": ["live-shop"], "summary": "同步入口", "evidence": []}}
+        judge = build_flow_judge_local([document], topic_adjudication_payload, repo_role_signal_payloads, flow_slot_payload)
+        self.assertFalse(judge["passed"])
+        self.assertTrue(any(item["code"] == "suppressed_topic_in_mainline" for item in judge["findings"]))
+        self.assertTrue(judge["must_rewrite_summary"])
+        self.assertTrue(judge["must_prune_open_questions"])
+
+    def test_apply_flow_judge_notes_rewrites_flow_body(self) -> None:
+        document = KnowledgeDocument(
+            id="flow-1",
+            traceId="trace-1",
+            kind="flow",
+            status="draft",
+            title="系统链路",
+            desc="desc",
+            domainId="domain-1",
+            domainName="竞拍讲解卡",
+            engines=["plan"],
+            repos=["live-shop", "live-shopapi", "live-pack"],
+            paths=[],
+            keywords=[],
+            priority="high",
+            confidence="medium",
+            updatedAt="2026-04-17 22:00",
+            owner="Maifeng",
+            body=(
+                "## Summary\n\n系统围绕 live_bag 展开。\n\n"
+                "## Main Flow\n\n1. live_bag 预览链路。\n\n"
+                "## Dependencies\n\n- live-shopapi 依赖 live-pack\n\n"
+                "## Repo Hints\n\n### `live-shopapi`\n\n- repo: `live-shopapi`\n- role: `HTTP/API 入口`\n\n"
+                "#### Key Modules\n- biz/handler\n\n#### Responsibilities\n- 提供 API\n\n"
+                "## Open Questions\n\n- live_bag 是否为主线\n- API 路由是什么\n"
+            ),
+            evidence=KnowledgeEvidence(
+                inputTitle="竞拍讲解卡",
+                inputDescription="竞拍讲解卡系统链路",
+                repoMatches=["live-shop", "live-shopapi", "live-pack"],
+                keywordMatches=[],
+                pathMatches=[],
+                candidateFiles=[],
+                contextHits=[],
+                retrievalNotes=[],
+                openQuestions=["live_bag 是否为主线", "API 路由是什么"],
+            ),
+        )
+        rewritten = apply_flow_judge_notes(
+            [document],
+            {
+                "findings": [{"document_id": "flow-1", "message": "blocked"}],
+                "must_rewrite_summary": True,
+                "must_rewrite_flow_steps": True,
+                "must_prune_open_questions": True,
+            },
+            intent_payload={
+                "title": "竞拍讲解卡",
+                "description": "竞拍讲解卡系统链路",
+                "normalized_intent": "竞拍讲解卡系统链路",
+                "domain_name": "竞拍讲解卡",
+            },
+            storyline_outline_payload={
+                "system_summary": ["竞拍讲解卡系统链路由 live-shopapi 作为 HTTP/API 入口。"],
+                "main_flow_steps": ["live_bag 预览链路", "竞拍卡数据编排"],
+                "dependencies": ["live-shopapi 依赖 live-pack"],
+                "repo_hints": [
+                    {
+                        "repo_id": "live-shopapi",
+                        "role_label": "HTTP/API 入口",
+                        "key_modules": ["biz/handler"],
+                        "responsibilities": ["负责 live_bag 相关业务逻辑"],
+                        "upstream": [],
+                        "downstream": [],
+                        "notes": [],
+                    }
+                ],
+                "open_questions": ["live_bag 是否为主线", "API 路由是什么"],
+            },
+            flow_slot_payload={
+                "sync_entry_or_init": {"repos": ["live-shop"], "summary": "同步进房初始化，获取房间基础信息和竞拍讲解卡初始化数据", "evidence": []},
+                "async_preview_or_pre_enter": {"repos": ["live-shopapi"], "summary": "异步预览/进房前，获取竞拍讲解卡预览数据", "evidence": []},
+                "data_orchestration": {"repos": ["live-pack"], "summary": "竞拍卡数据编排，处理竞拍配置、竞拍信息等数据的组装", "evidence": []},
+                "frontend_bff_transform": {},
+                "runtime_update_or_notification": {},
+                "config_or_experiment_support": {},
+            },
+            repo_research_payloads=[
+                {"repo_id": "live-shopapi", "likely_modules": ["biz/handler"], "facts": [], "inferences": [], "open_questions": []}
+            ],
+            topic_adjudication_payload={"adjacent_subjects": ["live_bag"], "suppressed_terms": []},
+        )[0]
+        self.assertNotIn("live_bag", rewritten.body)
+        self.assertIn("异步预览/进房前，获取竞拍讲解卡预览数据", rewritten.body)
+        self.assertNotIn("live_bag 是否为主线", rewritten.body)
+        self.assertTrue(any("flow judge findings:" in note for note in rewritten.evidence.retrievalNotes))
+
+    def test_apply_flow_final_editor_overrides_sections(self) -> None:
+        document = KnowledgeDocument(
+            id="flow-1",
+            traceId="trace-1",
+            kind="flow",
+            status="draft",
+            title="系统链路",
+            desc="desc",
+            domainId="domain-1",
+            domainName="竞拍讲解卡",
+            engines=["plan"],
+            repos=["live-shopapi"],
+            paths=[],
+            keywords=[],
+            priority="high",
+            confidence="medium",
+            updatedAt="2026-04-17 22:00",
+            owner="Maifeng",
+            body=(
+                "## Summary\n\n旧 summary\n\n"
+                "## Main Flow\n\n1. 旧步骤\n\n"
+                "## Dependencies\n\n- x\n\n"
+                "## Repo Hints\n\n### `live-shopapi`\n\n- repo: `live-shopapi`\n- role: `HTTP/API 入口`\n\n"
+                "#### Key Modules\n- biz/handler\n\n#### Responsibilities\n- 提供 API\n\n"
+                "## Open Questions\n\n- 旧问题\n"
+            ),
+            evidence=KnowledgeEvidence(
+                inputTitle="竞拍讲解卡",
+                inputDescription="desc",
+                repoMatches=["live-shopapi"],
+                keywordMatches=[],
+                pathMatches=[],
+                candidateFiles=[],
+                contextHits=[],
+                retrievalNotes=[],
+                openQuestions=["旧问题"],
+            ),
+        )
+        rewritten = apply_flow_final_editor(
+            [document],
+            {
+                "documents": [
+                    {
+                        "document_id": "flow-1",
+                        "summary_lines": ["新 summary"],
+                        "main_flow_steps": ["新步骤一", "新步骤二"],
+                        "dependency_lines": ["系统依赖一", "系统依赖二"],
+                        "open_questions": ["系统边界问题"],
+                    }
+                ]
+            },
+        )[0]
+        self.assertIn("新 summary", rewritten.body)
+        self.assertIn("1. 新步骤一", rewritten.body)
+        self.assertIn("2. 新步骤二", rewritten.body)
+        self.assertIn("- 系统依赖一", rewritten.body)
+        self.assertIn("- 系统依赖二", rewritten.body)
+        self.assertIn("- 系统边界问题", rewritten.body)
+        self.assertEqual(rewritten.evidence.openQuestions, ["系统边界问题"])
+
+    def test_apply_flow_final_polisher_overrides_dependencies(self) -> None:
+        document = KnowledgeDocument(
+            id="flow-1",
+            traceId="trace-1",
+            kind="flow",
+            status="draft",
+            title="系统链路",
+            desc="desc",
+            domainId="domain-1",
+            domainName="竞拍讲解卡",
+            engines=["plan"],
+            repos=["live-shopapi"],
+            paths=[],
+            keywords=[],
+            priority="high",
+            confidence="medium",
+            updatedAt="2026-04-17 22:00",
+            owner="Maifeng",
+            body=(
+                "## Summary\n\n旧 summary\n\n"
+                "## Main Flow\n\n1. 旧步骤\n\n"
+                "## Dependencies\n\n- 旧依赖\n\n"
+                "## Repo Hints\n\n### `live-shopapi`\n\n- repo: `live-shopapi`\n- role: `HTTP/API 入口`\n\n"
+                "#### Key Modules\n- biz/handler\n\n#### Responsibilities\n- 提供 API\n\n"
+                "## Open Questions\n\n- 旧问题\n"
+            ),
+            evidence=KnowledgeEvidence(
+                inputTitle="竞拍讲解卡",
+                inputDescription="desc",
+                repoMatches=["live-shopapi"],
+                keywordMatches=[],
+                pathMatches=[],
+                candidateFiles=[],
+                contextHits=[],
+                retrievalNotes=[],
+                openQuestions=["旧问题"],
+            ),
+        )
+        rewritten = apply_flow_final_polisher(
+            [document],
+            {
+                "documents": [
+                    {
+                        "document_id": "flow-1",
+                        "summary_lines": ["更克制的 summary"],
+                        "main_flow_steps": ["更克制的步骤"],
+                        "dependency_lines": ["系统依赖面表达"],
+                        "open_questions": ["边界问题"],
+                    }
+                ]
+            },
+        )[0]
+        self.assertIn("更克制的 summary", rewritten.body)
+        self.assertIn("1. 更克制的步骤", rewritten.body)
+        self.assertIn("- 系统依赖面表达", rewritten.body)
+        self.assertIn("- 边界问题", rewritten.body)
+
+    def test_extract_flow_judge_output_normalizes_native_codes(self) -> None:
+        payload = extract_flow_judge_output(
+            '{"passed":false,"findings":['
+            '{"severity":"high","code":"SUPPRESSED_TOPIC_IN_SUMMARY","document_id":"flow-1","message":"x"},'
+            '{"severity":"medium","code":"OPEN_QUESTIONS_ON_SUPPRESSED_TOPICS","document_id":"flow-1","message":"y"}'
+            ']}'
+        )
+        self.assertEqual(payload["findings"][0]["code"], "suppressed_topic_in_mainline")
+        self.assertEqual(payload["findings"][1]["code"], "suppressed_topic_in_questions")
+        self.assertTrue(payload["must_rewrite_summary"])
+        self.assertTrue(payload["must_rewrite_flow_steps"])
+        self.assertTrue(payload["must_prune_open_questions"])
+
+    def test_flow_slot_sanitizer_demotes_implementation_symbol_summary(self) -> None:
+        payload = sanitize_flow_slot_payload(
+            {
+                "sync_entry_or_init": {
+                    "repos": ["live-shopapi"],
+                    "summary": "通过 ApiHandler_GetLiveRoomCommonInfo 发起同步进房请求",
+                    "evidence": [],
+                }
+            },
+            {"adjacent_subjects": [], "suppressed_terms": []},
+        )
+        self.assertEqual(
+            payload["sync_entry_or_init"]["summary"],
+            "同步进房初始化链路由 `live-shopapi` 承接，负责基础信息和初始化数据聚合。",
+        )
+
+    def test_filters_self_reflective_open_questions(self) -> None:
+        questions = filter_publishable_open_questions(
+            [
+                "当前相邻主题是否只应保留为背景，而不进入主链路正文。",
+                "当前主链路场景槽位是否已经覆盖同步、异步、编排和展示四类关键阶段。",
+                "live-pack 和 live-shop 在数据编排上的具体分工是什么",
+                "竞拍核心业务逻辑是否在该 repo 实现，还是依赖外部 RPC 服务",
+            ],
+            limit=8,
+        )
+        self.assertEqual(
+            questions,
+            [
+                "live-pack 和 live-shop 在数据编排上的具体分工是什么",
+                "竞拍核心业务逻辑是否在该 repo 实现，还是依赖外部 RPC 服务",
+            ],
+        )
+
+    def test_soften_repo_responsibility_reduces_overclaim(self) -> None:
+        self.assertEqual(
+            soften_repo_responsibility("该repo是竞拍讲解卡系统的核心服务，负责数据组装和业务逻辑处理"),
+            "该 repo 负责竞拍讲解卡相关的数据组装与状态收敛",
+        )
+
+    def test_build_storyline_steps_local_prefers_stage_skeleton(self) -> None:
+        steps = build_storyline_steps_local(
+            {},
+            [
+                {"repo_id": "live-shopapi", "role_label": "HTTP/API 入口"},
+                {"repo_id": "live-pack", "role_label": "数据编排层"},
+                {"repo_id": "content-live-bff-lib", "role_label": "前端/BFF 装配层"},
+                {"repo_id": "live-common", "role_label": "公共能力底座"},
+            ],
+        )
+        self.assertEqual(
+            steps[:4],
+            [
+                "同步进房初始化通常由 `live-shopapi` 承接入口与基础信息聚合。",
+                "异步预览或进房前链路通常由 `live-shopapi` 提供 preview/pop 等预览态数据。",
+                "主数据随后由 `live-pack` 编排竞拍配置、状态和商品模型。",
+                "前端展示前，会由 `content-live-bff-lib` 转成前端/BFF 可消费结构。",
+            ],
+        )
+
+    def test_sanitize_storyline_summary_lines_prefers_role_summary(self) -> None:
+        lines = sanitize_storyline_summary_lines(
+            ["竞拍讲解卡链路由 live-shopapi 承接 HTTP/API 入口，由 live-pack 负责数据编排，由 content-live-bff-lib 负责前端/BFF 装配，由 live-common 提供公共能力底座。"],
+            {"normalized_intent": "竞拍讲解卡系统链路"},
+        )
+        self.assertEqual(
+            lines,
+            ["竞拍讲解卡系统链路 由 HTTP/API 入口、数据编排层、前端/BFF 装配层和公共能力底座共同组成。"],
+        )
+
+    def test_build_role_driven_summary_prefers_repo_role_statement(self) -> None:
+        lines = build_role_driven_summary(
+            [
+                {"repo_id": "live-shopapi", "repo_display_name": "live_shopapi", "role_label": "HTTP/API 入口"},
+                {"repo_id": "live-shop", "repo_display_name": "live_shop", "role_label": "数据编排层"},
+                {"repo_id": "live-pack", "repo_display_name": "live_pack", "role_label": "数据编排层"},
+                {"repo_id": "content-live-bff-lib", "repo_display_name": "content_live_bff_lib", "role_label": "前端/BFF 装配层"},
+                {"repo_id": "live-common", "repo_display_name": "live_common", "role_label": "公共能力底座"},
+            ],
+            {"normalized_intent": "竞拍讲解卡系统链路"},
+        )
+        self.assertEqual(
+            lines,
+            ["竞拍讲解卡系统链路 中，`live_shopapi` 是 HTTP/API 入口，`live_shop`、`live_pack` 负责编排，`content_live_bff_lib` 负责前端/BFF 装配，`live_common` 提供公共能力。"],
+        )
+
+    def test_enforce_role_specific_responsibilities_limits_overclaim(self) -> None:
+        self.assertEqual(
+            enforce_role_specific_responsibilities(
+                "HTTP/API 入口",
+                ["该 repo 是竞拍讲解卡系统的 BFF 层主入口", "承接 preview/pop 等异步或 API 场景请求，并决定是否走新架构或 BFF 路径。"],
+            ),
+            ["承接 preview/pop 等异步或 API 场景请求，并决定是否走新架构或 BFF 路径。"],
+        )
+        self.assertEqual(
+            enforce_role_specific_responsibilities(
+                "公共能力底座",
+                ["提供闪购商品、直播商品关系、AB实验等公共能力。"],
+            ),
+            ["提供 AB、schema、配置或共享工具能力，不直接承接主链路。"],
+        )
+
+    def test_filters_discovery_style_open_questions(self) -> None:
+        questions = filter_publishable_open_questions(
+            [
+                "auction 关键词具体对应哪个 API 入口或 handler 文件？",
+                "竞拍讲解卡具体对应的 engine 和 converter 文件是什么？",
+                "live-shop 与 live-pack 在数据编排上的具体分工是什么",
+                "该 repo 与其他服务（如 live_core）的具体交互方式是什么",
+            ],
+            limit=8,
+        )
+        self.assertEqual(
+            questions,
+            [
+                "live-shop 与 live-pack 在数据编排上的具体分工是什么",
+                "该 repo 与其他服务（如 live_core）的具体交互方式是什么",
+            ],
+        )
+
+    def test_filter_publishable_open_questions_prefers_boundary_authority_compat(self) -> None:
+        questions = filter_publishable_open_questions(
+            [
+                "竞拍 session 的权威源是否已经稳定",
+                "live_shop 与 live_shopapi 的生产边界是否还有兼容层",
+                "除 US 外其他 region 是否仍有有效主链路",
+                "当前还需要继续调研什么",
+            ],
+            limit=3,
+        )
+        self.assertEqual(
+            questions,
+            [
+                "live_shop 与 live_shopapi 的生产边界是否还有兼容层",
+                "竞拍 session 的权威源是否已经稳定",
+                "除 US 外其他 region 是否仍有有效主链路",
+            ],
+        )
+
+    def test_build_dependency_lines_local_prefers_system_dependency_surface(self) -> None:
+        lines = build_dependency_lines_local(
+            [
+                {"repo_id": "live-shop", "repo_display_name": "live_shop", "role_label": "服务聚合入口"},
+                {"repo_id": "live-pack", "repo_display_name": "live_pack", "role_label": "数据编排层"},
+                {"repo_id": "content-live-bff-lib", "repo_display_name": "content_live_bff_lib", "role_label": "前端/BFF 装配层"},
+                {"repo_id": "live-common", "repo_display_name": "live_common", "role_label": "公共能力底座"},
+            ],
+            [
+                {"repo_id": "live-shop", "facts": ["notify evidence"], "likely_modules": ["service", "notify"]},
+                {"repo_id": "live-pack", "facts": [], "likely_modules": ["engine", "provider"]},
+                {"repo_id": "content-live-bff-lib", "facts": [], "likely_modules": ["pincard", "lynx"]},
+                {"repo_id": "live-common", "facts": [], "likely_modules": ["schema", "abtest"]},
+            ],
+        )
+        self.assertEqual(
+            lines,
+            [
+                "`live_shop` 通过通知或刷新出口把运行时状态变化下发到客户端。",
+                "`live_pack` 消费配置、session 和商品 relation 等依赖，收敛成主链路所需数据结构。",
+                "`content_live_bff_lib` 依赖上游入口或编排层提供的数据，装配前端/BFF 可消费结构。",
+                "`live_common` 提供配置、AB、schema 或共享工具能力，不直接承接业务主链。",
+            ],
+        )
+
     def test_question_dedupe_and_soften_helpers(self) -> None:
         questions = unique_questions(
             [
@@ -138,7 +620,8 @@ class KnowledgeGenerationTest(unittest.TestCase):
             self.assertEqual(trace.repo_research["auction-live"]["executor"], "local")
             self.assertEqual(result.documents[0].title, "系统链路")
             self.assertEqual(result.documents[0].evidence.pathMatches, [str(repo_root)])
-            self.assertIn("auction-live:/", result.documents[0].body)
+            self.assertIn("### `auction-live`", result.documents[0].body)
+            self.assertIn("#### Key Modules", result.documents[0].body)
             self.assertFalse(any(str(term).startswith("knowledge-") for term in trace.repo_discovery["search_terms"]))
             self.assertFalse(any(re.fullmatch(r"[a-f0-9]{8,}", str(term)) for term in trace.repo_discovery["search_terms"]))
 
@@ -191,11 +674,36 @@ class KnowledgeGenerationTest(unittest.TestCase):
                         '"reason":"ExplainCard/render_handler 在 term mapping、候选裁剪和锚点中共现。","open_questions":[]}'
                     ),
                     (
+                        '{"primary_subject":"竞拍讲解卡表达层系统链路","related_subjects":["ExplainCard","render_handler"],'
+                        '"adjacent_subjects":["README"],"suppressed_terms":["README"],'
+                        '"suppressed_modules":[],"suppressed_routes":[],"reason":"主主题清晰。","open_questions":[]}'
+                    ),
+                    (
+                        '{"repos":[{"repo_id":"auction-live","has_external_entry_signal":true,"has_http_api_signal":false,'
+                        '"has_orchestration_signal":false,"has_frontend_assembly_signal":false,"has_shared_capability_signal":false,'
+                        '"has_runtime_update_signal":false,"signal_notes":["存在对外入口信号"],"resolved_role_label":"服务聚合入口","open_questions":[]}]}'
+                    ),
+                    (
+                        '{"sync_entry_or_init":{"repos":["auction-live"],"summary":"LLM sync step","evidence":["llm fact"]},'
+                        '"async_preview_or_pre_enter":{},"data_orchestration":{},"runtime_update_or_notification":{},'
+                        '"frontend_bff_transform":{},"config_or_experiment_support":{},"open_questions":[]}'
+                    ),
+                    (
+                        '{"system_summary":["LLM summary"],"main_flow_steps":["LLM step"],'
+                        '"dependencies":["`auction-live`：负责入口聚合。"],'
+                        '"repo_hints":[{"repo_id":"auction-live","role_label":"服务聚合入口","key_modules":["llm/app"],'
+                        '"responsibilities":["承接入口请求并聚合场景参数"],"upstream":[],"downstream":[],"notes":[]}],'
+                        '"domain_summary":["LLM domain summary"],"open_questions":["LLM open question"]}'
+                    ),
+                    (
                         '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
                         '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. LLM step\\n\\n'
-                        '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `auction-live`: role=primary\\n\\n'
-                        '## Repo Hints\\n\\n### `auction-live`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
+                        '## Dependencies\\n\\n- `auction-live`：负责入口聚合。\\n\\n'
+                        '## Repo Hints\\n\\n### `auction-live`\\n\\n- repo: `auction-live`\\n- role: `服务聚合入口`\\n\\n#### Key Modules\\n- llm/app\\n\\n## Open Questions\\n\\n- LLM open question",'
                         '"open_questions":["LLM open question"]}]}'  # noqa: E501
+                    ),
+                    (
+                        '{"passed":true,"findings":[]}'
                     ),
                 ],
             ):
@@ -216,9 +724,19 @@ class KnowledgeGenerationTest(unittest.TestCase):
             self.assertEqual(research["likely_modules"], ["llm/app", "llm/service"])
             self.assertEqual(research["facts"], ["llm fact"])
             self.assertEqual(research["inferences"], ["llm inference"])
+            self.assertEqual(trace.topic_adjudication["executor"], "native")
+            self.assertEqual(trace.topic_adjudication["requested_executor"], "native")
+            self.assertEqual(trace.repo_role_signals["repos"][0]["executor"], "native")
+            self.assertEqual(trace.repo_role_signals["repos"][0]["requested_executor"], "native")
+            self.assertEqual(trace.flow_slots["executor"], "native")
+            self.assertEqual(trace.flow_slots["requested_executor"], "native")
+            self.assertEqual(trace.storyline_outline["executor"], "native")
+            self.assertEqual(trace.storyline_outline["requested_executor"], "native")
+            self.assertEqual(trace.flow_judge["executor"], "native")
+            self.assertEqual(trace.flow_judge["requested_executor"], "native")
             self.assertEqual(result.documents[0].title, "系统链路")
             self.assertIn("LLM summary", result.documents[0].body)
-            self.assertIn("auction-live:/", result.documents[0].body)
+            self.assertIn("- repo: `auction-live`", result.documents[0].body)
             self.assertNotIn(str(repo_root), result.documents[0].body)
             self.assertEqual(trace.intent["title"], "竞拍讲解卡表达层")
             self.assertIn("render_handler", trace.repo_discovery["search_terms"])
@@ -268,10 +786,31 @@ class KnowledgeGenerationTest(unittest.TestCase):
                         '"secondary_families":[],"noise_terms":[],"reason":"主术语族群清晰。","open_questions":[]}'
                     ),
                     (
+                        '{"primary_subject":"竞拍讲解卡表达层系统链路","related_subjects":["ExplainCard"],'
+                        '"adjacent_subjects":[],"suppressed_terms":[],"suppressed_modules":[],"suppressed_routes":[],"reason":"主主题清晰。","open_questions":[]}'
+                    ),
+                    (
+                        '{"repos":[{"repo_id":"auction-live","has_external_entry_signal":true,"has_http_api_signal":false,'
+                        '"has_orchestration_signal":false,"has_frontend_assembly_signal":false,"has_shared_capability_signal":false,'
+                        '"has_runtime_update_signal":false,"signal_notes":["存在对外入口信号"],"resolved_role_label":"服务聚合入口","open_questions":[]}]}'
+                    ),
+                    (
+                        '{"sync_entry_or_init":{"repos":["auction-live"],"summary":"LLM sync step","evidence":["llm fact"]},'
+                        '"async_preview_or_pre_enter":{},"data_orchestration":{},"runtime_update_or_notification":{},'
+                        '"frontend_bff_transform":{},"config_or_experiment_support":{},"open_questions":[]}'
+                    ),
+                    (
+                        '{"system_summary":["LLM summary"],"main_flow_steps":["LLM step"],'
+                        '"dependencies":["`auction-live`：负责入口聚合。"],'
+                        '"repo_hints":[{"repo_id":"auction-live","role_label":"服务聚合入口","key_modules":["llm/app"],'
+                        '"responsibilities":["承接入口请求并聚合场景参数"],"upstream":[],"downstream":[],"notes":[]}],'
+                        '"domain_summary":["LLM domain summary"],"open_questions":["LLM open question"]}'
+                    ),
+                    (
                         '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
                         '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. LLM step\\n\\n'
-                        '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `auction-live`: role=primary\\n\\n'
-                        '## Repo Hints\\n\\n### `auction-live`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
+                        '## Dependencies\\n\\n- `auction-live`：负责入口聚合。\\n\\n'
+                        '## Repo Hints\\n\\n### `auction-live`\\n\\n- repo: `auction-live`\\n- role: `服务聚合入口`\\n\\n#### Key Modules\\n- llm/app\\n\\n## Open Questions\\n\\n- LLM open question",'
                         '"open_questions":["LLM open question"]}]}'  # noqa: E501
                     ),
                 ],
@@ -337,6 +876,27 @@ class KnowledgeGenerationTest(unittest.TestCase):
                         '{"primary_family":["ExplainCard","render_handler"],'
                         '"secondary_families":[],"noise_terms":[],"reason":"主术语族群清晰。","open_questions":[]}'
                     ),
+                    (
+                        '{"primary_subject":"竞拍讲解卡表达层系统链路","related_subjects":["ExplainCard"],'
+                        '"adjacent_subjects":[],"suppressed_terms":[],"suppressed_modules":[],"suppressed_routes":[],"reason":"主主题清晰。","open_questions":[]}'
+                    ),
+                    (
+                        '{"repos":[{"repo_id":"auction-live","has_external_entry_signal":true,"has_http_api_signal":false,'
+                        '"has_orchestration_signal":false,"has_frontend_assembly_signal":false,"has_shared_capability_signal":false,'
+                        '"has_runtime_update_signal":false,"signal_notes":["存在对外入口信号"],"resolved_role_label":"服务聚合入口","open_questions":[]}]}'
+                    ),
+                    (
+                        '{"sync_entry_or_init":{"repos":["auction-live"],"summary":"LLM sync step","evidence":["llm fact"]},'
+                        '"async_preview_or_pre_enter":{},"data_orchestration":{},"runtime_update_or_notification":{},'
+                        '"frontend_bff_transform":{},"config_or_experiment_support":{},"open_questions":[]}'
+                    ),
+                    (
+                        '{"system_summary":["LLM summary"],"main_flow_steps":["LLM step"],'
+                        '"dependencies":["`auction-live`：负责入口聚合。"],'
+                        '"repo_hints":[{"repo_id":"auction-live","role_label":"服务聚合入口","key_modules":["llm/app"],'
+                        '"responsibilities":["承接入口请求并聚合场景参数"],"upstream":[],"downstream":[],"notes":[]}],'
+                        '"domain_summary":["LLM domain summary"],"open_questions":["LLM open question"]}'
+                    ),
                     ValueError("native synthesis exploded"),
                 ],
             ):
@@ -351,7 +911,8 @@ class KnowledgeGenerationTest(unittest.TestCase):
                 )
 
             self.assertIn("## Repo Hints", result.documents[0].body)
-            self.assertIn("当前处于第一阶段知识草稿", result.documents[0].body)
+            self.assertIn("LLM step", result.documents[0].body)
+            self.assertIn("## Summary", result.documents[0].body)
             self.assertTrue(
                 any("knowledge synthesis fallback: native synthesis exploded" in item for item in result.documents[0].evidence.retrievalNotes)
             )
@@ -391,10 +952,31 @@ class KnowledgeGenerationTest(unittest.TestCase):
                         '"secondary_families":[["create_promotion"]],"noise_terms":[],"reason":"主术语族群来自业务常量。","open_questions":[]}'
                     ),
                     (
+                        '{"primary_subject":"达人秒杀链路","related_subjects":["PromotionTypeExclusiveFlashSale"],'
+                        '"adjacent_subjects":[],"suppressed_terms":[],"suppressed_modules":[],"suppressed_routes":[],"reason":"主主题清晰。","open_questions":[]}'
+                    ),
+                    (
+                        '{"repos":[{"repo_id":"auction-live","has_external_entry_signal":true,"has_http_api_signal":false,'
+                        '"has_orchestration_signal":false,"has_frontend_assembly_signal":false,"has_shared_capability_signal":false,'
+                        '"has_runtime_update_signal":false,"signal_notes":["存在对外入口信号"],"resolved_role_label":"服务聚合入口","open_questions":[]}]}'
+                    ),
+                    (
+                        '{"sync_entry_or_init":{"repos":["auction-live"],"summary":"LLM sync step","evidence":["llm fact"]},'
+                        '"async_preview_or_pre_enter":{},"data_orchestration":{},"runtime_update_or_notification":{},'
+                        '"frontend_bff_transform":{},"config_or_experiment_support":{},"open_questions":[]}'
+                    ),
+                    (
+                        '{"system_summary":["LLM summary"],"main_flow_steps":["LLM step"],'
+                        '"dependencies":["`auction-live`：负责入口聚合。"],'
+                        '"repo_hints":[{"repo_id":"auction-live","role_label":"服务聚合入口","key_modules":["llm/app"],'
+                        '"responsibilities":["承接入口请求并聚合场景参数"],"upstream":[],"downstream":[],"notes":[]}],'
+                        '"domain_summary":["LLM domain summary"],"open_questions":["LLM open question"]}'
+                    ),
+                    (
                         '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
                         '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. LLM step\\n\\n'
-                        '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `auction-live`: role=primary\\n\\n'
-                        '## Repo Hints\\n\\n### `auction-live`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
+                        '## Dependencies\\n\\n- `auction-live`：负责入口聚合。\\n\\n'
+                        '## Repo Hints\\n\\n### `auction-live`\\n\\n- repo: `auction-live`\\n- role: `服务聚合入口`\\n\\n#### Key Modules\\n- llm/app\\n\\n## Open Questions\\n\\n- LLM open question",'
                         '"open_questions":["LLM open question"]}]}'  # noqa: E501
                     ),
                 ],
@@ -474,10 +1056,32 @@ class KnowledgeGenerationTest(unittest.TestCase):
                         '"reason":"这些词跨 route、symbol、entry file 共现。","open_questions":[]}'
                     ),
                     (
+                        '{"primary_subject":"达人秒杀链路","related_subjects":["ExclusiveFlashSale","CreatorPromotion"],'
+                        '"adjacent_subjects":["save_template"],"suppressed_terms":["save_template"],'
+                        '"suppressed_modules":[],"suppressed_routes":["biz/router/live_promotion.go#/save_template"],'
+                        '"reason":"save_template 不应主导主主题。","open_questions":[]}'
+                    ),
+                    (
+                        '{"repos":[{"repo_id":"promotion-core","has_external_entry_signal":true,"has_http_api_signal":true,'
+                        '"has_orchestration_signal":false,"has_frontend_assembly_signal":false,"has_shared_capability_signal":false,'
+                        '"has_runtime_update_signal":false,"signal_notes":["存在对外入口信号","存在 HTTP/API 信号"],"resolved_role_label":"HTTP/API 入口","open_questions":[]}]}'
+                    ),
+                    (
+                        '{"sync_entry_or_init":{},"async_preview_or_pre_enter":{"repos":["promotion-core"],"summary":"LLM async step","evidence":["llm fact"]},'
+                        '"data_orchestration":{},"runtime_update_or_notification":{},"frontend_bff_transform":{},"config_or_experiment_support":{},"open_questions":[]}'
+                    ),
+                    (
+                        '{"system_summary":["LLM summary"],"main_flow_steps":["LLM step"],'
+                        '"dependencies":["`promotion-core`：负责入口聚合。"],'
+                        '"repo_hints":[{"repo_id":"promotion-core","role_label":"HTTP/API 入口","key_modules":["biz/service"],'
+                        '"responsibilities":["承接异步/API 场景请求，并决定是否走新架构或 BFF 路径。"],"upstream":[],"downstream":[],"notes":[]}],'
+                        '"domain_summary":["LLM domain summary"],"open_questions":["LLM open question"]}'
+                    ),
+                    (
                         '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
                         '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. LLM step\\n\\n'
-                        '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `promotion-core`: role=primary\\n\\n'
-                        '## Repo Hints\\n\\n### `promotion-core`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
+                        '## Dependencies\\n\\n- `promotion-core`：负责入口聚合。\\n\\n'
+                        '## Repo Hints\\n\\n### `promotion-core`\\n\\n- repo: `promotion-core`\\n- role: `服务聚合入口`\\n\\n#### Key Modules\\n- biz/service\\n\\n## Open Questions\\n\\n- LLM open question",'
                         '"open_questions":["LLM open question"]}]}'  # noqa: E501
                     ),
                 ],
@@ -638,10 +1242,32 @@ class KnowledgeGenerationTest(unittest.TestCase):
                         '"secondary_families":[["create"]],"noise_terms":[],"reason":"这些词跨 route、symbol、entry file 共现。","open_questions":[]}'
                     ),
                     (
+                        '{"primary_subject":"达人秒杀链路","related_subjects":["ExclusiveFlashSale","CreatorPromotion"],'
+                        '"adjacent_subjects":["save_template"],"suppressed_terms":["save_template"],'
+                        '"suppressed_modules":[],"suppressed_routes":["/save_template"],'
+                        '"reason":"save_template 不应进入主链路。","open_questions":[]}'
+                    ),
+                    (
+                        '{"repos":[{"repo_id":"promotion-core","has_external_entry_signal":true,"has_http_api_signal":true,'
+                        '"has_orchestration_signal":false,"has_frontend_assembly_signal":false,"has_shared_capability_signal":false,'
+                        '"has_runtime_update_signal":false,"signal_notes":["存在对外入口信号","存在 HTTP/API 信号"],"resolved_role_label":"HTTP/API 入口","open_questions":[]}]}'
+                    ),
+                    (
+                        '{"sync_entry_or_init":{},"async_preview_or_pre_enter":{"repos":["promotion-core"],"summary":"LLM async step","evidence":["llm fact"]},'
+                        '"data_orchestration":{},"runtime_update_or_notification":{},"frontend_bff_transform":{},"config_or_experiment_support":{},"open_questions":[]}'
+                    ),
+                    (
+                        '{"system_summary":["LLM summary"],"main_flow_steps":["LLM step"],'
+                        '"dependencies":["`promotion-core`：负责入口聚合。"],'
+                        '"repo_hints":[{"repo_id":"promotion-core","role_label":"HTTP/API 入口","key_modules":["biz/service"],'
+                        '"responsibilities":["承接异步/API 场景请求，并决定是否走新架构或 BFF 路径。"],"upstream":[],"downstream":[],"notes":[]}],'
+                        '"domain_summary":["LLM domain summary"],"open_questions":["LLM open question"]}'
+                    ),
+                    (
                         '{"documents":[{"kind":"flow","title":"LLM 系统链路","desc":"LLM desc",'
                         '"body":"## Summary\\n\\nLLM summary\\n\\n## Main Flow\\n\\n1. 通过 /save_template 调整 TemplateSwitcher。\\n\\n'
-                        '## Selected Paths\\n\\n- `/tmp/demo`\\n\\n## Dependencies\\n\\n- `promotion-core`: role=primary\\n\\n'
-                        '## Repo Hints\\n\\n### `promotion-core`\\n\\n- role: `primary`\\n\\n## Open Questions\\n\\n- LLM open question",'
+                        '## Dependencies\\n\\n- `promotion-core`：负责入口聚合。\\n\\n'
+                        '## Repo Hints\\n\\n### `promotion-core`\\n\\n- repo: `promotion-core`\\n- role: `服务聚合入口`\\n\\n#### Key Modules\\n- biz/service\\n\\n## Open Questions\\n\\n- LLM open question",'
                         '"open_questions":["LLM open question"]}]}'  # noqa: E501
                     ),
                 ],
@@ -663,7 +1289,8 @@ class KnowledgeGenerationTest(unittest.TestCase):
                     )
                 )
 
-            self.assertIn("当前处于第一阶段知识草稿", result.documents[0].body)
+            self.assertIn("LLM step", result.documents[0].body)
+            self.assertIn("## Summary", result.documents[0].body)
             self.assertTrue(
                 any("unsupported routes /save_template" in item for item in result.documents[0].evidence.retrievalNotes)
             )

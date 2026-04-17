@@ -58,3 +58,24 @@ export type KnowledgeGenerationJob = {
   open_questions: string[]
   error: string
 }
+
+export type KnowledgeTrace = {
+  trace_id: string
+  files: string[]
+  intent: Record<string, unknown>
+  term_mapping: Record<string, unknown>
+  candidate_ranking: Record<string, unknown>
+  term_family: Record<string, unknown>
+  anchor_selection: Record<string, unknown>
+  repo_discovery: {
+    repos?: Array<{
+      repo_id?: string
+      requested_path?: string
+      repo_path?: string
+    }>
+    [key: string]: unknown
+  }
+  repo_research: Record<string, unknown>
+  knowledge_draft: Record<string, unknown>
+  validation: Record<string, unknown>
+}

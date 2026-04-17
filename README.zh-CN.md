@@ -38,7 +38,7 @@
 - `POST /api/tasks` 从文本、本地文件或飞书文档创建 task
 - `POST /api/tasks/{task_id}/code-all` 顺序推进剩余 repo
 - `GET /api/tasks/{task_id}/artifact?name=diff.patch&repo=...` / `diff.json` 查看 repo 级 diff artifact
-- `POST /api/knowledge/drafts` 生成 `flow / domain / rule` 知识草稿，并写出 trace 中间产物
+- `POST /api/knowledge/drafts` 默认生成 `flow` 知识草稿，也可按需补 `domain` 草稿，并写出 trace 中间产物
 
 默认 task 目录：
 

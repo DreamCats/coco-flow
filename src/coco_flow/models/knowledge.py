@@ -47,8 +47,14 @@ class KnowledgeTraceResponse(BaseModel):
     term_mapping: dict[str, object]
     candidate_ranking: dict[str, object] = Field(default_factory=dict)
     term_family: dict[str, object] = Field(default_factory=dict)
+    focus_boundary: dict[str, object] = Field(default_factory=dict)
+    topic_adjudication: dict[str, object] = Field(default_factory=dict)
     anchor_selection: dict[str, object]
     repo_discovery: dict[str, object]
+    repo_role_signals: dict[str, object] = Field(default_factory=dict)
+    flow_slots: dict[str, object] = Field(default_factory=dict)
+    storyline_outline: dict[str, object] = Field(default_factory=dict)
+    flow_judge: dict[str, object] = Field(default_factory=dict)
     repo_research: dict[str, dict[str, object]]
     knowledge_draft: dict[str, object]
     validation: dict[str, object]

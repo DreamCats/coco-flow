@@ -1,4 +1,4 @@
-import type { KnowledgeDocument, KnowledgeDraftInput, KnowledgeGenerationJob } from './knowledge/types'
+import type { KnowledgeDocument, KnowledgeDraftInput, KnowledgeGenerationJob, KnowledgeTrace } from './knowledge/types'
 
 export type TaskStatus =
   | 'initialized'
@@ -165,6 +165,10 @@ export async function getKnowledge(documentId: string) {
 
 export async function getKnowledgeGenerationJob(jobId: string) {
   return fetchJSON<KnowledgeGenerationJob>(`/api/knowledge/jobs/${jobId}`)
+}
+
+export async function getKnowledgeTrace(traceId: string) {
+  return fetchJSON<KnowledgeTrace>(`/api/knowledge/traces/${traceId}`)
 }
 
 export async function retryKnowledgeGenerationJob(jobId: string) {
