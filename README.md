@@ -15,7 +15,6 @@ Current technical stance:
 
 - [`docs/refine-engine.md`](docs/refine-engine.md): why the `refine` engine is split into intent, knowledge, generation, and verification stages
 - [`docs/plan-engine.md`](docs/plan-engine.md): how the `plan` engine does repo research, scope extraction, generation, and verification
-- [`docs/knowledge-generation-engine.md`](docs/knowledge-generation-engine.md): the knowledge draft generation pipeline
 
 ## First Version Scope
 
@@ -39,7 +38,6 @@ The first version focuses on a minimal but usable scaffold:
 - `POST /api/tasks/{task_id}/code-all` to batch-run remaining repos asynchronously
 - `POST /api/tasks/{task_id}/reset` to roll back code-stage state
 - `POST /api/tasks/{task_id}/archive` to archive coded tasks
-- `POST /api/knowledge/drafts` to generate `flow` knowledge drafts by default, with optional `domain` drafts plus trace artifacts
 - `PUT /api/tasks/{task_id}/artifact?name=...` to edit task-level Markdown artifacts
 - `GET /api/tasks/{task_id}/artifact?name=diff.patch&repo=...` / `diff.json` to inspect repo-level diff artifacts
 All task data lives under `~/.config/coco-flow/tasks` by default.
@@ -60,7 +58,6 @@ uv run coco-flow prd refine --prd "需求描述"
 uv run coco-flow prd plan --task <task_id>
 uv run coco-flow prd code --task <task_id>
 uv run coco-flow prd run -i "需求描述"
-uv run coco-flow knowledge generate -d "竞拍讲解卡表达层" --path /path/to/repo
 uv run coco-flow tasks reset <task_id>
 uv run coco-flow tasks archive <task_id>
 uv run coco-flow api serve --host 127.0.0.1 --port 4318
@@ -131,7 +128,6 @@ Switch with environment variables:
 
 ```bash
 export COCO_FLOW_COCO_BIN=/path/to/coco
-export COCO_FLOW_KNOWLEDGE_EXECUTOR=local
 export COCO_FLOW_REFINE_EXECUTOR=local
 export COCO_FLOW_PLAN_EXECUTOR=local
 export COCO_FLOW_CODE_EXECUTOR=local
@@ -140,7 +136,6 @@ export COCO_FLOW_CODE_EXECUTOR=local
 Behavior notes:
 
 - `refine` / `plan`: default to native; if native execution fails, `coco-flow` falls back to local template generation
-- `knowledge`: supports `native` and `local`; `native` upgrades repo research and knowledge synthesis, and falls back to local when structured output fails
 - `refine` accepts plain text, local file paths, and Lark doc links; when a Lark doc cannot be fetched yet, it creates a pending refine placeholder instead of failing task creation
 - `refine` now runs an internal `prepare -> intent -> knowledge selection -> knowledge brief -> generate` pipeline and records `refine-intent.json`, optional `refine-knowledge-selection.json`, optional `refine-knowledge-brief.md`, optional `refine-verify.json`, and `refine-result.json`; `native refine` now upgrades into a three-stage LLM flow: intent extraction, final generation, and verifier/judge, with knowledge adjudication on top of the rule-based shortlist
 - `plan` now runs an internal approved-knowledge `selection -> brief` step and records optional `plan-knowledge-selection.json` / `plan-knowledge-brief.md`; `native plan` is now upgraded into a staged flow of scope extraction, design generation/verification, and execution generation/verification, with optional `plan-scope.json` / `plan-execution.json` / `plan-verify.json` artifacts, while the brief is compressed toward decision-useful sections such as boundaries, stable rules, and validation points
@@ -177,9 +172,6 @@ Current endpoints:
 - `GET /api/knowledge`
 - `POST /api/knowledge`
 - `GET /api/knowledge/{document_id}`
-- `GET /api/knowledge/jobs/{job_id}`
-- `GET /api/knowledge/traces/{trace_id}`
-- `POST /api/knowledge/drafts`
 - `PUT /api/knowledge/{document_id}/content`
 - `PUT /api/knowledge/{document_id}`
 - `DELETE /api/knowledge/{document_id}`
@@ -194,24 +186,6 @@ Current endpoints:
 - `POST /api/tasks/{task_id}/archive`
 - `GET /api/tasks/{task_id}/artifact?name=...`
 - `PUT /api/tasks/{task_id}/artifact?name=...`
-
-## Knowledge Drafts
-
-`POST /api/knowledge/drafts` now starts a background knowledge-generation job for the first-stage flow from
-[`docs/knowledge-generation-engine.md`](docs/knowledge-generation-engine.md):
-
-- normalize `title + description + selected_paths + kinds`
-- map user terms to repo terms before discovery
-- run lightweight repo discovery against `AGENTS.md`, `.livecoding/context/`, directory structure, filenames, symbol hits, and recent commit titles
-- select repo anchors (`strongest_terms / entry_files / business_symbols / discarded_noise`) before repo research
-- run repo research and knowledge synthesis via `COCO_FLOW_KNOWLEDGE_EXECUTOR` (`native` uses readonly ACP for research and prompt-only synthesis; `local` keeps rule-based fallback)
-- generate draft markdown documents, validate them, and write trace artifacts
-
-The API returns a generation job with stage/status/progress fields.
-Use `GET /api/knowledge/jobs/{job_id}` to poll progress and completion.
-
-For compatibility, the request accepts either `selected_paths` or the older `repos` field.
-Trace artifacts are written to `~/.config/coco-flow/knowledge/trace/<trace_id>/`.
 
 ## Project Layout
 

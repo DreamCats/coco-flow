@@ -3,17 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import ast
+import hashlib
 import json
+import re
 
 from coco_flow.config import Settings
-from coco_flow.models import KnowledgeDocument, KnowledgeEvidence, KnowledgeTraceResponse
-from coco_flow.services.knowledge.common import infer_domain_name, slugify_domain
-from coco_flow.services.knowledge.generation import (
-    KnowledgeDraftInput,
-    KnowledgeGenerationResult,
-    ProgressHandler,
-    generate_knowledge_drafts,
-)
+from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
 
 KNOWLEDGE_KIND_ORDER = ("domain", "flow", "rule")
 KIND_DIRS = {
@@ -29,7 +24,7 @@ class KnowledgeStore:
 
     def ensure_root(self) -> Path:
         self.settings.knowledge_root.mkdir(parents=True, exist_ok=True)
-        for directory in (*KIND_DIRS.values(), "trace", "jobs"):
+        for directory in KIND_DIRS.values():
             (self.settings.knowledge_root / directory).mkdir(parents=True, exist_ok=True)
         return self.settings.knowledge_root
 
@@ -68,27 +63,6 @@ class KnowledgeStore:
         target = self.settings.knowledge_root / KIND_DIRS[document.kind] / f"{document.id}.md"
         write_knowledge_document(target, document)
         return read_knowledge_document(target)
-
-    def create_drafts(
-        self,
-        payload: KnowledgeDraftInput,
-        on_progress: ProgressHandler | None = None,
-    ) -> KnowledgeGenerationResult:
-        self.ensure_root()
-        result = generate_knowledge_drafts(payload, self.settings, on_progress=on_progress)
-        if on_progress is not None:
-            on_progress("persisting", 96, "正在保存知识草稿和中间产物。")
-        self.persist_generation_result(result)
-        return result
-
-    def persist_generation_result(self, result: KnowledgeGenerationResult) -> None:
-        self._write_trace(result)
-        if result.validation_errors:
-            issues = "; ".join(result.validation_errors)
-            raise ValueError(f"knowledge draft validation failed: {issues}")
-        for document in result.documents:
-            target = self.settings.knowledge_root / KIND_DIRS[document.kind] / f"{document.id}.md"
-            write_knowledge_document(target, document)
 
     def update_document(self, document_id: str, payload: dict[str, object]) -> KnowledgeDocument:
         resolved = self._resolve_document_path(document_id)
@@ -143,51 +117,6 @@ class KnowledgeStore:
             candidate.unlink()
             return
         raise ValueError(f"knowledge document not found: {document_id}")
-
-    def get_trace(self, trace_id: str) -> KnowledgeTraceResponse:
-        self.ensure_root()
-        trace_root = self.settings.knowledge_root / "trace" / trace_id.strip()
-        if not trace_root.is_dir():
-            raise ValueError(f"knowledge trace not found: {trace_id}")
-
-        files = sorted(
-            str(path.relative_to(trace_root))
-            for path in trace_root.rglob("*.json")
-            if path.is_file()
-        )
-        repo_research_root = trace_root / "repo-research"
-        repo_research: dict[str, dict[str, object]] = {}
-        if repo_research_root.is_dir():
-            for path in sorted(repo_research_root.glob("*.json")):
-                repo_research[path.stem] = _read_trace_json(path)
-
-        return KnowledgeTraceResponse(
-            trace_id=trace_id,
-            files=files,
-            intent=_read_trace_json(trace_root / "intent.json"),
-            term_mapping=_read_trace_json(trace_root / "term-mapping.json"),
-            candidate_ranking=_read_trace_json(trace_root / "candidate-ranking.json"),
-            term_family=_read_trace_json(trace_root / "term-family.json"),
-            focus_boundary=_read_trace_json(trace_root / "focus-boundary.json"),
-            topic_adjudication=_read_trace_json(trace_root / "topic-adjudication.json"),
-            anchor_selection=_read_trace_json(trace_root / "anchor-selection.json"),
-            repo_discovery=_read_trace_json(trace_root / "repo-discovery.json"),
-            repo_role_signals=_read_trace_json(trace_root / "repo-role-signals.json"),
-            flow_slots=_read_trace_json(trace_root / "flow-slots.json"),
-            storyline_outline=_read_trace_json(trace_root / "storyline-outline.json"),
-            flow_judge=_read_trace_json(trace_root / "flow-judge.json"),
-            repo_research=repo_research,
-            knowledge_draft=_read_trace_json(trace_root / "knowledge-draft.json"),
-            validation=_read_trace_json(trace_root / "validation-result.json"),
-        )
-
-    def _write_trace(self, result: KnowledgeGenerationResult) -> None:
-        trace_root = self.settings.knowledge_root / "trace" / result.trace_id
-        trace_root.mkdir(parents=True, exist_ok=True)
-        for relative_path, payload in result.trace_files.items():
-            target = trace_root / relative_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     def _resolve_document_path(self, document_id: str) -> tuple[str, Path] | None:
         for kind in KNOWLEDGE_KIND_ORDER:
@@ -373,6 +302,21 @@ def merge_frontmatter_meta(base: dict[str, object], patch: dict[str, object]) ->
     return merged
 
 
+def infer_domain_name(title: str) -> str:
+    normalized = title
+    for term in ("系统链路", "表达层", "默认业务规则", "业务规则", "链路"):
+        normalized = normalized.replace(term, "")
+    return normalized.strip() or title.strip() or "未命名领域"
+
+
+def slugify_domain(name: str) -> str:
+    tokens = re.findall(r"[a-z0-9]+", name.lower())
+    if tokens:
+        return "-".join(tokens[:4])
+    stable_hash = hashlib.sha1(name.strip().encode("utf-8")).hexdigest()[:8]
+    return f"knowledge-{stable_hash}"
+
+
 def parse_frontmatter_value(raw: str) -> object:
     if not raw:
         return ""
@@ -440,9 +384,3 @@ def _coerce_string_list(value: object, default: list[str]) -> list[str]:
 
 def format_now() -> str:
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
-
-
-def _read_trace_json(path: Path) -> dict[str, object]:
-    if not path.is_file():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
