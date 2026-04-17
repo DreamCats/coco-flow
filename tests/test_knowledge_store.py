@@ -86,6 +86,69 @@ class KnowledgeStoreTest(unittest.TestCase):
             self.assertFalse(old_path.exists())
             self.assertTrue(new_path.is_file())
 
+    def test_update_document_content_preserves_raw_frontmatter_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = make_settings(Path(temp_dir))
+            store = KnowledgeStore(settings)
+            created = store.create_document("竞拍讲解卡参考", "## Summary\n\n初始内容。\n")
+
+            source = (
+                "---\n"
+                "kind: flow\n"
+                "status: approved\n"
+                "custom_tags:\n"
+                "  - auction\n"
+                "  - popcard\n"
+                "review_note: |\n"
+                "  第一行\n"
+                "  第二行\n"
+                "---\n\n"
+                "## Summary\n\n保留原始 YAML。\n"
+            )
+            updated = store.update_document_content(created.id, source)
+
+            self.assertIn("custom_tags:", updated.rawFrontmatter)
+            self.assertIn("review_note: |", updated.rawFrontmatter)
+            self.assertIn("第一行", updated.rawFrontmatter)
+            self.assertEqual(updated.rawContent, source)
+
+            saved_path = settings.knowledge_root / "flows" / f"{created.id}.md"
+            saved_content = saved_path.read_text(encoding="utf-8")
+            self.assertEqual(saved_content, source)
+
+    def test_update_document_content_normalizes_multiple_frontmatter_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = make_settings(Path(temp_dir))
+            store = KnowledgeStore(settings)
+            created = store.create_document("竞拍讲解卡参考", "## Summary\n\n初始内容。\n")
+
+            source = (
+                "---\n"
+                f"id: {created.id}\n"
+                "title: 临时标题\n"
+                "status: draft\n"
+                "---\n\n"
+                "---\n"
+                "id: imported-reference-id\n"
+                "title: 系统链路\n"
+                "status: approved\n"
+                "---\n\n"
+                "## Summary\n\n规范化后只保留一段 frontmatter。\n"
+            )
+            updated = store.update_document_content(created.id, source)
+
+            self.assertEqual(updated.id, created.id)
+            self.assertEqual(updated.title, "系统链路")
+            self.assertEqual(updated.status, "approved")
+            self.assertIn(f"id: {created.id}", updated.rawFrontmatter)
+            self.assertNotIn("imported-reference-id", updated.rawFrontmatter)
+
+            saved_path = settings.knowledge_root / "flows" / f"{created.id}.md"
+            saved_content = saved_path.read_text(encoding="utf-8")
+            self.assertEqual(saved_content.count("---\n"), 2)
+            self.assertIn("title: 系统链路", saved_content)
+            self.assertIn("## Summary", saved_content)
+
 
 if __name__ == "__main__":
     unittest.main()

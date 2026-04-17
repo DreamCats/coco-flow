@@ -1,10 +1,14 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import YAML from 'yaml'
 import { createKnowledgeDocument, deleteKnowledgeDocument, listKnowledge, updateKnowledgeDocumentContent } from '../api'
 import { KnowledgeCreateDrawer } from '../components/knowledge/knowledge-create-drawer'
 import { PanelMessage } from '../components/ui-primitives'
-import type { KnowledgeDocument } from '../knowledge/types'
+import type { KnowledgeDocument, KnowledgeStatus } from '../knowledge/types'
+
+type PreviewMode = 'rendered' | 'source'
+const knowledgeStatuses: KnowledgeStatus[] = ['draft', 'approved']
 
 export function KnowledgePage() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([])
@@ -17,6 +21,8 @@ export function KnowledgePage() {
   const [savingDocumentId, setSavingDocumentId] = useState('')
   const [editingDocumentId, setEditingDocumentId] = useState('')
   const [draftContent, setDraftContent] = useState('')
+  const [previewMode, setPreviewMode] = useState<PreviewMode>('rendered')
+  const [metadataOpen, setMetadataOpen] = useState(false)
   const deferredQuery = useDeferredValue(query)
 
   const filteredDocuments = useMemo(() => {
@@ -26,7 +32,16 @@ export function KnowledgePage() {
         if (!keyword) {
           return true
         }
-        return [document.title, document.desc, document.domainName, document.kind, document.status, document.keywords.join(' '), document.repos.join(' ')]
+        return [
+          document.title,
+          document.desc,
+          document.domainName,
+          document.kind,
+          document.status,
+          document.keywords.join(' '),
+          document.repos.join(' '),
+          document.rawContent ?? '',
+        ]
           .join(' ')
           .toLowerCase()
           .includes(keyword)
@@ -39,8 +54,9 @@ export function KnowledgePage() {
     documents.find((document) => document.id === selectedDocumentId) ??
     null
   const isEditing = selectedDocument !== null && editingDocumentId === selectedDocument.id
-  const activeContent = isEditing ? draftContent : selectedDocument ? serializeKnowledgeDocument(selectedDocument) : ''
-  const preview = splitFrontmatter(activeContent)
+  const activeContent = selectedDocument ? (isEditing ? draftContent : documentSource(selectedDocument)) : ''
+  const parsedDocument = useMemo(() => parseDocumentSource(activeContent), [activeContent])
+  const metadataEntries = useMemo(() => Object.entries(parsedDocument.data), [parsedDocument.data])
 
   useEffect(() => {
     let cancelled = false
@@ -85,10 +101,13 @@ export function KnowledgePage() {
     if (!selectedDocument) {
       setEditingDocumentId('')
       setDraftContent('')
+      setMetadataOpen(false)
       return
     }
     setEditingDocumentId('')
-    setDraftContent(serializeKnowledgeDocument(selectedDocument))
+    setDraftContent(documentSource(selectedDocument))
+    setPreviewMode('rendered')
+    setMetadataOpen(Boolean(selectedDocument.rawFrontmatter?.trim()))
   }, [selectedDocument?.id])
 
   function replaceDocument(nextDocument: KnowledgeDocument) {
@@ -132,12 +151,46 @@ export function KnowledgePage() {
         startTransition(() => {
           replaceDocument(document)
           setEditingDocumentId('')
-          setDraftContent(serializeKnowledgeDocument(document))
+          setDraftContent(documentSource(document))
           setError('')
         })
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : '保存知识文档失败')
+      })
+      .finally(() => {
+        setSavingDocumentId('')
+      })
+  }
+
+  function updateStatus(nextStatus: KnowledgeStatus) {
+    if (!selectedDocument || selectedDocument.status === nextStatus) {
+      return
+    }
+    if (parsedDocument.parseError) {
+      setError('frontmatter YAML 解析失败，先修复源码后再切换状态')
+      return
+    }
+    const currentSource = isEditing ? draftContent : documentSource(selectedDocument)
+    const nextSource = updateSourceStatus(currentSource, selectedDocument, parsedDocument.data, nextStatus)
+    const keepEditing = isEditing
+    setSavingDocumentId(selectedDocument.id)
+    if (keepEditing) {
+      setDraftContent(nextSource)
+    }
+    void updateKnowledgeDocumentContent(selectedDocument.id, nextSource)
+      .then((document) => {
+        startTransition(() => {
+          replaceDocument(document)
+          setDraftContent(documentSource(document))
+          setError('')
+          if (!keepEditing) {
+            setEditingDocumentId('')
+          }
+        })
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : '更新知识状态失败')
       })
       .finally(() => {
         setSavingDocumentId('')
@@ -178,7 +231,7 @@ export function KnowledgePage() {
               <div className="min-w-0">
                 <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Knowledge</div>
                 <h2 className="mt-2 text-[28px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">知识列表</h2>
-                <div className="mt-2 text-sm text-[#87867f] dark:text-[#b0aea5]">左侧按文档聚合，右侧直接预览和编辑 Markdown 文件。</div>
+                <div className="mt-2 text-sm text-[#87867f] dark:text-[#b0aea5]">左侧文档列表，右侧提供 metadata 折叠卡、正文预览和原文切换。</div>
               </div>
               <button
                 aria-label="新建知识文档"
@@ -192,7 +245,7 @@ export function KnowledgePage() {
             <input
               className="mt-3 w-full rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-2 text-sm text-[#141413] outline-none transition placeholder:text-[#87867f] focus:border-[#3898ec] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#faf9f5] dark:placeholder:text-[#87867f] dark:focus:border-[#3898ec]"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索标题、状态、repo 或关键词"
+              placeholder="搜索标题、状态、repo 或正文片段"
               type="text"
               value={query}
             />
@@ -249,6 +302,20 @@ export function KnowledgePage() {
                   <span className="rounded-full border border-[#d1cfc5] bg-[#f5f4ed] px-3 py-1 font-mono dark:border-[#30302e] dark:bg-[#232220]">{selectedDocument.id}.md</span>
                   <span className="rounded-full border border-[#d1cfc5] bg-[#f5f4ed] px-3 py-1 dark:border-[#30302e] dark:bg-[#232220]">更新于 {selectedDocument.updatedAt || '--'}</span>
                 </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#87867f] dark:text-[#b0aea5]">Status</span>
+                  <div className="inline-flex rounded-[14px] bg-[#e8e6dc] p-1 shadow-[0_0_0_1px_rgba(209,207,197,0.9)] dark:bg-[#30302e] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]">
+                    {knowledgeStatuses.map((status) => (
+                      <StatusButton
+                        active={selectedDocument.status === status}
+                        disabled={savingDocumentId === selectedDocument.id}
+                        key={status}
+                        label={status}
+                        onClick={() => updateStatus(status)}
+                      />
+                    ))}
+                  </div>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {isEditing ? (
@@ -257,7 +324,7 @@ export function KnowledgePage() {
                       className="rounded-[12px] border border-[#e8e6dc] px-4 py-2 text-sm text-[#5e5d59] transition hover:text-[#141413] dark:border-[#30302e] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]"
                       onClick={() => {
                         setEditingDocumentId('')
-                        setDraftContent(serializeKnowledgeDocument(selectedDocument))
+                        setDraftContent(documentSource(selectedDocument))
                       }}
                       type="button"
                     >
@@ -276,7 +343,7 @@ export function KnowledgePage() {
                   <button
                     className="rounded-[12px] border border-[#c96442] bg-[#fff7f2] px-4 py-2 text-sm font-semibold text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] transition hover:bg-[#fff0e2] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0] dark:hover:bg-[#4a3129]"
                     onClick={() => {
-                      setDraftContent(serializeKnowledgeDocument(selectedDocument))
+                      setDraftContent(documentSource(selectedDocument))
                       setEditingDocumentId(selectedDocument.id)
                     }}
                     type="button"
@@ -296,6 +363,16 @@ export function KnowledgePage() {
 
             {error ? <div className="mt-4 rounded-[16px] border border-[#e1c1bf] bg-[#fbf1f0] px-4 py-3 text-sm text-[#b53333] dark:border-[#7a3b3b] dark:bg-[#362020] dark:text-[#efb3b3]">{error}</div> : null}
 
+            <MetadataCard
+              entries={metadataEntries}
+              frontmatter={parsedDocument.frontmatter}
+              frontmatterBlockCount={parsedDocument.frontmatterBlockCount}
+              hasFrontmatter={parsedDocument.hasFrontmatter}
+              parseError={parsedDocument.parseError}
+              open={metadataOpen}
+              onToggle={() => setMetadataOpen((current) => !current)}
+            />
+
             {isEditing ? (
               <div className="mt-4">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#87867f] dark:text-[#b0aea5]">
@@ -310,14 +387,29 @@ export function KnowledgePage() {
               </div>
             ) : (
               <div className="mt-4 min-w-0">
-                {preview.frontmatter ? (
-                  <div className="mb-4 rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 text-sm text-[#5e5d59] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
-                    检测到 YAML frontmatter，右侧预览区仅渲染正文内容；如需修改 frontmatter，请使用“编辑源码”。
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-xs text-[#87867f] dark:text-[#b0aea5]">
+                    {parsedDocument.parseError
+                      ? `frontmatter 解析失败：${parsedDocument.parseError}`
+                      : parsedDocument.frontmatter
+                        ? 'frontmatter 已从正文预览中剥离，正文单独按 Markdown 渲染。'
+                        : '当前文档没有 frontmatter，直接按 Markdown 渲染。'}
                   </div>
-                ) : null}
-                <div className="overflow-auto rounded-[18px] border border-[#e8e6dc] bg-[#fdfcf9] px-5 py-5 shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#171615] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
-                  <MarkdownPreview content={preview.body || '暂无内容'} />
+                  <div className="inline-flex rounded-[14px] bg-[#e8e6dc] p-1 shadow-[0_0_0_1px_rgba(209,207,197,0.9)] dark:bg-[#30302e] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]">
+                    <ToggleButton active={previewMode === 'rendered'} label="正文渲染" onClick={() => setPreviewMode('rendered')} />
+                    <ToggleButton active={previewMode === 'source'} label="原文" onClick={() => setPreviewMode('source')} />
+                  </div>
                 </div>
+
+                {previewMode === 'rendered' ? (
+                  <div className="overflow-auto rounded-[18px] border border-[#e8e6dc] bg-[#fdfcf9] px-5 py-5 shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#171615] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
+                    <MarkdownPreview content={parsedDocument.content || '暂无内容'} />
+                  </div>
+                ) : (
+                  <pre className="overflow-auto rounded-[18px] border border-[#e8e6dc] bg-[#141413] px-4 py-4 font-mono text-xs leading-6 text-[#faf9f5] shadow-[0_0_0_1px_rgba(48,48,46,0.98)] dark:border-[#30302e]">
+                    <code>{activeContent || '暂无内容'}</code>
+                  </pre>
+                )}
               </div>
             )}
           </section>
@@ -326,6 +418,111 @@ export function KnowledgePage() {
 
       <KnowledgeCreateDrawer creating={creating} onClose={() => setShowCreateDrawer(false)} onSubmit={createDocument} open={showCreateDrawer} />
     </>
+  )
+}
+
+function MetadataCard({
+  entries,
+  frontmatter,
+  frontmatterBlockCount,
+  hasFrontmatter,
+  parseError,
+  open,
+  onToggle,
+}: {
+  entries: Array<[string, unknown]>
+  frontmatter: string
+  frontmatterBlockCount: number
+  hasFrontmatter: boolean
+  parseError: string
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <section className="mt-4 rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+      <button
+        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
+        onClick={onToggle}
+        type="button"
+      >
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">Metadata</div>
+          <div className="mt-1 text-sm text-[#5e5d59] dark:text-[#b0aea5]">
+            {parseError
+              ? `frontmatter 存在，但 YAML 解析失败`
+              : frontmatterBlockCount > 1
+                ? `检测到 ${frontmatterBlockCount} 段连续 frontmatter，已从正文中统一剥离`
+              : hasFrontmatter
+                ? `检测到 ${entries.length} 个 frontmatter 字段`
+                : '当前文档没有 frontmatter'}
+          </div>
+        </div>
+        <span className="rounded-full border border-[#d1cfc5] bg-[#faf9f5] px-3 py-1 text-xs text-[#5e5d59] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5]">
+          {open ? '收起' : '展开'}
+        </span>
+      </button>
+
+      {open ? (
+        <div className="border-t border-[#e8e6dc] px-4 py-4 dark:border-[#30302e]">
+          {entries.length > 0 ? (
+            <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {entries.map(([key, value]) => (
+                <div className="rounded-[14px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-3 dark:border-[#30302e] dark:bg-[#1d1c1a]" key={key}>
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-[#87867f] dark:text-[#b0aea5]">{key}</div>
+                  <div className="mt-2 break-words text-sm text-[#141413] dark:text-[#faf9f5]">{formatMetadataValue(value)}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <pre className="overflow-auto rounded-[16px] border border-[#e8e6dc] bg-[#141413] px-4 py-4 font-mono text-xs leading-6 text-[#faf9f5] shadow-[0_0_0_1px_rgba(48,48,46,0.98)] dark:border-[#30302e]">
+            <code>{frontmatter || '# no frontmatter'}</code>
+          </pre>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function ToggleButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      className={`rounded-[12px] px-3 py-1.5 text-[12px] transition ${
+        active
+          ? 'bg-[#ffffff] text-[#141413] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:bg-[#141413] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]'
+          : 'text-[#5e5d59] hover:text-[#141413] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
+  )
+}
+
+function StatusButton({
+  active,
+  disabled,
+  label,
+  onClick,
+}: {
+  active: boolean
+  disabled: boolean
+  label: KnowledgeStatus
+  onClick: () => void
+}) {
+  return (
+    <button
+      className={`rounded-[12px] px-3 py-1.5 text-[12px] transition ${
+        active
+          ? 'bg-[#ffffff] text-[#141413] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:bg-[#141413] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]'
+          : 'text-[#5e5d59] hover:text-[#141413] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
+      } disabled:cursor-not-allowed disabled:opacity-50`}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
   )
 }
 
@@ -386,16 +583,96 @@ function MarkdownPreview({ content }: { content: string }) {
   )
 }
 
-function serializeKnowledgeDocument(document: KnowledgeDocument) {
-  const evidence = {
-    inputTitle: document.evidence.inputTitle,
-    inputDescription: document.evidence.inputDescription,
-    repoMatches: document.evidence.repoMatches,
-    contextHits: document.evidence.contextHits,
-    retrievalNotes: document.evidence.retrievalNotes,
-    openQuestions: document.evidence.openQuestions,
+function parseDocumentSource(source: string) {
+  const normalized = source.trim() ? source : '\n'
+  const extracted = extractLeadingFrontmatter(normalized)
+  if (!extracted) {
+    return {
+      data: {},
+      content: normalized.trim(),
+      frontmatter: '',
+      frontmatterBlockCount: 0,
+      hasFrontmatter: false,
+      parseError: '',
+    }
   }
-  const meta: Record<string, string | string[] | Record<string, unknown>> = {
+  const mergedData: Record<string, unknown> = {}
+  let parseError = ''
+  for (const block of extracted.blocks) {
+    try {
+      const parsed = YAML.parse(block)
+      if (isRecord(parsed)) {
+        Object.assign(mergedData, parsed)
+      }
+    } catch (error) {
+      parseError = error instanceof Error ? error.message : 'unknown error'
+      break
+    }
+  }
+  const renderedFrontmatter = extracted.blocks.map((block) => `---\n${block}\n---`).join('\n\n')
+  return {
+    data: parseError ? {} : mergedData,
+    content: extracted.body.trim(),
+    frontmatter: renderedFrontmatter,
+    frontmatterBlockCount: extracted.blocks.length,
+    hasFrontmatter: true,
+    parseError,
+  }
+}
+
+function documentSource(document: KnowledgeDocument) {
+  if (document.rawContent && document.rawContent.trim()) {
+    return document.rawContent
+  }
+  if (document.rawFrontmatter && document.rawFrontmatter.trim()) {
+    return `---\n${document.rawFrontmatter.trimEnd()}\n---\n\n${document.body.trimEnd()}\n`
+  }
+  return document.body.trimEnd()
+}
+
+function updateSourceStatus(
+  source: string,
+  document: KnowledgeDocument,
+  parsedData: Record<string, unknown>,
+  status: KnowledgeStatus,
+) {
+  const extracted = extractLeadingFrontmatter(source)
+  const meta = {
+    ...defaultFrontmatter(document),
+    ...parsedData,
+    id: document.id,
+    status,
+  }
+  const frontmatter = YAML.stringify(meta).trim()
+  const body = extracted ? extracted.body.replace(/^\n+/, '') : source.replace(/^\n+/, '')
+  return body.trim()
+    ? `---\n${frontmatter}\n---\n\n${body.trimEnd()}\n`
+    : `---\n${frontmatter}\n---\n`
+}
+
+function extractLeadingFrontmatter(source: string) {
+  const normalized = source.replace(/\r\n/g, '\n')
+  let remaining = normalized
+  const blocks: string[] = []
+  while (remaining.startsWith('---\n')) {
+    const end = remaining.indexOf('\n---\n', 4)
+    if (end === -1) {
+      break
+    }
+    blocks.push(remaining.slice(4, end).trim())
+    remaining = remaining.slice(end + 5).replace(/^\n+/, '')
+  }
+  if (blocks.length === 0) {
+    return null
+  }
+  return {
+    blocks,
+    body: remaining,
+  }
+}
+
+function defaultFrontmatter(document: KnowledgeDocument) {
+  return {
     kind: document.kind,
     id: document.id,
     trace_id: document.traceId,
@@ -406,48 +683,31 @@ function serializeKnowledgeDocument(document: KnowledgeDocument) {
     domain_id: document.domainId,
     domain_name: document.domainName,
     repos: document.repos,
+    paths: document.paths,
+    keywords: document.keywords,
     priority: document.priority,
     confidence: document.confidence,
     updated_at: document.updatedAt,
     owner: document.owner,
+    evidence: document.evidence,
   }
-  if (document.paths.length > 0) {
-    meta.paths = document.paths
-  }
-  if (document.keywords.length > 0) {
-    meta.keywords = document.keywords
-  }
-  if (Object.values(evidence).some((value) => (Array.isArray(value) ? value.length > 0 : Boolean(value)))) {
-    meta.evidence = evidence
-  }
-  const frontmatter = ['---']
-  Object.entries(meta).forEach(([key, value]) => {
-    const serialized = typeof value === 'string' ? value : JSON.stringify(value, null, 0)
-    frontmatter.push(`${key}: ${serialized}`)
-  })
-  frontmatter.push('---')
-  return `${frontmatter.join('\n')}\n\n${document.body.trimEnd()}\n`
 }
 
-function splitFrontmatter(content: string) {
-  const normalized = content.replace(/\r\n/g, '\n')
-  if (!normalized.startsWith('---\n')) {
-    return {
-      frontmatter: '',
-      body: normalized.trim(),
-    }
+function formatMetadataValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.length === 0 ? '[]' : value.join(', ')
   }
-  const end = normalized.indexOf('\n---\n', 4)
-  if (end === -1) {
-    return {
-      frontmatter: '',
-      body: normalized.trim(),
-    }
+  if (value && typeof value === 'object') {
+    return JSON.stringify(value, null, 2)
   }
-  return {
-    frontmatter: normalized.slice(4, end).trim(),
-    body: normalized.slice(end + 5).trim(),
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false'
   }
+  return String(value ?? '')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function countLines(content: string) {

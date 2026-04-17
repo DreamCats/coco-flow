@@ -35,6 +35,8 @@ export type KnowledgeDocument = {
   owner: string
   body: string
   evidence: KnowledgeEvidence
+  rawFrontmatter?: string
+  rawContent?: string
 }
 
 export type KnowledgeDraftInput = {

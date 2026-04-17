@@ -34,6 +34,8 @@ class KnowledgeDocument(BaseModel):
     owner: str
     body: str
     evidence: KnowledgeEvidence
+    rawFrontmatter: str = ""
+    rawContent: str = ""
 
 
 class KnowledgeListResponse(BaseModel):

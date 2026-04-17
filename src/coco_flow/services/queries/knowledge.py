@@ -67,7 +67,7 @@ class KnowledgeStore:
             raise ValueError(f"knowledge document already exists: {document.id}")
         target = self.settings.knowledge_root / KIND_DIRS[document.kind] / f"{document.id}.md"
         write_knowledge_document(target, document)
-        return document
+        return read_knowledge_document(target)
 
     def create_drafts(
         self,
@@ -112,8 +112,9 @@ class KnowledgeStore:
                 "updatedAt": format_now(),
             }
         )
-        write_knowledge_document(self.settings.knowledge_root / KIND_DIRS[updated.kind] / f"{updated.id}.md", updated)
-        return updated
+        target = self.settings.knowledge_root / KIND_DIRS[updated.kind] / f"{updated.id}.md"
+        write_knowledge_document(target, updated)
+        return read_knowledge_document(target)
 
     def update_document_content(self, document_id: str, content: str) -> KnowledgeDocument:
         resolved = self._resolve_document_path(document_id)
@@ -132,7 +133,7 @@ class KnowledgeStore:
         write_knowledge_document(target, updated)
         if target != current_path and current_path.exists():
             current_path.unlink()
-        return updated
+        return read_knowledge_document(target)
 
     def delete_document(self, document_id: str) -> None:
         self.ensure_root()
@@ -207,10 +208,10 @@ class KnowledgeStore:
 
 def read_knowledge_document(path: Path) -> KnowledgeDocument:
     content = path.read_text(encoding="utf-8")
-    meta, body = parse_frontmatter(content)
+    meta, body, raw_frontmatter = parse_frontmatter(content)
     evidence_payload = meta.pop("evidence", None)
     return KnowledgeDocument(
-        id=str(meta.get("id") or path.stem),
+        id=path.stem,
         traceId=str(meta.get("trace_id") or ""),
         kind=str(meta.get("kind") or infer_kind_from_path(path)),
         status=str(meta.get("status") or "draft"),
@@ -228,6 +229,8 @@ def read_knowledge_document(path: Path) -> KnowledgeDocument:
         owner=str(meta.get("owner") or "unknown"),
         body=body,
         evidence=build_evidence(evidence_payload),
+        rawFrontmatter=raw_frontmatter,
+        rawContent=content,
     )
 
 
@@ -237,6 +240,11 @@ def write_knowledge_document(path: Path, document: KnowledgeDocument) -> None:
 
 
 def render_knowledge_document(document: KnowledgeDocument) -> str:
+    if document.rawFrontmatter.strip():
+        body = document.body.rstrip()
+        content = f"---\n{document.rawFrontmatter.rstrip()}\n---"
+        return f"{content}\n\n{body}\n" if body else f"{content}\n"
+
     hidden_evidence_fields = {"keywordMatches", "pathMatches", "candidateFiles"}
     evidence_payload = {
         key: value
@@ -280,7 +288,7 @@ def build_document_from_content(
     fallback_kind: str = "flow",
     existing: KnowledgeDocument | None = None,
 ) -> KnowledgeDocument:
-    meta, body = parse_frontmatter(content)
+    meta, body, raw_frontmatter = parse_frontmatter(content)
     evidence_payload = meta.pop("evidence", None)
     document_id = fallback_id if existing is not None else str(meta.get("id") or fallback_id).strip() or fallback_id
     title = str(meta.get("title") or fallback_title).strip() or fallback_title
@@ -308,18 +316,36 @@ def build_document_from_content(
         owner=str(meta.get("owner") or (existing.owner if existing else "Maifeng") or "Maifeng"),
         body=body,
         evidence=build_evidence(evidence_payload if evidence_payload is not None else (existing.evidence.model_dump() if existing else None)),
+        rawFrontmatter=raw_frontmatter,
+        rawContent=content,
     )
 
 
-def parse_frontmatter(content: str) -> tuple[dict[str, object], str]:
+def parse_frontmatter(content: str) -> tuple[dict[str, object], str, str]:
     normalized = content.replace("\r\n", "\n")
-    if not normalized.startswith("---\n"):
-        return {}, normalized.strip()
-    end = normalized.find("\n---\n", 4)
-    if end == -1:
-        return {}, normalized.strip()
-    block = normalized[4:end]
-    body = normalized[end + 5 :].strip()
+    blocks, body = split_frontmatter_blocks(normalized)
+    if not blocks:
+        return {}, body, ""
+    merged_meta: dict[str, object] = {}
+    for block in blocks:
+        merged_meta = merge_frontmatter_meta(merged_meta, parse_frontmatter_block(block))
+    raw_frontmatter = blocks[0] if len(blocks) == 1 else render_frontmatter_block(merged_meta)
+    return merged_meta, body, raw_frontmatter
+
+
+def split_frontmatter_blocks(content: str) -> tuple[list[str], str]:
+    remaining = content
+    blocks: list[str] = []
+    while remaining.startswith("---\n"):
+        end = remaining.find("\n---\n", 4)
+        if end == -1:
+            break
+        blocks.append(remaining[4:end].strip())
+        remaining = remaining[end + 5 :].lstrip("\n")
+    return blocks, remaining.strip()
+
+
+def parse_frontmatter_block(block: str) -> dict[str, object]:
     meta: dict[str, object] = {}
     for line in block.splitlines():
         current = line.strip()
@@ -327,7 +353,24 @@ def parse_frontmatter(content: str) -> tuple[dict[str, object], str]:
             continue
         key, raw_value = current.split(":", 1)
         meta[key.strip()] = parse_frontmatter_value(raw_value.strip())
-    return meta, body
+    return meta
+
+
+def render_frontmatter_block(meta: dict[str, object]) -> str:
+    lines: list[str] = []
+    for key, value in meta.items():
+        serialized = json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else str(value)
+        lines.append(f"{key}: {serialized}")
+    return "\n".join(lines)
+
+
+def merge_frontmatter_meta(base: dict[str, object], patch: dict[str, object]) -> dict[str, object]:
+    merged = dict(base)
+    for key, value in patch.items():
+        if key == "id" and str(merged.get("id") or "").strip():
+            continue
+        merged[key] = value
+    return merged
 
 
 def parse_frontmatter_value(raw: str) -> object:
