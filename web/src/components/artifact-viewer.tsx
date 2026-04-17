@@ -1,4 +1,7 @@
 import { startTransition, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { TaskArtifactName } from '../api'
 
 export function ArtifactViewer({
@@ -127,109 +130,99 @@ function MarkdownArtifact({
   content: string
   variant: 'drawer' | 'panel'
 }) {
-  const lines = content.split('\n')
-
   return (
-    <div className={variant === 'drawer' ? 'space-y-3 text-[#141413] dark:text-[#faf9f5]' : 'space-y-2 text-[#141413] dark:text-[#faf9f5]'}>
-      <div className={variant === 'drawer' ? 'space-y-3' : 'space-y-2'}>
-        {lines.map((line, index) => {
-          const trimmed = line.trim()
-          if (trimmed === '') {
-            return <div className={variant === 'drawer' ? 'h-3' : 'h-2'} key={index} />
-          }
-          if (trimmed.startsWith('### ')) {
-            const title = trimmed.slice(4)
-            return (
-              <h3
-                className={
-                  variant === 'drawer'
-                    ? 'mt-6 text-[24px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
-                    : 'mt-4 text-[20px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
-                }
-                id={markdownHeadingID(title)}
-                key={index}
-              >
-                {title}
-              </h3>
-            )
-          }
-          if (trimmed.startsWith('## ')) {
-            const title = trimmed.slice(3)
-            return (
-              <h2
-                className={
-                  variant === 'drawer'
-                    ? 'mt-8 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
-                    : 'mt-5 text-[24px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
-                }
-                id={markdownHeadingID(title)}
-                key={index}
-              >
-                {title}
-              </h2>
-            )
-          }
-          if (trimmed.startsWith('# ')) {
-            const title = trimmed.slice(2)
-            return (
-              <h1
-                className={
-                  variant === 'drawer'
-                    ? 'mt-2 text-[42px] leading-[1.1] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
-                    : 'mt-2 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
-                }
-                id={markdownHeadingID(title)}
-                key={index}
-              >
-                {title}
-              </h1>
-            )
-          }
-          if (trimmed.startsWith('- ')) {
-            return (
-              <div
-                className={
-                  variant === 'drawer'
-                    ? 'flex gap-3 pl-1 text-[16px] leading-8 text-[#4d4c48] dark:text-[#b0aea5]'
-                    : 'flex gap-3 pl-1 text-[15px] leading-8 text-[#4d4c48] dark:text-[#b0aea5]'
-                }
-                key={index}
-              >
-                <span
-                  className={
-                    variant === 'drawer'
-                      ? 'mt-[13px] h-1.5 w-1.5 rounded-full bg-[#c96442] dark:bg-[#d97757]'
-                      : 'mt-[12px] h-1.5 w-1.5 rounded-full bg-[#c96442] dark:bg-[#d97757]'
-                  }
-                />
-                <span>{trimmed.slice(2)}</span>
-              </div>
-            )
-          }
-          if (trimmed.startsWith('|')) {
-            return (
-              <div
-                className={
-                  variant === 'drawer'
-                    ? 'overflow-x-auto rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 font-mono text-xs text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]'
-                    : 'overflow-x-auto rounded-[14px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-2 font-mono text-xs text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]'
-                }
-                key={index}
-              >
-                {trimmed}
-              </div>
-            )
-          }
-          return (
-            <p
-              className={variant === 'drawer' ? 'text-[17px] leading-[1.8] text-[#4d4c48] dark:text-[#b0aea5]' : 'text-[15px] leading-[1.8] text-[#4d4c48] dark:text-[#b0aea5]'}
-              key={index}
+    <div className={variant === 'drawer' ? 'text-[#141413] dark:text-[#faf9f5]' : 'text-[#141413] dark:text-[#faf9f5]'}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => (
+            <h1
+              className={
+                variant === 'drawer'
+                  ? 'mt-2 mb-4 text-[42px] leading-[1.1] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
+                  : 'mt-2 mb-3 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
+              }
+              id={markdownHeadingID(flattenMarkdownText(children))}
             >
-              {trimmed}
+              {children}
+            </h1>
+          ),
+          h2: ({ children }) => (
+            <h2
+              className={
+                variant === 'drawer'
+                  ? 'mt-8 mb-3 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
+                  : 'mt-6 mb-3 text-[24px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
+              }
+              id={markdownHeadingID(flattenMarkdownText(children))}
+            >
+              {children}
+            </h2>
+          ),
+          h3: ({ children }) => (
+            <h3
+              className={
+                variant === 'drawer'
+                  ? 'mt-6 mb-3 text-[24px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
+                  : 'mt-5 mb-2 text-[20px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'
+              }
+              id={markdownHeadingID(flattenMarkdownText(children))}
+            >
+              {children}
+            </h3>
+          ),
+          p: ({ children }) => (
+            <p className={variant === 'drawer' ? 'my-3 text-[17px] leading-[1.8] text-[#4d4c48] dark:text-[#b0aea5]' : 'my-2 text-[15px] leading-[1.8] text-[#4d4c48] dark:text-[#b0aea5]'}>
+              {children}
             </p>
-          )
-        })}
-      </div>
+          ),
+          ul: ({ children }) => (
+            <ul className={variant === 'drawer' ? 'my-4 list-disc space-y-2 pl-6 text-[16px] leading-8 text-[#4d4c48] dark:text-[#b0aea5]' : 'my-3 list-disc space-y-1.5 pl-5 text-[15px] leading-7 text-[#4d4c48] dark:text-[#b0aea5]'}>
+              {children}
+            </ul>
+          ),
+          ol: ({ children }) => (
+            <ol className={variant === 'drawer' ? 'my-4 list-decimal space-y-2 pl-6 text-[16px] leading-8 text-[#4d4c48] dark:text-[#b0aea5]' : 'my-3 list-decimal space-y-1.5 pl-5 text-[15px] leading-7 text-[#4d4c48] dark:text-[#b0aea5]'}>
+              {children}
+            </ol>
+          ),
+          li: ({ children }) => <li>{children}</li>,
+          blockquote: ({ children }) => (
+            <blockquote className="my-4 rounded-r-[16px] border-l-4 border-[#d1cfc5] bg-[#f5f4ed] px-4 py-3 text-[#5e5d59] dark:border-[#4b4a46] dark:bg-[#232220] dark:text-[#b0aea5]">
+              {children}
+            </blockquote>
+          ),
+          table: ({ children }) => (
+            <div className="my-4 overflow-x-auto rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
+              <table className="min-w-full border-collapse text-left text-sm">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-[#eeece2] dark:bg-[#2a2927]">{children}</thead>,
+          th: ({ children }) => <th className="border-b border-[#ddd9cc] px-3 py-2 font-semibold text-[#141413] dark:border-[#3a3937] dark:text-[#faf9f5]">{children}</th>,
+          td: ({ children }) => <td className="border-t border-[#e8e6dc] px-3 py-2 text-[#4d4c48] dark:border-[#30302e] dark:text-[#b0aea5]">{children}</td>,
+          hr: () => <hr className="my-6 border-0 border-t border-[#e8e6dc] dark:border-[#30302e]" />,
+          a: ({ href, children }) => (
+            <a className="text-[#c96442] underline underline-offset-2 dark:text-[#f0c0b0]" href={href} rel="noreferrer" target="_blank">
+              {children}
+            </a>
+          ),
+          strong: ({ children }) => <strong className="font-semibold text-[#141413] dark:text-[#faf9f5]">{children}</strong>,
+          em: ({ children }) => <em className="italic">{children}</em>,
+          code: ({ className, children }) =>
+            className ? (
+              <code className="font-mono text-xs leading-6 text-[#5e5d59] dark:text-[#b0aea5]">{children}</code>
+            ) : (
+              <code className="rounded bg-[#f1ede3] px-1.5 py-0.5 font-mono text-[0.9em] text-[#6b2e1f] dark:bg-[#2f2623] dark:text-[#f0c0b0]">{children}</code>
+            ),
+          pre: ({ children }) => (
+            <pre className="my-4 overflow-x-auto rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#141413] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
+              {children}
+            </pre>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   )
 }
@@ -378,6 +371,19 @@ function markdownHeadingID(title: string) {
     .toLowerCase()
     .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
     .replace(/^-+|-+$/g, '')}`
+}
+
+function flattenMarkdownText(children: ReactNode): string {
+  if (typeof children === 'string' || typeof children === 'number') {
+    return String(children)
+  }
+  if (Array.isArray(children)) {
+    return children.map((child) => flattenMarkdownText(child)).join('')
+  }
+  if (children && typeof children === 'object' && 'props' in children) {
+    return flattenMarkdownText((children as { props?: { children?: ReactNode } }).props?.children ?? '')
+  }
+  return ''
 }
 
 function ArtifactFocusDrawer({
