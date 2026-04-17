@@ -3,6 +3,7 @@ import type { TaskRecord } from '../api'
 
 export function TaskPrimaryAction({
   task,
+  compact = false,
   actionError,
   actionBusy,
   batchCodeStarting,
@@ -27,6 +28,7 @@ export function TaskPrimaryAction({
   onStartRemainingCode,
 }: {
   task: TaskRecord
+  compact?: boolean
   actionError: string
   actionBusy: boolean
   batchCodeStarting: boolean
@@ -54,20 +56,111 @@ export function TaskPrimaryAction({
   const codedCount = task.repos.filter((repo) => repo.status === 'coded' || repo.status === 'archived').length
   const failedCount = task.repos.filter((repo) => repo.status === 'failed').length
   const runningCount = task.repos.filter((repo) => repo.status === 'coding').length
+  const blockedRepos = task.repos.filter((repo) => repo.failureType === 'blocked_by_dependency').map((repo) => repo.id)
+  const currentStage = currentStageLabel(task)
   const pendingRefine = isPendingRefineTask(task)
   const missingLarkCli = pendingRefine && task.sourceFetchErrorCode === 'missing_lark_cli'
   const dominantFailure = summarizeFailureType(task)
 
+  if (compact) {
+    return (
+      <section className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] px-4 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Current Stage CTA</div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <div className="text-[20px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{primaryHeadline(task)}</div>
+              <span className="rounded-full border border-[#e8e6dc] px-2.5 py-1 text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]">
+                {currentStage}
+              </span>
+            </div>
+            {polling ? (
+              <div className="mt-2 rounded-[12px] border border-[#ccd6c8] bg-[#f3f7f1] px-3 py-1.5 text-[11px] text-[#4a6b4a] dark:border-[#425142] dark:bg-[#263126] dark:text-[#d8e7d4]">
+                {runningHeadline(task.status)}，最近同步 {lastRefreshedAt || '--:--:--'}
+              </div>
+            ) : null}
+            {blockedRepos.length > 0 ? (
+              <div className="mt-2 rounded-[12px] border border-[#d9c9a7] bg-[#fff7e8] px-3 py-1.5 text-[11px] leading-5 text-[#7a5b18] dark:border-[#6d5a2e] dark:bg-[#2a2419] dark:text-[#f0dfb0]">
+                blocked repos: {blockedRepos.join(', ')}
+              </div>
+            ) : null}
+            {actionError ? (
+              <div className="mt-2 rounded-[12px] border border-[#e1c1bf] bg-[#fbf1f0] px-3 py-1.5 text-[11px] leading-5 text-[#b53333]">{actionError}</div>
+            ) : null}
+            {!actionError && task.status === 'failed' ? (
+              <div className="mt-2 rounded-[12px] border border-[#e1c1bf] bg-[#fbf1f0] px-3 py-1.5 text-[11px] leading-5 text-[#b53333]">
+                {dominantFailure
+                  ? `当前主要失败类型是「${dominantFailure.label}」。${dominantFailure.action}`
+                  : '本次推进失败了，建议先查看 code.log 和 code-result.json，再决定重试还是回退。'}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex min-w-[260px] flex-wrap items-center justify-start gap-2 lg:max-w-[360px] lg:justify-end">
+            {canStartRemainingCode ? (
+              <PrimaryButton disabled={actionBusy} onClick={onStartRemainingCode} title="会按仓库顺序逐个执行，某个仓库失败后立即停止。">
+                {batchCodeStarting ? '批量推进中...' : `依次推进剩余仓库 (${remainingReposCount})`}
+              </PrimaryButton>
+            ) : null}
+            {canStartCode ? (
+              <PrimaryButton disabled={actionBusy} onClick={onStartCode} title="会创建隔离工作区，生成改动并尝试完成构建验证。">
+                {codeStarting ? '实现进行中...' : codeActionLabel}
+              </PrimaryButton>
+            ) : null}
+            {canResetCode ? (
+              <SecondaryButton disabled={actionBusy} onClick={onReset} title="会删除本次生成的分支、worktree、diff 与结果记录。" tone="rose">
+                {resetting ? '回退中...' : '回退实现'}
+              </SecondaryButton>
+            ) : null}
+            {canArchiveCode ? (
+              <SecondaryButton disabled={actionBusy} onClick={onArchive} title="会清理分支和工作区，并把任务标记为已归档。" tone="sky">
+                {archiving ? '归档中...' : '归档任务'}
+              </SecondaryButton>
+            ) : null}
+            {canStartPlan ? (
+              <SecondaryButton
+                disabled={actionBusy}
+                onClick={onStartPlan}
+                title={task.status === 'planned' ? '会重新分析代码，并覆盖 design.md / plan.md。' : '会在后台生成 design.md / plan.md。'}
+                tone="neutral"
+              >
+                {planStarting ? '方案生成中...' : planActionLabel}
+              </SecondaryButton>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="flex h-full flex-col rounded-[20px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
-      <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">主行动区</div>
-      <div className="mt-3 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{primaryHeadline(task)}</div>
+      <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Current Stage CTA</div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{primaryHeadline(task)}</div>
+        <span className="rounded-full border border-[#e8e6dc] px-3 py-1 text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:border-[#30302e] dark:text-[#b0aea5]">
+          {currentStage}
+        </span>
+      </div>
       <p className="mt-3 max-w-[42rem] text-[15px] leading-7 text-[#5e5d59] dark:text-[#b0aea5]">{primaryNarrative(task)}</p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <MiniStat label="仓库总数" value={`${repoCount}`} />
         <MiniStat label="已完成" value={`${codedCount}`} />
         <MiniStat label="处理中断" value={`${failedCount + runningCount}`} />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <StageField label="当前建议动作" value={task.nextAction || '当前没有明确建议动作。'} />
+        <StageField
+          label="阻塞与下一步"
+          value={
+            blockedRepos.length > 0
+              ? `blocked repos: ${blockedRepos.join(', ')}`
+              : task.repoNext.length > 0
+                ? `next repo: ${task.repoNext.join(', ')}`
+                : '当前没有显式依赖阻塞。'
+          }
+        />
       </div>
 
       {polling ? <RunningStatusCard status={task.status} lastRefreshedAt={lastRefreshedAt} /> : null}
@@ -138,6 +231,15 @@ export function TaskPrimaryAction({
         ) : null}
       </div>
     </section>
+  )
+}
+
+function StageField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#1a1918] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
+      <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">{label}</div>
+      <div className="mt-2 text-sm leading-6 text-[#141413] dark:text-[#faf9f5]">{value}</div>
+    </div>
   )
 }
 
@@ -315,6 +417,26 @@ function primaryHeadline(task: TaskRecord) {
     default:
       return '继续推进当前任务'
   }
+}
+
+function currentStageLabel(task: TaskRecord) {
+  if (task.status === 'initialized' || task.status === 'refined') {
+    return 'Refine'
+  }
+  if (task.status === 'planning') {
+    const hasDesign = Boolean(task.artifacts['design.md'] && !task.artifacts['design.md'].includes('当前没有'))
+    return hasDesign ? 'Plan' : 'Design'
+  }
+  if (task.status === 'planned') {
+    return 'Code'
+  }
+  if (task.status === 'coding' || task.status === 'partially_coded' || task.status === 'failed') {
+    return 'Code'
+  }
+  if (task.status === 'coded' || task.status === 'archived') {
+    return 'Archive'
+  }
+  return 'Input'
 }
 
 function primaryNarrative(task: TaskRecord) {

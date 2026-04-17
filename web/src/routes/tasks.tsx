@@ -20,6 +20,7 @@ import {
 import { ArtifactEditorDrawer } from '../components/artifact-editor-drawer'
 import { RepoPicker } from '../components/repo-picker'
 import { TaskPrimaryAction } from '../components/task-primary-action'
+import { TaskWorkflowOverview } from '../components/task-workflow-overview'
 import { RepoContextPanel, TaskWorkbench, type WorkbenchPane } from '../components/task-workbench'
 import { PanelMessage, StatusBadge } from '../components/ui-primitives'
 import { useAppData } from '../hooks/use-app-data'
@@ -372,8 +373,11 @@ export function TaskDetailPage() {
         }
         setTask(detail)
         const firstDiffRepo = detail.repos.find((repo) => repo.diffSummary)?.id ?? detail.repos[0]?.id ?? ''
+        const initialArtifact = pickInitialArtifact(detail)
         setSelectedDiffRepo(firstDiffRepo)
         setArtifactRepo(firstDiffRepo)
+        setArtifact(initialArtifact)
+        setWorkbenchForcedPane(resolveInitialPane(initialArtifact))
         setLastRefreshedAt(formatRefreshTime(new Date()))
         setError('')
         setActionError('')
@@ -499,6 +503,8 @@ export function TaskDetailPage() {
   const canArchiveCode = singleRepo ? canArchiveCodeForRepo(singleRepo) : false
   const remainingRepos = task.repos.filter((repo) => canStartCodeForRepo(repo, hasGeneratedPlan))
   const canStartRemainingCode = task.repos.length > 1 && remainingRepos.length > 0 && task.status !== 'coding'
+  const codeStageLayout =
+    hasGeneratedPlan && ['planned', 'coding', 'partially_coded', 'failed', 'coded', 'archived'].includes(task.status)
   const planActionLabel = task.status === 'planned' || task.status === 'failed' ? '重新 Plan' : '开始 Plan'
   const codeActionLabel = singleRepo?.status === 'failed' ? '重试实现' : '开始实现'
   const actionBusy = Boolean(planStarting || codeStartingRepo || batchCodeStarting || resettingRepo || archivingRepo)
@@ -669,6 +675,7 @@ export function TaskDetailPage() {
   return (
     <>
       <div className="space-y-4 lg:h-full lg:overflow-y-auto lg:pr-1">
+      <TaskWorkflowOverview task={task} />
       <section className="overflow-hidden rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] shadow-[0_0_0_1px_rgba(240,238,230,0.92),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]">
         <div className="border-b border-[#e8e6dc] px-5 py-4 dark:border-[#30302e]">
           <div className="flex flex-wrap items-center gap-2">
@@ -682,6 +689,115 @@ export function TaskDetailPage() {
           </div>
         </div>
         <div className="px-5 py-5">
+          {codeStageLayout ? (
+            <div className="space-y-5">
+              <TaskPrimaryAction
+                actionBusy={actionBusy}
+                actionError={actionError}
+                archiving={Boolean(archivingRepo)}
+                batchCodeStarting={batchCodeStarting}
+                canArchiveCode={canArchiveCode}
+                canResetCode={canResetCode}
+                canStartCode={canStartCode}
+                canStartPlan={canStartPlan}
+                canStartRemainingCode={canStartRemainingCode}
+                codeActionLabel={codeActionLabel}
+                codeStarting={Boolean(codeStartingRepo)}
+                compact
+                onArchive={() => void handleArchiveSingleCode()}
+                onReset={() => void handleResetSingleCode()}
+                onStartCode={() => void handleStartSingleCode()}
+                onStartPlan={() => void handleStartPlan()}
+                onStartRemainingCode={() => void handleStartRemainingCode()}
+                planActionLabel={planActionLabel}
+                planStarting={planStarting}
+                polling={polling}
+                lastRefreshedAt={lastRefreshedAt}
+                remainingReposCount={remainingRepos.length}
+                resetting={Boolean(resettingRepo)}
+                task={task}
+              />
+              <RepoContextPanel
+                actionBusy={actionBusy}
+                archivingRepo={archivingRepo}
+                codeStartingRepo={codeStartingRepo}
+                hasGeneratedPlan={hasGeneratedPlan}
+                onArchive={async (repoId) => {
+                  const confirmed = window.confirm('归档后会清理这次实现产生的分支和 worktree，但会保留结果记录。确认继续吗？')
+                  if (!confirmed) {
+                    return
+                  }
+                  try {
+                    setArchivingRepo(repoId)
+                    setActionError('')
+                    const result = await archiveCode(currentTask.id, repoId)
+                    setTask({
+                      ...currentTask,
+                      status: result.status as TaskStatus,
+                      nextAction: `仓库 ${repoId} 已归档。`,
+                    })
+                    await reload()
+                  } catch (err) {
+                    setActionError(err instanceof Error ? err.message : '归档失败')
+                    setArchivingRepo(null)
+                  }
+                }}
+                onReset={async (repoId) => {
+                  const confirmed = window.confirm('回退后会删除这次生成的分支、worktree、diff 和结果记录。确认继续吗？')
+                  if (!confirmed) {
+                    return
+                  }
+                  try {
+                    setResettingRepo(repoId)
+                    setActionError('')
+                    const result = await resetCode(currentTask.id, repoId)
+                    setTask({
+                      ...currentTask,
+                      status: result.status as TaskStatus,
+                      nextAction: `仓库 ${repoId} 的实现结果已回退。`,
+                    })
+                    setArtifact('plan.md')
+                    setArtifactRepo('')
+                    await reload()
+                  } catch (err) {
+                    setActionError(err instanceof Error ? err.message : '回退实现失败')
+                    setResettingRepo(null)
+                  }
+                }}
+                onReviewDiff={(repoId) => {
+                  handleRepoContextChange(repoId)
+                  focusWorkbench('diff')
+                }}
+                onReviewResult={(repoId) => {
+                  setArtifact('code-result.json')
+                  handleRepoContextChange(repoId)
+                  focusWorkbench('result')
+                }}
+                onSelectRepo={handleRepoContextChange}
+                onStartCode={async (repoId) => {
+                  try {
+                    setCodeStartingRepo(repoId)
+                    setActionError('')
+                    const result = await startCode(currentTask.id, repoId)
+                    setTask({
+                      ...currentTask,
+                      status: result.status as TaskStatus,
+                      nextAction: `仓库 ${repoId} 正在生成实现，请稍候刷新任务详情。`,
+                    })
+                    setArtifact('code.log')
+                    handleRepoContextChange(repoId)
+                    await reload()
+                  } catch (err) {
+                    setActionError(err instanceof Error ? err.message : '启动实现失败')
+                    setCodeStartingRepo(null)
+                  }
+                }}
+                resettingRepo={resettingRepo}
+                selectedRepo={selectedDiffRepo || artifactRepo || task.repos[0]?.id || ''}
+                task={task}
+              />
+            </div>
+          ) : (
           <div className="grid gap-5 lg:items-stretch lg:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
             <TaskPrimaryAction
               actionBusy={actionBusy}
@@ -788,6 +904,7 @@ export function TaskDetailPage() {
               task={task}
             />
           </div>
+          )}
         </div>
       </section>
 
@@ -907,6 +1024,44 @@ function normalizeEditableContent(content: string) {
     return ''
   }
   return content.replace(/\r\n/g, '\n')
+}
+
+function pickInitialArtifact(task: TaskRecord): TaskArtifactName {
+  if (task.status === 'initialized' || task.status === 'refined') {
+    return 'prd-refined.md'
+  }
+  if (task.status === 'planning') {
+    return 'plan.log'
+  }
+  if (task.status === 'planned') {
+    return hasActionableArtifact(task.artifacts['design.md']) ? 'design.md' : 'plan.md'
+  }
+  if (task.status === 'coding') {
+    return 'code.log'
+  }
+  if (task.status === 'partially_coded' || task.status === 'coded' || task.status === 'failed' || task.status === 'archived') {
+    if (task.repos.some((repo) => hasRepoArtifactData(repo, 'code-result.json'))) {
+      return 'code-result.json'
+    }
+    if (task.repos.some((repo) => hasRepoArtifactData(repo, 'diff.json'))) {
+      return 'diff.json'
+    }
+    if (task.repos.some((repo) => hasRepoArtifactData(repo, 'code.log'))) {
+      return 'code.log'
+    }
+    return hasActionableArtifact(task.artifacts['plan.md']) ? 'plan.md' : 'prd-refined.md'
+  }
+  return 'prd-refined.md'
+}
+
+function resolveInitialPane(artifact: TaskArtifactName): WorkbenchPane {
+  if (artifact === 'code-result.json' || artifact === 'diff.json' || artifact === 'diff.patch') {
+    return 'result'
+  }
+  if (artifact.endsWith('.log')) {
+    return 'logs'
+  }
+  return 'docs'
 }
 
 function isPendingRefineTask(task: TaskRecord) {
