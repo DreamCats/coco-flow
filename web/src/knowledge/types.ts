@@ -18,7 +18,6 @@ export type KnowledgeEvidence = {
 
 export type KnowledgeDocument = {
   id: string
-  traceId: string
   kind: KnowledgeKind
   status: KnowledgeStatus
   title: string
@@ -27,8 +26,6 @@ export type KnowledgeDocument = {
   domainName: string
   engines: KnowledgeEngine[]
   repos: string[]
-  paths: string[]
-  keywords: string[]
   priority: KnowledgePriority
   confidence: KnowledgeConfidence
   updatedAt: string

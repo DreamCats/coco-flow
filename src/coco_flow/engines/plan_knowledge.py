@@ -81,7 +81,6 @@ def build_plan_knowledge_brief(
                 f"- id: {document.id}",
                 f"- domain: {document.domain_name or document.domain_id or 'unknown'}",
                 f"- repos: {', '.join(document.repos) if document.repos else '无'}",
-                f"- keywords: {', '.join(document.keywords[:8]) if document.keywords else '无'}",
                 "- 关键摘录：",
                 render_plan_knowledge_excerpt(document.body, terms),
                 "- 决策边界：",
@@ -122,8 +121,6 @@ def read_knowledge_document_for_plan(path: Path, fallback_kind: str) -> Knowledg
         domain_name=str(meta.get("domain_name") or ""),
         engines=knowledge_as_string_list(meta.get("engines")),
         repos=knowledge_as_string_list(meta.get("repos")),
-        paths=knowledge_as_string_list(meta.get("paths")),
-        keywords=knowledge_as_string_list(meta.get("keywords")),
         body=body,
     )
 
@@ -177,25 +174,21 @@ def score_plan_knowledge_document(
     repo_scopes: list[RepoScope],
 ) -> dict[str, object]:
     repo_ids = [scope.repo_id for scope in repo_scopes]
-    repo_paths = [scope.repo_path for scope in repo_scopes]
     terms = infer_plan_knowledge_terms(title, sections)
     score = 0
     repo_match = any(repo_id in document.repos for repo_id in repo_ids)
-    path_match = any(path_matches_repo(candidate_path, repo_paths) for candidate_path in document.paths)
     keyword_hits = sorted(
         {
             term
             for term in terms
             if any(
                 term.lower() in value.lower()
-                for value in [*document.keywords, document.title, document.desc, document.domain_name, document.body]
+                for value in [document.title, document.desc, document.domain_name, document.body]
             )
         }
     )
     if repo_match:
         score += 5
-    if path_match:
-        score += 4
     score += min(len(keyword_hits), 4)
     summary_text = " ".join([title, *sections.change_scope, *sections.key_constraints, *sections.acceptance_criteria])
     if document.domain_name and document.domain_name.lower() in summary_text.lower():
@@ -211,7 +204,6 @@ def score_plan_knowledge_document(
         "status": document.status,
         "score": score,
         "repo_match": repo_match,
-        "path_match": path_match,
         "keyword_hits": keyword_hits,
     }
 
@@ -228,24 +220,6 @@ def infer_plan_knowledge_terms(title: str, sections: RefinedSections) -> list[st
         for token in re.findall(r"[\u4e00-\u9fff]{2,12}", value):
             terms.append(token)
     return _dedupe_terms(terms)[:12]
-
-
-def path_matches_repo(path_value: str, repo_paths: list[str]) -> bool:
-    current = path_value.strip()
-    if not current:
-        return False
-    try:
-        candidate = Path(current).resolve()
-    except OSError:
-        return False
-    for repo_path in repo_paths:
-        try:
-            root = Path(repo_path).resolve()
-        except OSError:
-            continue
-        if candidate == root or str(candidate).startswith(str(root) + os.sep):
-            return True
-    return False
 
 
 def render_plan_knowledge_excerpt(body: str, terms: list[str]) -> str:

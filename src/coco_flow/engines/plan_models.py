@@ -275,6 +275,4 @@ class KnowledgeDocumentLike:
     domain_name: str
     engines: list[str]
     repos: list[str]
-    paths: list[str]
-    keywords: list[str]
     body: str

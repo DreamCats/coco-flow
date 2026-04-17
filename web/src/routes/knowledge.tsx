@@ -38,7 +38,6 @@ export function KnowledgePage() {
           document.domainName,
           document.kind,
           document.status,
-          document.keywords.join(' '),
           document.repos.join(' '),
           document.rawContent ?? '',
         ]
@@ -675,7 +674,6 @@ function defaultFrontmatter(document: KnowledgeDocument) {
   return {
     kind: document.kind,
     id: document.id,
-    trace_id: document.traceId,
     title: document.title,
     desc: document.desc,
     status: document.status,
@@ -683,8 +681,6 @@ function defaultFrontmatter(document: KnowledgeDocument) {
     domain_id: document.domainId,
     domain_name: document.domainName,
     repos: document.repos,
-    paths: document.paths,
-    keywords: document.keywords,
     priority: document.priority,
     confidence: document.confidence,
     updated_at: document.updatedAt,

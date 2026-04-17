@@ -185,8 +185,6 @@ export async function updateKnowledgeDocument(documentId: string, input: Partial
       status: input.status,
       engines: input.engines,
       repos: input.repos,
-      paths: input.paths,
-      keywords: input.keywords,
       priority: input.priority,
       confidence: input.confidence,
       body: input.body,

@@ -78,8 +78,6 @@ class KnowledgeStore:
                 "status": str(payload.get("status") or existing.status),
                 "engines": _as_string_list(payload.get("engines"), existing.engines),
                 "repos": _as_string_list(payload.get("repos"), existing.repos),
-                "paths": _as_string_list(payload.get("paths"), existing.paths),
-                "keywords": _as_string_list(payload.get("keywords"), existing.keywords),
                 "priority": str(payload.get("priority") or existing.priority),
                 "confidence": str(payload.get("confidence") or existing.confidence),
                 "body": str(payload.get("body") or existing.body),
@@ -141,7 +139,6 @@ def read_knowledge_document(path: Path) -> KnowledgeDocument:
     evidence_payload = meta.pop("evidence", None)
     return KnowledgeDocument(
         id=path.stem,
-        traceId=str(meta.get("trace_id") or ""),
         kind=str(meta.get("kind") or infer_kind_from_path(path)),
         status=str(meta.get("status") or "draft"),
         title=str(meta.get("title") or path.stem),
@@ -150,8 +147,6 @@ def read_knowledge_document(path: Path) -> KnowledgeDocument:
         domainName=str(meta.get("domain_name") or ""),
         engines=_as_string_list(meta.get("engines"), []),
         repos=_as_string_list(meta.get("repos"), []),
-        paths=_as_string_list(meta.get("paths"), []),
-        keywords=_as_string_list(meta.get("keywords"), []),
         priority=str(meta.get("priority") or "medium"),
         confidence=str(meta.get("confidence") or "medium"),
         updatedAt=str(meta.get("updated_at") or ""),
@@ -183,7 +178,6 @@ def render_knowledge_document(document: KnowledgeDocument) -> str:
     meta = {
         "kind": document.kind,
         "id": document.id,
-        "trace_id": document.traceId,
         "title": document.title,
         "desc": document.desc,
         "status": document.status,
@@ -197,10 +191,6 @@ def render_knowledge_document(document: KnowledgeDocument) -> str:
         "owner": document.owner,
         "evidence": evidence_payload,
     }
-    if document.paths:
-        meta["paths"] = document.paths
-    if document.keywords:
-        meta["keywords"] = document.keywords
     frontmatter = ["---"]
     for key, value in meta.items():
         serialized = json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else str(value)
@@ -228,7 +218,6 @@ def build_document_from_content(
         raise ValueError(f"unsupported knowledge kind: {kind}")
     return KnowledgeDocument(
         id=document_id,
-        traceId=str(meta.get("trace_id") or (existing.traceId if existing else "")),
         kind=kind,
         status=str(meta.get("status") or (existing.status if existing else "draft") or "draft"),
         title=title,
@@ -237,8 +226,6 @@ def build_document_from_content(
         domainName=domain_name,
         engines=_coerce_string_list(meta.get("engines"), existing.engines if existing else []),
         repos=_coerce_string_list(meta.get("repos"), existing.repos if existing else []),
-        paths=_coerce_string_list(meta.get("paths"), existing.paths if existing else []),
-        keywords=_coerce_string_list(meta.get("keywords"), existing.keywords if existing else []),
         priority=str(meta.get("priority") or (existing.priority if existing else "medium") or "medium"),
         confidence=str(meta.get("confidence") or (existing.confidence if existing else "medium") or "medium"),
         updatedAt=format_now(),

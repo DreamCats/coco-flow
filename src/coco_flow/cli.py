@@ -101,8 +101,7 @@ def knowledge_list_cmd(
         typer.echo("No knowledge documents found.")
         return
     for document in documents:
-        trace_suffix = f" trace={document.traceId}" if document.traceId else ""
-        typer.echo(f"{document.id} [{document.status}] {document.domainName} / {document.kind} / {document.title}{trace_suffix}")
+        typer.echo(f"{document.id} [{document.status}] {document.domainName} / {document.kind} / {document.title}")
 
 
 @tasks_app.command("refine")

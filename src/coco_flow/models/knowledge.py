@@ -17,7 +17,6 @@ class KnowledgeEvidence(BaseModel):
 
 class KnowledgeDocument(BaseModel):
     id: str
-    traceId: str = ""
     kind: str
     status: str
     title: str
@@ -26,8 +25,6 @@ class KnowledgeDocument(BaseModel):
     domainName: str
     engines: list[str]
     repos: list[str]
-    paths: list[str]
-    keywords: list[str]
     priority: str
     confidence: str
     updatedAt: str
@@ -57,8 +54,6 @@ class UpdateKnowledgeDocumentRequest(BaseModel):
     status: str
     engines: list[str]
     repos: list[str]
-    paths: list[str]
-    keywords: list[str]
     priority: str
     confidence: str
     body: str
