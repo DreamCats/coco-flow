@@ -20,8 +20,7 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
   const [saveError, setSaveError] = useState('')
 
   const steps = useMemo(() => buildRefineProgress(task), [task])
-  const completedCount = steps.filter((step) => step.done).length
-  const progressPercent = task.status === 'refining' || task.status === 'refined' ? Math.round((completedCount / steps.length) * 100) : 0
+  const progressPercent = useMemo(() => buildRefineProgressPercent(task, steps), [task, steps])
   const activeLabel = steps.find((step) => step.current)?.label ?? (task.status === 'refined' ? '提炼完成' : '等待开始')
   const progressTone =
     task.status === 'refining'
@@ -141,11 +140,25 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
 
 function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
   const log = task.artifacts['refine.log'] || ''
-  const hasIntent = hasArtifact(task.artifacts['refine-intent.json']) || log.includes('intent_goal:')
-  const hasKnowledgeSelection = hasArtifact(task.artifacts['refine-knowledge-selection.json']) || log.includes('selected_knowledge_ids:')
-  const hasKnowledgeRead = hasArtifact(task.artifacts['refine-knowledge-read.md']) || log.includes('knowledge_read_mode:')
-  const hasDraft = hasArtifact(task.artifacts['prd-refined.md']) || log.includes('generate_prompt_ok:')
+  const hasStarted = task.status === 'refining' || task.status === 'refined' || log.includes('=== REFINE START ===')
+  const hasIntent =
+    hasArtifact(task.artifacts['refine-intent.json']) ||
+    log.includes('intent_goal:') ||
+    log.includes('intent_extraction_mode:') ||
+    log.includes('native_intent_fallback:')
+  const hasKnowledgeSelection =
+    hasArtifact(task.artifacts['refine-knowledge-selection.json']) ||
+    log.includes('knowledge_candidates:') ||
+    log.includes('selected_knowledge_ids:')
+  const hasKnowledgeRead =
+    hasArtifact(task.artifacts['refine-knowledge-read.md']) ||
+    log.includes('knowledge_read_mode:') ||
+    log.includes('knowledge_read_fallback:')
+  const hasGenerateStarted = log.includes('generate_agent_start:') || log.includes('generate_mode: local')
+  const hasDraft = hasArtifact(task.artifacts['prd-refined.md']) || log.includes('generate_agent_ok:') || log.includes('generate_mode: local')
   const hasVerified = hasArtifact(task.artifacts['refine-verify.json']) || task.status === 'refined'
+  const noKnowledgeSelected = log.includes('selected_knowledge_ids: 无') || task.artifacts['refine-knowledge-selection.json']?.includes('"selected_ids": []')
+  const knowledgeStageDone = hasKnowledgeSelection && (hasKnowledgeRead || noKnowledgeSelected || hasGenerateStarted || hasDraft || hasVerified)
 
   if (task.status === 'refined') {
     return [
@@ -167,21 +180,35 @@ function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
     ]
   }
 
-  const currentStep = !hasIntent
+  const currentStep = !hasStarted
     ? '读取输入'
-    : !hasKnowledgeSelection
+    : !hasIntent
       ? '提炼意图'
-      : !hasKnowledgeRead
+      : !knowledgeStageDone
         ? '知识筛选'
         : !hasDraft
           ? '生成初稿'
-          : '完成校验'
+          : !hasVerified
+            ? '完成校验'
+            : '完成校验'
 
   return [
-    { label: '读取输入', done: hasIntent || hasKnowledgeSelection || hasKnowledgeRead || hasDraft || hasVerified, current: currentStep === '读取输入' },
+    { label: '读取输入', done: hasStarted, current: currentStep === '读取输入' },
     { label: '提炼意图', done: hasIntent, current: currentStep === '提炼意图' },
-    { label: '知识筛选', done: hasKnowledgeSelection, current: currentStep === '知识筛选' },
+    { label: '知识筛选', done: knowledgeStageDone, current: currentStep === '知识筛选' },
     { label: '生成初稿', done: hasDraft, current: currentStep === '生成初稿' },
     { label: '完成校验', done: hasVerified, current: currentStep === '完成校验' },
   ]
+}
+
+function buildRefineProgressPercent(task: TaskRecord, steps: RefineProgressStep[]) {
+  if (task.status === 'refined') {
+    return 100
+  }
+  if (task.status !== 'refining') {
+    return 0
+  }
+  const completedUnits = steps.filter((step) => step.done).length
+  const currentUnits = steps.some((step) => step.current) ? 0.45 : 0
+  return Math.max(8, Math.round(((completedUnits + currentUnits) / steps.length) * 100))
 }
