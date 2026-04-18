@@ -41,7 +41,6 @@ class PlanWorkItem:
     id: str
     title: str
     repo_id: str
-    role: str
     task_type: str
     serves_change_points: list[int]
     goal: str
@@ -60,7 +59,6 @@ class PlanWorkItem:
             "id": self.id,
             "title": self.title,
             "repo_id": self.repo_id,
-            "role": self.role,
             "task_type": self.task_type,
             "serves_change_points": self.serves_change_points,
             "goal": self.goal,

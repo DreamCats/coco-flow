@@ -175,7 +175,6 @@ def generate_local_design_markdown(
                 [
                     f"#### {str(item.get('system_name') or item.get('repo_id') or 'system')}",
                     f"- 仓库：{str(item.get('repo_id') or '')}",
-                    f"- 角色：{str(item.get('role') or '')}",
                     f"- scope_tier：{str(item.get('scope_tier') or '')}",
                     f"- 职责：{str(item.get('responsibility') or '')}",
                     f"- 选择原因：{str((repo_decision_notes.get(str(item.get('repo_id') or '')) or {}).get('decision_summary') or item.get('reason') or '承担本次核心改造，因此纳入主改造面。')}",
@@ -451,7 +450,6 @@ def _build_repo_decision_note(binding_item: dict[str, object], research_entry: d
     return {
         "repo_id": repo_id,
         "system_name": str(binding_item.get("system_name") or repo_id),
-        "role": str(binding_item.get("role") or ""),
         "scope_tier": scope_tier,
         "decision_summary": " ".join(part for part in summary_parts if part),
         "repo_summary": repo_summary,

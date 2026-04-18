@@ -105,7 +105,6 @@ def build_local_design_research_payload(prepared: DesignPreparedInput) -> dict[s
     scores = _compute_prefilter_scores(prepared)
     candidate_repo_ids = _select_candidate_repo_ids(scores)
     skipped_repo_ids = [item["repo_id"] for item in scores if item["repo_id"] not in candidate_repo_ids]
-    highest_candidate = candidate_repo_ids[0] if candidate_repo_ids else ""
     assignment_by_repo = _repo_assignment_map(prepared.repo_assignment_payload)
 
     repos: list[dict[str, object]] = []
@@ -114,11 +113,6 @@ def build_local_design_research_payload(prepared: DesignPreparedInput) -> dict[s
         repo_id = item["repo_id"]
         selected = repo_id in candidate_repo_ids
         assignment = assignment_by_repo.get(repo_id, {})
-        role_hint = "reference"
-        if selected and repo_id == highest_candidate:
-            role_hint = "primary"
-        elif selected:
-            role_hint = "supporting"
         primary_change_points = [int(value) for value in assignment.get("primary_change_points", []) if str(value).isdigit()]
         secondary_change_points = [int(value) for value in assignment.get("secondary_change_points", []) if str(value).isdigit()]
         serves_change_points = primary_change_points or secondary_change_points or [1]
@@ -135,7 +129,6 @@ def build_local_design_research_payload(prepared: DesignPreparedInput) -> dict[s
                 "explored": selected,
                 "exploration_mode": "heuristic",
                 "decision": "in_scope_candidate" if selected else "out_of_scope",
-                "role_hint": role_hint,
                 "serves_change_points": serves_change_points,
                 "primary_change_points": primary_change_points,
                 "secondary_change_points": secondary_change_points,
@@ -226,9 +219,9 @@ def _build_local_summary(
     secondary_change_points: list[int],
 ) -> str:
     if selected and primary_change_points:
-        return f"{repo_id} 是 change points {', '.join(str(item) for item in primary_change_points)} 的 primary candidate。"
+        return f"{repo_id} 直接承接 change points {', '.join(str(item) for item in primary_change_points)}，建议进入 Design 深挖。"
     if selected and secondary_change_points:
-        return f"{repo_id} 是 change points {', '.join(str(item) for item in secondary_change_points)} 的 secondary candidate。"
+        return f"{repo_id} 与 change points {', '.join(str(item) for item in secondary_change_points)} 相关，适合作为辅助探索仓库。"
     if selected:
         return f"{repo_id} 在当前 refined 范围内存在明确改动信号，建议进入 Design 深挖。"
     return f"{repo_id} 当前命中信号较弱，暂不作为本轮 Design 的优先探索仓库。"
@@ -338,7 +331,6 @@ def _normalize_agent_entry(
         "explored": True,
         "exploration_mode": "llm",
         "decision": str(payload.get("decision") or "uncertain").strip() or "uncertain",
-        "role_hint": str(payload.get("role_hint") or local_entry.get("role_hint") or "reference").strip() or "reference",
         "serves_change_points": [
             int(value)
             for value in payload.get("serves_change_points", [])

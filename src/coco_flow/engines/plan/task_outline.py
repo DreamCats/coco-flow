@@ -46,7 +46,6 @@ def build_local_plan_task_outline_payload(prepared: PlanPreparedInput) -> dict[s
         repo_id = str(item.get("repo_id") or "").strip()
         if not repo_id:
             continue
-        role = str(item.get("role") or "reference")
         task_type = "implementation" if scope_tier in {"must_change", "co_change"} else "validation"
         change_summary = _as_str_list(item.get("change_summary")) or [f"{repo_id} 完成本次职责范围内的执行收敛。"]
         candidate_files = _as_str_list(item.get("candidate_files"))[:8]
@@ -69,10 +68,9 @@ def build_local_plan_task_outline_payload(prepared: PlanPreparedInput) -> dict[s
                 "validation_focus": _build_validation_focus(prepared, task_type, boundaries),
                 "risk_notes": boundaries[:3] or ["避免扩大到 Design 未纳入的仓库或系统。"],
                 "change_scope": candidate_files,
-                "handoff_notes": _build_handoff_notes(task_type, role),
+                "handoff_notes": _build_handoff_notes(task_type, scope_tier),
                 "depends_on": depends_on,
                 "parallelizable_with": [],
-                "role": role,
             }
         )
         if scope_tier == "must_change":
@@ -93,7 +91,6 @@ def normalize_plan_work_items(outline_payload: dict[str, object], prepared: Plan
                 id=str(item.get("id") or f"W{index}"),
                 title=str(item.get("title") or _build_task_title(repo_id, "implementation", prepared)).strip(),
                 repo_id=repo_id,
-                role=str(item.get("role") or _role_from_repo_binding(prepared, repo_id) or "reference"),
                 task_type=_normalize_task_type(item.get("task_type")),
                 serves_change_points=_as_int_list(item.get("serves_change_points")) or [1],
                 goal=str(item.get("goal") or _build_task_goal(repo_id, "implementation", prepared)).strip(),
@@ -191,7 +188,6 @@ def _dedupe_and_reindex_work_items(items: list[PlanWorkItem], prepared: PlanPrep
                 id="",
                 title=_build_task_title(repo_id, "implementation", prepared),
                 repo_id=repo_id,
-                role=_role_from_repo_binding(prepared, repo_id) or "primary",
                 task_type="implementation",
                 serves_change_points=[1],
                 goal=_build_task_goal(repo_id, "implementation", prepared),
@@ -214,13 +210,6 @@ def _in_scope_binding_items(prepared: PlanPreparedInput) -> list[dict[str, objec
     if not isinstance(raw, list):
         return []
     return [item for item in raw if isinstance(item, dict) and str(item.get("decision") or "") == "in_scope"]
-
-
-def _role_from_repo_binding(prepared: PlanPreparedInput, repo_id: str) -> str:
-    for item in _in_scope_binding_items(prepared):
-        if str(item.get("repo_id") or "") == repo_id:
-            return str(item.get("role") or "")
-    return ""
 
 
 def _normalize_task_type(value: object) -> str:
@@ -274,8 +263,8 @@ def _build_validation_focus(prepared: PlanPreparedInput, task_type: str, boundar
     return checks[:6]
 
 
-def _build_handoff_notes(task_type: str, role: str) -> list[str]:
-    notes = [f"repo role: {role or 'unknown'}"]
+def _build_handoff_notes(task_type: str, scope_tier: str) -> list[str]:
+    notes = [f"scope_tier: {scope_tier or 'unknown'}"]
     if task_type == "validation":
         notes.append("后续 code 阶段应把它当作验证/联调项，而不是默认主改仓。")
     else:

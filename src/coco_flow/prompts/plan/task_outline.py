@@ -48,9 +48,9 @@ def build_plan_task_outline_agent_prompt(
         goal="基于已经完成 adjudication 的 Design artifacts，直接编辑指定 JSON 模板文件，产出 plan-task-outline.json。",
         requirements=[
             "必须直接编辑指定 JSON 文件，不要只在回复里输出结果。",
-            "Plan 只负责执行拆分，不要重新判断 repo 是否 in scope，也不要改写 repo role 或 scope_tier。",
+            "Plan 只负责执行拆分，不要重新判断 repo 是否 in scope，也不要改写 scope_tier。",
             "task_type 只使用 implementation / coordination / validation / preparation。",
-            "优先覆盖所有 in-scope 且 scope_tier=must_change 的 repo；supporting 或 validate_only repo 只有在执行上确有必要时才单独成任务。",
+            "优先覆盖所有 in-scope 且 scope_tier=must_change 的 repo；validate_only repo 只有在执行上确有必要时才单独成任务。",
             "每个任务必须是可执行单元，避免把多个 repo 的主改动混成一个模糊大任务。",
             "不要默认写伪代码；只需要明确 goal、done_definition、validation_focus 和风险边界。",
             "不得引入 Design artifacts 中不存在的仓库、模块、文件或额外需求。",

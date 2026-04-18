@@ -57,7 +57,6 @@ class DesignRepoBindingEntry:
     repo_id: str
     repo_path: str
     decision: str
-    role: str
     scope_tier: str
     serves_change_points: list[int]
     system_name: str
@@ -76,7 +75,6 @@ class DesignRepoBindingEntry:
             "repo_id": self.repo_id,
             "repo_path": self.repo_path,
             "decision": self.decision,
-            "role": self.role,
             "scope_tier": self.scope_tier,
             "serves_change_points": self.serves_change_points,
             "system_name": self.system_name,

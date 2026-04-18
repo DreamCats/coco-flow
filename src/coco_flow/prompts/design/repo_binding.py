@@ -14,7 +14,6 @@ def build_design_repo_binding_template_json() -> str:
         '      "repo_id": "__FILL__",\n'
         '      "repo_path": "__FILL__",\n'
         '      "decision": "__FILL__",\n'
-        '      "role": "__FILL__",\n'
         '      "scope_tier": "__FILL__",\n'
         '      "serves_change_points": [1],\n'
         '      "system_name": "__FILL__",\n'
@@ -50,7 +49,6 @@ def build_design_repo_binding_agent_prompt(
         requirements=[
             "必须直接编辑指定 JSON 文件，不要只在回复里输出结果。",
             "只使用 in_scope / out_of_scope / uncertain 作为 decision。",
-            "只使用 primary / supporting / reference 作为 role。",
             "scope_tier 只使用 must_change / co_change / validate_only / reference_only。",
             "不要引入当前 research 中没有出现的仓库或文件。",
             "只要候选 repo 数量大于 1，也不要假设串行探索顺序本身就是依赖关系。",

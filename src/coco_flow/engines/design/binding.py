@@ -34,12 +34,10 @@ def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding
         system_name = repo.finding.matched_terms[0].business if repo.finding.matched_terms else repo.repo_id
         candidate_dirs = [qualify_repo_path(repo.repo_id, item, repo_count) for item in repo.finding.candidate_dirs[:6]]
         candidate_files = [qualify_repo_path(repo.repo_id, item, repo_count) for item in repo.finding.candidate_files[:8]]
-        role = _role_from_scope_tier(tier)
         entry = DesignRepoBindingEntry(
             repo_id=repo.repo_id,
             repo_path=repo.repo_path,
             decision=decision,
-            role=role,
             scope_tier=tier,
             serves_change_points=[1],
             system_name=system_name,
@@ -63,7 +61,6 @@ def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding
             must_change_assigned += 1
             if must_change_assigned > 1:
                 current.scope_tier = "co_change"
-                current.role = "supporting"
         bindings.append(current)
     must_change = [entry.repo_id for entry in bindings if entry.decision == "in_scope" and entry.scope_tier == "must_change"]
     co_change = [entry.repo_id for entry in bindings if entry.decision == "in_scope" and entry.scope_tier == "co_change"]
@@ -137,7 +134,6 @@ def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, knowle
                     repo_id=str(item.get("repo_id") or ""),
                     repo_path=str(item.get("repo_path") or ""),
                     decision=str(item.get("decision") or "uncertain"),
-                    role=str(item.get("role") or "reference"),
                     scope_tier=str(item.get("scope_tier") or _infer_scope_tier_from_binding_item(item, prepared.responsibility_matrix_payload)),
                     serves_change_points=[int(value) for value in item.get("serves_change_points", []) if str(value).isdigit()],
                     system_name=str(item.get("system_name") or ""),
@@ -236,13 +232,12 @@ def _infer_scope_tier_from_binding_item(item: dict[str, object], responsibility_
         if current in {"must_change", "co_change", "validate_only", "reference_only"}:
             return current
     repo_id = str(item.get("repo_id") or "").lower()
-    role = str(item.get("role") or "reference").lower()
     candidate_text = " ".join(str(value) for value in [*(item.get("candidate_dirs") or []), *(item.get("candidate_files") or [])]).lower()
     if "abtest" in candidate_text or "common" in repo_id:
         return "reference_only"
-    if role == "primary" and any(keyword in candidate_text for keyword in ("converter", "loader", "engine", "status", "pack")):
+    if any(keyword in candidate_text for keyword in ("converter", "loader", "engine", "status", "pack")):
         return "must_change"
-    if role in {"primary", "supporting"}:
+    if candidate_text:
         return "validate_only"
     return "reference_only"
 
@@ -257,14 +252,6 @@ def _priority_from_scope_tier(scope_tier: str) -> int:
     if scope_tier == "reference_only":
         return 1
     return 0
-
-
-def _role_from_scope_tier(scope_tier: str) -> str:
-    if scope_tier == "must_change":
-        return "primary"
-    if scope_tier in {"co_change", "validate_only"}:
-        return "supporting"
-    return "reference"
 
 
 def _responsibility_from_matrix_or_summary(
@@ -315,7 +302,6 @@ def _merge_matrix_priors(
         if current is None:
             continue
         current.scope_tier = tier
-        current.role = _role_from_scope_tier(tier)
         current.decision = "in_scope"
         current.reason = str(matrix_entry.get("reasoning") or current.reason or "")
         merged[repo_id] = current
