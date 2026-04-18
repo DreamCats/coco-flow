@@ -2,7 +2,7 @@ import { Navigate, Outlet, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { PanelMessage } from '../../components/ui-primitives'
 import { useAppData } from '../../hooks/use-app-data'
-import { defaultStageForTask, buildTaskStages, type TaskStageID } from './model'
+import { defaultStageForTask, buildTaskStages, truncateTaskTitle, type TaskStageID } from './model'
 import { TaskListPane } from './task-list-pane'
 import { TaskStageTimeline } from './task-stage-timeline'
 import { TaskStageDetailPanel } from './stage-detail-panel'
@@ -67,7 +67,9 @@ export function TaskDetailPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Current Task</div>
-            <h3 className="mt-2 text-[30px] leading-[1.08] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{detail.task.title}</h3>
+            <h3 className="mt-2 truncate text-[30px] leading-[1.08] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]" title={detail.task.title}>
+              {truncateTaskTitle(detail.task.title, 18)}
+            </h3>
             <p className="mt-2 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">右侧先看 6 阶段流水线，再进入单阶段详情。</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

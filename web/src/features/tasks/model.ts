@@ -138,6 +138,14 @@ export function taskStatusLabel(status: TaskStatus) {
   }
 }
 
+export function truncateTaskTitle(title: string, maxChars = 12) {
+  const normalized = title.trim()
+  if (normalized.length <= maxChars) {
+    return normalized
+  }
+  return `${normalized.slice(0, maxChars)}...`
+}
+
 export function repoReadyForCode(repo: RepoResult) {
   return repo.status === 'planned' || repo.status === 'failed'
 }
