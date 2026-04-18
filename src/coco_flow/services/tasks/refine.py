@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 
 from coco_flow.config import Settings, load_settings
+from coco_flow.engines.input import STATUS_INPUT_READY
 from coco_flow.engines.refine import (
     LogHandler,
     STATUS_INITIALIZED,
@@ -27,7 +28,7 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
         raise ValueError(f"task metadata missing: {task_id}")
 
     status = str(task_meta.get("status") or "")
-    if status not in {STATUS_INITIALIZED, STATUS_REFINED}:
+    if status not in {STATUS_INITIALIZED, STATUS_INPUT_READY, STATUS_REFINED}:
         raise ValueError(f"task status {status} does not allow refine")
 
     logger = on_log or (lambda line: append_refine_log(task_dir, line))

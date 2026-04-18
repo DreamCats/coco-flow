@@ -32,6 +32,7 @@ The first version focuses on a minimal but usable scaffold:
 - `coco-flow tasks archive <task_id>` to archive coded tasks
 - `coco-flow api serve` to run a local FastAPI service
 - `POST /api/tasks` to create initialized tasks from text, local files, or Lark docs in the new `coco-flow` task root
+- `POST /api/tasks` now lands the `Input` stage first: text/file inputs become `input_ready` immediately, while Lark doc links enter `input_processing` and finish asynchronously before refine
 - `POST /api/tasks/{task_id}/refine` to move initialized tasks into refined state
 - `POST /api/tasks/{task_id}/plan` to move refined tasks into planned state
 - `POST /api/tasks/{task_id}/code` to start the code stage asynchronously
@@ -108,7 +109,7 @@ uv run coco-flow ui serve --web-dir /absolute/path/to/dist
 Current UI actions:
 
 - create task
-- run refine
+- run refine after `Input` is ready
 - run plan
 - run code stage asynchronously
 - browse knowledge documents in a simple list + Markdown preview layout
@@ -136,6 +137,7 @@ export COCO_FLOW_CODE_EXECUTOR=local
 Behavior notes:
 
 - `refine` / `plan`: default to native; if native execution fails, `coco-flow` falls back to local template generation
+- `Input`: task creation now always stores raw input first; plain text / local files render `prd.source.md` synchronously, while Lark links are resolved by an async `Input` step that records `input.json` / `input.log`
 - `refine` accepts plain text, local file paths, and Lark doc links; when a Lark doc cannot be fetched yet, it creates a pending refine placeholder instead of failing task creation
 - `refine` now runs an internal `prepare -> intent -> knowledge selection -> knowledge brief -> generate` pipeline and records `refine-intent.json`, optional `refine-knowledge-selection.json`, optional `refine-knowledge-brief.md`, optional `refine-verify.json`, and `refine-result.json`; `native refine` now upgrades into a three-stage LLM flow: intent extraction, final generation, and verifier/judge, with knowledge adjudication on top of the rule-based shortlist
 - `plan` now runs an internal approved-knowledge `selection -> brief` step and records optional `plan-knowledge-selection.json` / `plan-knowledge-brief.md`; `native plan` is now upgraded into a staged flow of scope extraction, design generation/verification, and execution generation/verification, with optional `plan-scope.json` / `plan-execution.json` / `plan-verify.json` artifacts, while the brief is compressed toward decision-useful sections such as boundaries, stable rules, and validation points

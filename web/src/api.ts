@@ -2,6 +2,9 @@ import type { KnowledgeDocument } from './knowledge/types'
 
 export type TaskStatus =
   | 'initialized'
+  | 'input_processing'
+  | 'input_ready'
+  | 'input_failed'
   | 'refined'
   | 'planning'
   | 'planned'
@@ -129,6 +132,7 @@ export type RemoteDirEntry = {
 export type CreateTaskRequest = {
   input: string
   title?: string
+  supplement?: string
   repos?: string[]
 }
 

@@ -6,13 +6,26 @@ import json
 import threading
 
 from coco_flow.config import Settings
+from coco_flow.engines.input import STATUS_INPUT_FAILED
 from coco_flow.services.tasks.code import code_task
 from coco_flow.services.queries.task_detail import read_json_file
+from coco_flow.services.tasks.input import input_task
 from coco_flow.services.tasks.plan import mark_task_failed, plan_task
 from coco_flow.services.tasks.refine import refine_task
 
 STATUS_FAILED = "failed"
+INPUT_LOG_NAME = "input.log"
 REFINE_LOG_NAME = "refine.log"
+
+
+def start_background_input(task_id: str, settings: Settings) -> None:
+    worker = threading.Thread(
+        target=_run_background_input,
+        args=(task_id, settings),
+        name=f"coco-flow-input-{task_id}",
+        daemon=True,
+    )
+    worker.start()
 
 
 def start_background_refine(task_id: str, settings: Settings) -> None:
@@ -43,6 +56,27 @@ def start_background_code(task_id: str, settings: Settings, repo_id: str = "", a
         daemon=True,
     )
     worker.start()
+
+
+def _run_background_input(task_id: str, settings: Settings) -> None:
+    task_dir = settings.task_root / task_id
+    started_at = datetime.now().astimezone()
+    _append_named_log_line(task_dir, INPUT_LOG_NAME, "=== INPUT START ===")
+    _append_named_log_line(task_dir, INPUT_LOG_NAME, f"task_id: {task_id}")
+    try:
+        status = input_task(
+            task_id,
+            settings=settings,
+        )
+        _append_named_log_line(task_dir, INPUT_LOG_NAME, f"status: {status}")
+    except Exception as error:
+        _append_named_log_line(task_dir, INPUT_LOG_NAME, f"error: {error}")
+        _mark_task_status(task_dir, STATUS_INPUT_FAILED)
+        _append_named_log_line(task_dir, INPUT_LOG_NAME, f"status: {STATUS_INPUT_FAILED}")
+    finally:
+        duration = datetime.now().astimezone() - started_at
+        _append_named_log_line(task_dir, INPUT_LOG_NAME, f"duration: {round(duration.total_seconds(), 3)}s")
+        _append_named_log_line(task_dir, INPUT_LOG_NAME, "=== INPUT END ===")
 
 
 def _run_background_refine(task_id: str, settings: Settings) -> None:
@@ -163,9 +197,17 @@ def _rewrite_code_log(task_dir: Path, prefix_lines: list[str], event_lines: list
 
 
 def _mark_task_failed(task_dir: Path) -> None:
+    _mark_task_status(task_dir, STATUS_FAILED)
+
+
+def _mark_task_status(task_dir: Path, status: str) -> None:
     task_meta = read_json_file(task_dir / "task.json")
     if not task_meta:
         return
-    task_meta["status"] = STATUS_FAILED
+    task_meta["status"] = status
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
     (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n")
+    input_meta = read_json_file(task_dir / "input.json")
+    if input_meta:
+        input_meta["status"] = status
+        (task_dir / "input.json").write_text(json.dumps(input_meta, ensure_ascii=False, indent=2) + "\n")

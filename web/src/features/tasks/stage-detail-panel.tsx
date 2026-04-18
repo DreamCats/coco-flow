@@ -68,11 +68,12 @@ export function TaskStageDetailPanel({
 
 function buildStageActions(task: TaskRecord, stageID: TaskStageID, busyAction: string, handlers: ActionHandlers) {
   if (stageID === 'refine') {
+    const disabledByInput = task.status === 'input_processing' || task.status === 'input_failed'
     return [
       {
         label: busyAction === 'refine' ? '提炼中...' : '开始提炼',
         onClick: handlers.onStartRefine,
-        disabled: busyAction !== '' && busyAction !== 'refine',
+        disabled: disabledByInput || (busyAction !== '' && busyAction !== 'refine'),
         tone: 'primary' as const,
       },
     ]

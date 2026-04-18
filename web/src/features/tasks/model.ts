@@ -13,6 +13,8 @@ export type TaskStage = {
 export const stageOrder: TaskStageID[] = ['input', 'refine', 'design', 'plan', 'code', 'archive']
 
 export function buildTaskStages(task: TaskRecord): TaskStage[] {
+  const inputReady = isInputReady(task)
+  const inputBlocked = task.status === 'input_processing' || task.status === 'input_failed'
   const hasRefined = hasArtifact(task.artifacts['prd-refined.md']) && !isPendingRefineTask(task)
   const hasDesign = hasArtifact(task.artifacts['design.md'])
   const hasPlan = hasArtifact(task.artifacts['plan.md'])
@@ -23,13 +25,13 @@ export function buildTaskStages(task: TaskRecord): TaskStage[] {
     {
       id: 'input',
       label: 'Input',
-      status: hasRefined ? 'done' : 'active',
-      summary: '收集 PRD 原文、飞书文档链接和研发补充说明。',
+      status: inputBlocked ? 'active' : inputReady ? 'done' : 'active',
+      summary: task.status === 'input_processing' ? '正在解析飞书文档并生成标准输入稿。' : task.status === 'input_failed' ? '输入处理失败，请检查链接、权限或手动补充正文。' : '收集 PRD 原文、飞书文档链接和研发补充说明。',
     },
     {
       id: 'refine',
       label: 'Refine',
-      status: hasRefined ? (hasDesign || hasPlan || hasCodeOutput ? 'done' : 'active') : 'active',
+      status: !inputReady ? 'todo' : hasRefined ? (hasDesign || hasPlan || hasCodeOutput ? 'done' : 'active') : 'active',
       summary: '提炼目标、边界 case、风险项和待确认问题。',
     },
     {
@@ -75,6 +77,10 @@ export function isPendingRefineTask(task: TaskRecord) {
   return task.status === 'initialized' && task.sourceType === 'lark_doc' && task.artifacts['prd-refined.md']?.includes('状态：待补充源内容')
 }
 
+export function isInputReady(task: TaskRecord) {
+  return new Set(['input_ready', 'refined', 'planning', 'planned', 'coding', 'partially_coded', 'coded', 'archived', 'failed']).has(task.status)
+}
+
 export function stageStatusLabel(status: TaskStageStatus) {
   switch (status) {
     case 'done':
@@ -104,7 +110,13 @@ export function stageTone(status: TaskStageStatus) {
 export function taskStatusLabel(status: TaskStatus) {
   switch (status) {
     case 'initialized':
-      return '需求整理中'
+      return '待整理输入'
+    case 'input_processing':
+      return '输入处理中'
+    case 'input_ready':
+      return '待提炼'
+    case 'input_failed':
+      return '输入失败'
     case 'refined':
       return '待设计'
     case 'planning':

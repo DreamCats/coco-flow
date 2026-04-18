@@ -24,8 +24,9 @@ from coco_flow.models import (
     UpdateArtifactResponse,
 )
 from coco_flow.services import TaskStore
-from coco_flow.services.tasks.background import start_background_code, start_background_plan, start_background_refine
-from coco_flow.services.tasks.create import create_task
+from coco_flow.engines.input import STATUS_INPUT_PROCESSING
+from coco_flow.services.tasks.background import start_background_code, start_background_input, start_background_plan
+from coco_flow.services.tasks.input import create_task
 from coco_flow.services.tasks.edit import update_artifact
 from coco_flow.services.runtime.fs_tools import list_fs_entries, list_fs_roots
 from coco_flow.services.tasks.lifecycle import archive_task, reset_task
@@ -133,10 +134,13 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
             task_id, status = create_task(
                 raw_input=payload.input,
                 title=payload.title,
+                supplement=payload.supplement,
                 repos=payload.repos,
                 settings=store.settings,
+                defer_lark_resolution=True,
             )
-            start_background_refine(task_id, store.settings)
+            if status == STATUS_INPUT_PROCESSING:
+                start_background_input(task_id, store.settings)
             return CreateTaskResponse(task_id=task_id, status=status)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -183,7 +187,7 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         task = store.get_task(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
-        if task.status not in {"initialized", "refined", "planned", "failed"}:
+        if task.status not in {"initialized", "input_processing", "input_ready", "input_failed", "refined", "planned", "failed"}:
             raise HTTPException(status_code=409, detail=f"当前状态为 {task.status}，仅允许删除未进入 code 的 task")
         task_dir = store.settings.task_root / task_id
         if task_dir.exists():

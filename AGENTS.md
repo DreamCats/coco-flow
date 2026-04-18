@@ -112,6 +112,13 @@ uv run python -m unittest discover -s tests -v
   - 本地文件路径
   - 飞书文档链接（`/wiki/TOKEN`、`/docx/TOKEN`）
 - 创建后默认后台异步启动 `refine`
+- 当前 `POST /api/tasks` 已先对齐到 `Input` 阶段语义：
+  - 纯文本 / 本地文件：同步落盘并直接进入 `input_ready`
+  - 飞书文档链接：先创建 task，再异步进入 `input_processing` 拉正文
+  - 不再在创建后无条件自动启动 `refine`
+- `Input` 当前会额外生成：
+  - `input.json`
+  - `input.log`
 - CLI 层当前同时保留两套入口：
   - `tasks ...`：底层 task 入口
   - `prd ...`：对齐 `coco-ext` 的迁移入口
