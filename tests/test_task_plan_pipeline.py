@@ -735,6 +735,73 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("demo", binding["selection_note"])
             self.assertIn("test", binding["selection_note"])
 
+    def test_local_design_markdown_separates_single_repo_closure_from_repo_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-markdown-selection-note",
+                title="two sum",
+                refined_markdown="# PRD Refined\n\n- 添加 two sum 算法\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[],
+                repo_researches=[],
+                repo_ids=set(),
+                repo_root=None,
+                sections=RefinedSections(
+                    change_scope=["添加 two sum 算法文件"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+                research_payload={
+                    "repos": [
+                        {"repo_id": "demo", "summary": "已有冒泡排序", "candidate_files": ["main.go"]},
+                        {"repo_id": "test", "summary": "已有快排实现", "candidate_files": ["quick_sort.go"]},
+                    ]
+                },
+            )
+            repo_binding_payload = {
+                "repo_bindings": [
+                    {
+                        "repo_id": "demo",
+                        "decision": "in_scope",
+                        "scope_tier": "must_change",
+                        "system_name": "Demo",
+                        "responsibility": "主算法实现仓库",
+                        "change_summary": ["添加 two sum 算法文件"],
+                        "candidate_files": ["main.go"],
+                        "reason": "demo 可作为默认起始实现仓",
+                    },
+                    {
+                        "repo_id": "test",
+                        "decision": "in_scope",
+                        "scope_tier": "validate_only",
+                        "system_name": "Test",
+                        "reason": "test 也可承接实现，但当前不默认改动",
+                    },
+                ],
+                "decision_summary": "选择 demo 作为默认起始实现仓",
+                "closure_mode": "single_repo",
+                "selection_basis": "heuristic_tiebreak",
+                "selection_note": "demo 和 test 都可承接实现；当前默认选择 demo 作为起始实现仓，不代表 test 不能实现该需求。",
+            }
+
+            payload = build_design_sections_payload(prepared, repo_binding_payload, "")
+            markdown = generate_local_design_markdown(prepared, repo_binding_payload, payload, "")
+
+            self.assertIn("当前判断：需求可在单仓内闭合实现", markdown)
+            self.assertIn("仓库选择：demo 和 test 都可承接实现", markdown)
+            self.assertIn("仓库选择说明：demo 和 test 都可承接实现", markdown)
+            self.assertEqual(markdown.count("默认选择 demo 作为起始实现仓"), 2)
+
     def test_native_design_research_uses_run_agent_for_multiple_candidate_repos(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), plan_executor="native")

@@ -108,8 +108,6 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
             solution_overview += " 其它仓库仅作为联动验证对象，不默认纳入主改造面。"
     else:
         solution_overview = f"优先围绕 {repo_binding_payload.get('decision_summary') or prepared.title} 收敛设计边界。"
-    if selection_note:
-        solution_overview += " " + selection_note
     return {
         "system_change_points": prepared.sections.change_scope[:6] or [prepared.title],
         "solution_overview": solution_overview,
@@ -184,20 +182,26 @@ def generate_local_design_markdown(
         "## 系统改造点",
     ]
     lines.extend(f"- {item}" for item in sections_payload.get("system_change_points", []) or [prepared.title])
-    lines.extend(["", "## 方案设计", "", "### 总体方案", "", f"- {sections_payload.get('solution_overview') or '当前未形成总体方案。'}", "", "### 分系统改造", ""])
+    lines.extend(["", "## 方案设计", "", "### 总体方案", ""])
+    lines.extend(_render_solution_overview_lines(sections_payload, prepared.title))
+    lines.extend(["", "### 分系统改造", ""])
     if must_change_bindings:
         for item in must_change_bindings:
+            note = repo_decision_notes.get(str(item.get("repo_id") or ""), {})
             lines.extend(
                 [
                     f"#### {str(item.get('system_name') or item.get('repo_id') or 'system')}",
                     f"- 仓库：{str(item.get('repo_id') or '')}",
                     f"- scope_tier：{str(item.get('scope_tier') or '')}",
                     f"- 职责：{str(item.get('responsibility') or '')}",
-                    f"- 选择原因：{str((repo_decision_notes.get(str(item.get('repo_id') or '')) or {}).get('decision_summary') or item.get('reason') or '承担本次核心改造，因此纳入主改造面。')}",
-                    f"- 仓库现状：{str((repo_decision_notes.get(str(item.get('repo_id') or '')) or {}).get('repo_summary') or '当前缺少额外仓库现状摘要。')}",
+                    f"- 选择原因：{str(note.get('decision_reason') or item.get('reason') or '承担本次核心改造，因此纳入主改造面。')}",
+                    f"- 仓库现状：{str(note.get('repo_summary') or '当前缺少额外仓库现状摘要。')}",
                     "- 计划改动：",
                 ]
             )
+            selection_context = str(note.get("selection_context") or "").strip()
+            if selection_context:
+                lines.append(f"- 仓库选择说明：{selection_context}")
             change_summary = item.get("change_summary") or []
             if isinstance(change_summary, list):
                 lines.extend(f"  - {str(value)}" for value in change_summary[:4] if str(value).strip())
@@ -216,11 +220,11 @@ def generate_local_design_markdown(
             if not isinstance(item, dict):
                 continue
             note = repo_decision_notes.get(str(item.get("repo_id") or ""), {})
-            detail = str(note.get("decision_summary") or item.get("reason") or "需要联动验证，但默认不纳入主改造面。")
+            detail_parts = [str(note.get("decision_reason") or item.get("reason") or "需要联动验证，但默认不纳入主改造面。").strip()]
             repo_summary = str(note.get("repo_summary") or "").strip()
             if repo_summary:
-                detail = f"{detail} 当前仓库现状：{repo_summary}"
-            lines.append(f"- {item.get('repo_id') or ''}：{detail}")
+                detail_parts.append(f"当前仓库现状：{repo_summary}")
+            lines.append(f"- {item.get('repo_id') or ''}：{' '.join(part for part in detail_parts if part)}")
         lines.append("")
     reference_repos = sections_payload.get("reference_repos") or []
     if isinstance(reference_repos, list) and reference_repos:
@@ -463,33 +467,52 @@ def _build_repo_decision_note(
         )[:6]
         if str(value).strip()
     ]
-    summary_parts: list[str] = []
+    decision_reason = ""
     if scope_tier in {"must_change", "co_change"}:
-        summary_parts.append(reason or "承担本次核心改造，因此纳入主改造面。")
+        decision_reason = reason or "承担本次核心改造，因此纳入主改造面。"
     elif scope_tier == "validate_only":
         if reason:
-            summary_parts.append(f"{reason} 默认仅做联动验证，不作为主改造仓。")
+            decision_reason = f"{reason} 当前默认仅做联动验证，不作为默认起始实现仓。"
         else:
-            summary_parts.append("存在相关上下游或算法参考，但默认仅做联动验证。")
+            decision_reason = "存在相关上下游或算法参考，但当前默认仅做联动验证。"
     else:
-        summary_parts.append(reason or "仅保留背景或参考信息，本次默认不改。")
-    if repo_summary:
-        summary_parts.append(f"仓库现状：{repo_summary}")
-    elif responsibility:
-        summary_parts.append(f"仓库职责：{responsibility}")
+        decision_reason = reason or "仅保留背景或参考信息，本次默认不改。"
+    selection_context = ""
     if closure_mode == "single_repo" and selection_basis == "heuristic_tiebreak" and selection_note:
-        summary_parts.append(f"仓库选择说明：{selection_note}")
+        selection_context = selection_note
     return {
         "repo_id": repo_id,
         "system_name": str(binding_item.get("system_name") or repo_id),
         "scope_tier": scope_tier,
-        "decision_summary": " ".join(part for part in summary_parts if part),
+        "decision_summary": " ".join(part for part in [decision_reason, f"仓库现状：{repo_summary}" if repo_summary else f"仓库职责：{responsibility}" if responsibility else "", f"仓库选择说明：{selection_context}" if selection_context else ""] if part),
+        "decision_reason": decision_reason,
+        "selection_context": selection_context,
         "repo_summary": repo_summary,
         "responsibility": responsibility,
         "candidate_files": candidate_files,
         "candidate_dirs": candidate_dirs,
         "evidence": evidence[:4],
     }
+
+
+def _render_solution_overview_lines(sections_payload: dict[str, object], fallback_title: str) -> list[str]:
+    lines = [f"- {sections_payload.get('solution_overview') or fallback_title}"]
+    closure_mode = str(sections_payload.get("closure_mode") or "")
+    selection_basis = str(sections_payload.get("selection_basis") or "")
+    selection_note = str(sections_payload.get("selection_note") or "").strip()
+    if closure_mode == "single_repo":
+        lines.append("- 当前判断：需求可在单仓内闭合实现，不需要双仓协同改造。")
+    elif closure_mode == "multi_repo":
+        lines.append("- 当前判断：需求需要多仓协同改造才能闭合。")
+    elif closure_mode == "unresolved":
+        lines.append("- 当前判断：是否需要多仓协同仍未完全收敛。")
+    if selection_basis == "heuristic_tiebreak" and selection_note:
+        lines.append(f"- 仓库选择：{selection_note}")
+    elif selection_basis == "strong_signal" and selection_note:
+        lines.append(f"- 仓库选择依据：{selection_note}")
+    elif selection_basis == "unresolved" and selection_note:
+        lines.append(f"- 仓库选择仍待确认：{selection_note}")
+    return lines
 
 
 def _write_design_template(task_dir: Path) -> Path:
