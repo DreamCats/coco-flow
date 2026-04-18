@@ -9,6 +9,7 @@ import unittest
 
 from coco_flow.config import Settings
 from coco_flow.engines.design.models import DesignPreparedInput
+from coco_flow.engines.design.generate import build_design_sections_payload
 from coco_flow.engines.design.research import build_design_research_payload
 from coco_flow.engines.plan_models import (
     ComplexityAssessment,
@@ -49,6 +50,64 @@ def make_settings(root: Path, plan_executor: str = "local") -> Settings:
 
 
 class PlanTaskPipelineTest(unittest.TestCase):
+    def test_design_sections_do_not_invent_repo_dependencies_without_depends_on(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-sections",
+                title="demo",
+                refined_markdown="# PRD Refined\n\n- demo\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[],
+                repo_researches=[],
+                repo_ids=set(),
+                repo_root=None,
+                sections=RefinedSections(
+                    change_scope=["添加 two sum 算法文件"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+            )
+            payload = build_design_sections_payload(
+                prepared,
+                {
+                    "repo_bindings": [
+                        {
+                            "repo_id": "demo",
+                            "decision": "in_scope",
+                            "system_name": "Demo",
+                            "serves_change_points": [1],
+                            "responsibility": "demo repo",
+                            "change_summary": ["change demo"],
+                            "depends_on": [],
+                        },
+                        {
+                            "repo_id": "test",
+                            "decision": "in_scope",
+                            "system_name": "Test",
+                            "serves_change_points": [1],
+                            "responsibility": "test repo",
+                            "change_summary": ["change test"],
+                            "depends_on": [],
+                        },
+                    ],
+                    "decision_summary": "demo and test",
+                },
+                "",
+            )
+
+            self.assertEqual(payload["system_dependencies"], [])
+
     def test_native_design_research_uses_run_agent_for_multiple_candidate_repos(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), plan_executor="native")

@@ -24,13 +24,15 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
     binding_items = repo_bindings if isinstance(repo_bindings, list) else []
     system_changes: list[dict[str, object]] = []
     system_dependencies: list[dict[str, object]] = []
-    previous_in_scope = ""
+    in_scope_repo_ids: list[str] = []
     for item in binding_items:
         if not isinstance(item, dict):
             continue
         if str(item.get("decision") or "") != "in_scope":
             continue
         repo_id = str(item.get("repo_id") or "")
+        if repo_id:
+            in_scope_repo_ids.append(repo_id)
         system_changes.append(
             {
                 "system_id": repo_id,
@@ -43,16 +45,24 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
                 "touched_repos": [repo_id],
             }
         )
-        if previous_in_scope:
+    for item in binding_items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("decision") or "") != "in_scope":
+            continue
+        downstream_repo_id = str(item.get("repo_id") or "")
+        depends_on = [str(value).strip() for value in item.get("depends_on", []) if str(value).strip()]
+        for upstream_repo_id in depends_on:
+            if upstream_repo_id not in in_scope_repo_ids or not downstream_repo_id:
+                continue
             system_dependencies.append(
                 {
-                    "upstream_system_id": previous_in_scope,
-                    "downstream_system_id": repo_id,
+                    "upstream_system_id": upstream_repo_id,
+                    "downstream_system_id": downstream_repo_id,
                     "dependency_type": "strong",
-                    "reason": f"{repo_id} 依赖前序仓库 {previous_in_scope} 先收敛主改动。",
+                    "reason": f"{downstream_repo_id} 依赖 {upstream_repo_id} 提供前置输入或先行收敛结果。",
                 }
             )
-        previous_in_scope = repo_id
     return {
         "system_change_points": prepared.sections.change_scope[:6] or [prepared.title],
         "solution_overview": f"优先围绕 {repo_binding_payload.get('decision_summary') or prepared.title} 收敛设计边界。",
