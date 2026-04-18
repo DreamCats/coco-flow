@@ -1479,9 +1479,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(status, "planned")
             selection = json.loads((task_dir / "plan-knowledge-selection.json").read_text(encoding="utf-8"))
             self.assertEqual(selection["selected_ids"], ["flow-auction-card-plan"])
-            execution = json.loads((task_dir / "plan-execution.json").read_text(encoding="utf-8"))
-            self.assertTrue(execution["tasks"])
-            self.assertEqual(execution["tasks"][0]["verify_rule"], ["受影响 package 编译通过。"])
+            work_items = json.loads((task_dir / "plan-work-items.json").read_text(encoding="utf-8"))
+            self.assertTrue(work_items["work_items"])
+            self.assertEqual(work_items["work_items"][0]["repo_id"], "demo_repo")
+            validation = json.loads((task_dir / "plan-validation.json").read_text(encoding="utf-8"))
+            self.assertTrue(validation["task_validations"])
             brief = (task_dir / "plan-knowledge-brief.md").read_text(encoding="utf-8")
             self.assertIn("Plan Knowledge Brief", brief)
             self.assertIn("竞拍讲解卡状态提示链路", brief)
@@ -1497,7 +1499,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("- scope_tier：must_change", design)
             self.assertIn("## 实施策略", plan)
             self.assertIn("## 任务拆分", plan)
-            self.assertIn("受影响 package 编译通过", plan)
+            self.assertIn("最小范围验证通过", plan)
 
     def test_native_plan_runs_scope_and_verify(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1611,75 +1613,140 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 "- 优先收敛讲解卡状态提示边界。\n",
                 encoding="utf-8",
             )
+            (task_dir / "design-repo-binding.json").write_text(
+                json.dumps(
+                    {
+                        "repo_bindings": [
+                            {
+                                "repo_id": "demo_repo",
+                                "repo_path": str(repo_root),
+                                "decision": "in_scope",
+                                "role": "primary",
+                                "scope_tier": "must_change",
+                                "serves_change_points": [1],
+                                "system_name": "demo_repo",
+                                "responsibility": "demo_repo 承担主改职责。",
+                                "change_summary": ["收敛讲解卡状态提示改造范围。"],
+                                "boundaries": ["非竞拍态不展示"],
+                                "candidate_dirs": ["app/explain_card"],
+                                "candidate_files": ["demo_repo/app/explain_card/render_handler.go"],
+                                "depends_on": [],
+                                "parallelizable_with": [],
+                                "confidence": "high",
+                                "reason": "主链路入口在该 repo。",
+                            }
+                        ],
+                        "missing_repos": [],
+                        "decision_summary": "必须改动仓库：demo_repo",
+                        "mode": "local",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "design-sections.json").write_text(
+                json.dumps(
+                    {
+                        "system_change_points": ["收敛讲解卡状态提示改造范围"],
+                        "solution_overview": "先在现有讲解卡入口范围内收敛改动。",
+                        "system_changes": [],
+                        "system_dependencies": [],
+                        "critical_flows": [{"name": "主链路", "trigger": "ExplainCardHandler"}],
+                        "protocol_changes": [],
+                        "storage_config_changes": [],
+                        "experiment_changes": [],
+                        "qa_inputs": ["校验主播侧状态提示与现有样式兼容。"],
+                        "staffing_estimate": {"summary": "单仓收敛为主"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             task_meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
             task_meta["status"] = "designed"
             (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
             from unittest.mock import patch
 
-            with patch(
-                "coco_flow.clients.CocoACPClient.run_prompt_only",
-                side_effect=[
-                    json.dumps(
-                        {
-                            "summary": "优先收敛讲解卡状态提示边界",
-                            "boundaries": ["非竞拍态不展示", "保持现有样式"],
-                            "priorities": ["先收敛入口文件范围"],
-                            "risk_focus": ["不要破坏现有讲解卡展示"],
-                            "validation_focus": ["校验主播侧状态提示与现有样式兼容"],
-                        }
-                    ),
-                    json.dumps({"ok": True, "issues": [], "reason": "design 结构完整"}),
-                    (
-                        "=== EXECUTION STRATEGY ===\n"
-                        "- 优先围绕现有讲解卡入口文件收敛改动。\n"
-                        "=== CANDIDATE FILES ===\n"
-                        "- app/explain_card/render_handler.go\n"
-                        "=== TASK STEPS ===\n"
-                        "- 在 app/explain_card/render_handler.go 中补齐竞拍态状态提示逻辑。\n"
-                        "=== BLOCKERS AND RISKS ===\n"
-                        "- 保持非竞拍态不展示。\n"
-                        "=== VALIDATION PLAN ===\n"
-                        "- 受影响 package 编译通过。\n"
-                    ),
-                    json.dumps({"ok": True, "issues": [], "reason": "execution 结构完整"}),
-                ],
-            ) as run_prompt_only_mock, patch(
-                "coco_flow.clients.CocoACPClient.run_readonly_agent",
-                return_value=(
-                    "=== SYSTEM CHANGE POINTS ===\n"
-                    "- 收敛讲解卡状态提示改造范围。\n"
-                    "=== SOLUTION OVERVIEW ===\n"
-                    "- 先在现有讲解卡入口范围内收敛改动。\n"
-                    "=== SYSTEM DEPENDENCIES ===\n"
-                    "- 先完成讲解卡入口逻辑，再确认上下游展示兼容性。\n"
-                    "=== CRITICAL FLOWS ===\n"
-                    "- 主链路从 ExplainCardHandler 进入，再下发状态提示。\n"
-                    "=== PROTOCOL CHANGES ===\n"
-                    "- 当前未发现明确协议变更，保持接口兼容。\n"
-                    "=== STORAGE CONFIG CHANGES ===\n"
-                    "- 当前未发现明确存储或配置变更。\n"
-                    "=== EXPERIMENT CHANGES ===\n"
-                    "- 当前未发现明确实验变更。\n"
-                    "=== QA INPUTS ===\n"
-                    "- 校验主播侧状态提示与现有样式兼容。\n"
-                    "=== STAFFING ESTIMATE ===\n"
-                    "- 预计以后端单仓收敛为主，前后协调成本较低。\n"
-                ),
-            ) as run_readonly_agent_mock:
+            def fake_run_agent(prompt: str, *_args, **_kwargs):
+                if ".plan-task-outline-" in prompt:
+                    path = prompt.split("- file: ", 1)[1].split("\n", 1)[0].strip()
+                    Path(path).write_text(
+                        json.dumps(
+                            {
+                                "task_units": [
+                                    {
+                                        "id": "W1",
+                                        "title": "[demo_repo] 推进「竞拍讲解卡需要支持主播侧状态提示。」执行",
+                                        "repo_id": "demo_repo",
+                                        "task_type": "implementation",
+                                        "serves_change_points": [1],
+                                        "goal": "在 demo_repo 完成状态提示相关执行任务。",
+                                        "scope_summary": ["仅覆盖主状态定义与入口适配"],
+                                        "inputs": ["design-repo-binding.json"],
+                                        "outputs": ["demo_repo 执行改动完成"],
+                                        "done_definition": ["主链路逻辑落地"],
+                                        "validation_focus": ["最小范围验证通过"],
+                                        "risk_notes": ["避免破坏现有样式"],
+                                    }
+                                ]
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    return "ok"
+                if ".plan-template-" in prompt:
+                    path = prompt.split("- file: ", 1)[1].split("\n", 1)[0].strip()
+                    Path(path).write_text(
+                        "# Plan\n\n"
+                        "## 实施策略\n"
+                        "- 先收敛 demo_repo 主改范围。\n\n"
+                        "## 任务拆分\n"
+                        "- W1 demo_repo 主执行任务。\n\n"
+                        "## 执行顺序\n"
+                        "- W1\n\n"
+                        "## 并发与协同\n"
+                        "- 当前无额外并发组。\n\n"
+                        "## 验证计划\n"
+                        "- 最小范围验证通过。\n\n"
+                        "## 阻塞项与风险\n"
+                        "- 避免破坏现有样式。\n\n"
+                        "## 交付边界\n"
+                        "- 非竞拍态不展示。\n",
+                        encoding="utf-8",
+                    )
+                    return "ok"
+                if ".plan-verify-" in prompt:
+                    path = prompt.split("- file: ", 1)[1].split("\n", 1)[0].strip()
+                    Path(path).write_text(
+                        json.dumps({"ok": True, "issues": [], "reason": "plan 结构完整"}, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    return "ok"
+                raise AssertionError(prompt)
+
+            with patch("coco_flow.clients.CocoACPClient.run_agent", side_effect=fake_run_agent) as run_agent_mock:
                 status = plan_task(task_id, settings=settings)
 
             self.assertEqual(status, "planned")
-            execution = json.loads((task_dir / "plan-execution.json").read_text(encoding="utf-8"))
-            self.assertTrue(execution["tasks"])
-            self.assertEqual(run_prompt_only_mock.call_args_list[0].kwargs.get("fresh_session"), True)
+            work_items = json.loads((task_dir / "plan-work-items.json").read_text(encoding="utf-8"))
+            self.assertTrue(work_items["work_items"])
+            self.assertEqual(run_agent_mock.call_count, 3)
+            self.assertEqual(run_agent_mock.call_args_list[0].kwargs.get("fresh_session"), True)
             design = (task_dir / "design.md").read_text(encoding="utf-8")
             plan = (task_dir / "plan.md").read_text(encoding="utf-8")
             self.assertIn("## 系统改造点", design)
             self.assertIn("收敛讲解卡状态提示改造范围", design)
             self.assertIn("## 执行顺序", plan)
             self.assertIn("## 实施策略", plan)
-            self.assertIn("受影响 package 编译通过", plan)
+            self.assertIn("最小范围验证通过", plan)
 
 
 if __name__ == "__main__":

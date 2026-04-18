@@ -31,7 +31,7 @@ class TaskDetailPresenterTest(unittest.TestCase):
                     ["done", "done", "done", "current", "pending", "pending"],
                     {
                         "Design": "已生成 design.md",
-                        "Plan": "等待生成 plan.md",
+                        "Plan": "等待生成 Plan 结构化产物",
                     },
                 ),
             ]

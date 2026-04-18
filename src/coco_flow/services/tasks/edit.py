@@ -20,6 +20,27 @@ STATUS_DESIGNED = "designed"
 STATUS_PLANNED = "planned"
 STATUS_FAILED = "failed"
 
+PLAN_V2_ARTIFACTS = [
+    "plan-task-outline.json",
+    "plan-work-items.json",
+    "plan-execution-graph.json",
+    "plan-validation.json",
+    "plan-dependency-notes.json",
+    "plan-risk-check.json",
+    "plan-verify.json",
+    "plan-result.json",
+]
+
+PLAN_ARTIFACTS = [
+    "plan-knowledge-selection.json",
+    "plan-knowledge-brief.md",
+    *PLAN_V2_ARTIFACTS,
+    "plan-scope.json",
+    "plan-execution.json",
+    "plan.md",
+    "plan.log",
+]
+
 EDIT_RULES = {
     "prd.source.md": {
         "allowed": {STATUS_INITIALIZED, STATUS_INPUT_PROCESSING, STATUS_INPUT_READY, STATUS_INPUT_FAILED, STATUS_REFINED, STATUS_DESIGNED, STATUS_PLANNED},
@@ -44,14 +65,8 @@ EDIT_RULES = {
             "design-sections.json",
             "design-verify.json",
             "design-result.json",
-            "plan-knowledge-selection.json",
-            "plan-knowledge-brief.md",
-            "plan-scope.json",
-            "plan-execution.json",
-            "plan-verify.json",
-            "plan.md",
             "refine.log",
-            "plan.log",
+            *PLAN_ARTIFACTS,
             "code-result.json",
             "code.log",
         ],
@@ -72,13 +87,7 @@ EDIT_RULES = {
             "design-sections.json",
             "design-verify.json",
             "design-result.json",
-            "plan.md",
-            "plan-knowledge-selection.json",
-            "plan-knowledge-brief.md",
-            "plan-scope.json",
-            "plan-execution.json",
-            "plan-verify.json",
-            "plan.log",
+            *PLAN_ARTIFACTS,
             "code-result.json",
             "code.log",
         ],
@@ -99,7 +108,7 @@ EDIT_RULES = {
     "design.md": {
         "allowed": {STATUS_DESIGNED, STATUS_PLANNED},
         "next_status": STATUS_DESIGNED,
-        "invalidate": [],
+        "invalidate": [*PLAN_ARTIFACTS],
         "invalidate_dirs": [],
     },
     "plan.md": {
