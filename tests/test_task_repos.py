@@ -71,6 +71,7 @@ class TaskRepoUpdateTest(unittest.TestCase):
             (task_dir / "design.md").write_text("# Design\n", encoding="utf-8")
             (task_dir / "plan.md").write_text("# Plan\n", encoding="utf-8")
             (task_dir / "design-research.json").write_text("{}\n", encoding="utf-8")
+            (task_dir / "design-repo-responsibility-matrix.json").write_text("{}\n", encoding="utf-8")
             (task_dir / "plan-execution.json").write_text("{}\n", encoding="utf-8")
             (task_dir / "repos.json").write_text(
                 json.dumps({"repos": [{"id": "repo-a", "path": str(repo_a), "status": "planned"}]}, ensure_ascii=False, indent=2) + "\n",
@@ -93,6 +94,7 @@ class TaskRepoUpdateTest(unittest.TestCase):
             self.assertFalse((task_dir / "design.md").exists())
             self.assertFalse((task_dir / "plan.md").exists())
             self.assertFalse((task_dir / "design-research.json").exists())
+            self.assertFalse((task_dir / "design-repo-responsibility-matrix.json").exists())
             self.assertFalse((task_dir / "plan-execution.json").exists())
 
 

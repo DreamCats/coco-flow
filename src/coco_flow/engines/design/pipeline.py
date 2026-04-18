@@ -8,6 +8,7 @@ from .assignment import build_design_change_points_payload, build_design_repo_as
 from .binding import build_repo_binding
 from .generate import build_design_sections_payload, generate_design_markdown
 from .knowledge import build_design_knowledge_brief
+from .matrix import build_design_responsibility_matrix_payload
 from .models import DesignEngineResult
 from .research import build_design_research_payload
 from .source import prepare_design_input
@@ -15,8 +16,16 @@ from .source import prepare_design_input
 
 def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings, on_log) -> DesignEngineResult:
     on_log("design_prepare_start: true")
-    prepared = prepare_design_input(task_dir, task_meta)
+    prepared = prepare_design_input(task_dir, task_meta, settings)
     on_log(f"design_prepare_ok: repos={len(prepared.repo_scopes)}, refined_chars={len(prepared.refined_markdown.strip())}")
+    repo_discovery = prepared.repo_discovery_payload
+    if repo_discovery:
+        on_log(
+            "design_repo_discovery_ok: "
+            f"mode={repo_discovery.get('mode') or 'none'}, "
+            f"bound={int(repo_discovery.get('bound_repo_count') or 0)}, "
+            f"inferred={int(repo_discovery.get('inferred_repo_count') or 0)}"
+        )
     if not prepared.refined_markdown.strip():
         raise ValueError("prd-refined.md 为空，无法执行 design")
 
@@ -46,11 +55,29 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
     if knowledge_brief_markdown.strip():
         artifacts["design-knowledge-brief.md"] = knowledge_brief_markdown
 
+    on_log("design_repo_matrix_start: true")
+    responsibility_matrix_payload = build_design_responsibility_matrix_payload(prepared, settings, knowledge_brief_markdown, on_log)
+    prepared.responsibility_matrix_payload = responsibility_matrix_payload
+    artifacts["design-repo-responsibility-matrix.json"] = responsibility_matrix_payload
+    on_log(f"design_repo_matrix_ok: repos={len(responsibility_matrix_payload.get('repos', []))}")
+
     on_log("design_repo_binding_start: true")
     repo_binding = build_repo_binding(prepared, settings, knowledge_brief_markdown, on_log)
     repo_binding_payload = repo_binding.to_payload()
     artifacts["design-repo-binding.json"] = repo_binding_payload
-    on_log(f"design_repo_binding_ok: mode={repo_binding.mode}, in_scope={sum(1 for item in repo_binding_payload.get('repo_bindings', []) if isinstance(item, dict) and str(item.get('decision') or '') == 'in_scope')}")
+    in_scope_count = sum(
+        1
+        for item in repo_binding_payload.get("repo_bindings", [])
+        if isinstance(item, dict) and str(item.get("decision") or "") == "in_scope"
+    )
+    must_change_count = sum(
+        1
+        for item in repo_binding_payload.get("repo_bindings", [])
+        if isinstance(item, dict)
+        and str(item.get("decision") or "") == "in_scope"
+        and str(item.get("scope_tier") or "") == "must_change"
+    )
+    on_log(f"design_repo_binding_ok: mode={repo_binding.mode}, in_scope={in_scope_count}, must_change={must_change_count}")
 
     on_log("design_sections_start: true")
     sections_payload = build_design_sections_payload(prepared, repo_binding_payload, knowledge_brief_markdown)

@@ -13,51 +13,72 @@ from .models import DesignPreparedInput, DesignRepoBinding, DesignRepoBindingEnt
 
 
 def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding:
-    scored: list[tuple[int, DesignRepoBindingEntry]] = []
     repo_count = len(prepared.repo_scopes)
-    change_point_ids = list(range(1, len(prepared.sections.change_scope) + 1)) or [1]
+    change_point_ids = [int(item.get("id") or 0) for item in prepared.change_points_payload.get("change_points", []) if isinstance(item, dict)] or [1]
+    matrix_by_repo = {
+        str(item.get("repo_id") or ""): item
+        for item in prepared.responsibility_matrix_payload.get("repos", [])
+        if isinstance(item, dict) and str(item.get("repo_id") or "").strip()
+    }
+    research_by_repo = {
+        str(item.get("repo_id") or ""): item
+        for item in prepared.research_payload.get("repos", [])
+        if isinstance(item, dict) and str(item.get("repo_id") or "").strip()
+    }
+    scored_items: list[tuple[int, int, DesignRepoBindingEntry]] = []
     for repo in prepared.repo_researches:
-        score = len(repo.finding.candidate_files) * 3 + len(repo.finding.candidate_dirs) * 2 + len(repo.finding.matched_terms) * 3
-        decision = "in_scope" if score > 0 else "out_of_scope"
+        matrix_entry = matrix_by_repo.get(repo.repo_id, {})
+        research_entry = research_by_repo.get(repo.repo_id, {})
+        tier = str(matrix_entry.get("recommended_scope_tier") or "reference_only")
+        decision = "in_scope" if tier in {"must_change", "co_change", "validate_only", "reference_only"} else "out_of_scope"
         system_name = repo.finding.matched_terms[0].business if repo.finding.matched_terms else repo.repo_id
         candidate_dirs = [qualify_repo_path(repo.repo_id, item, repo_count) for item in repo.finding.candidate_dirs[:6]]
         candidate_files = [qualify_repo_path(repo.repo_id, item, repo_count) for item in repo.finding.candidate_files[:8]]
+        role = _role_from_scope_tier(tier)
         entry = DesignRepoBindingEntry(
             repo_id=repo.repo_id,
             repo_path=repo.repo_path,
             decision=decision,
-            role="reference",
-            serves_change_points=change_point_ids[:],
+            role=role,
+            scope_tier=tier,
+            serves_change_points=[1],
             system_name=system_name,
-            responsibility=(prepared.research_signals.system_summaries[0] if prepared.research_signals.system_summaries else f"承接 {repo.repo_id} 范围内的设计改造").strip(),
-            change_summary=(prepared.sections.change_scope[:3] or [prepared.title]),
+            responsibility=_responsibility_from_matrix_or_summary(matrix_entry, research_entry, prepared, repo.repo_id),
+            change_summary=_change_summary_from_scope_tier(tier, prepared, repo.repo_id),
             boundaries=(prepared.sections.non_goals[:3] or ["保持最小改动范围，不把无关仓库带入本次设计。"]),
             candidate_dirs=candidate_dirs,
             candidate_files=candidate_files,
             depends_on=[],
             parallelizable_with=[],
-            confidence="high" if score >= 6 else "medium" if score > 0 else "low",
-            reason="基于术语命中、候选目录和候选文件的本地 research 判定。",
+            confidence=str(research_entry.get("confidence") or "medium"),
+            reason=str(matrix_entry.get("reasoning") or research_entry.get("summary") or "基于职责矩阵与仓库调研判定。"),
         )
-        scored.append((score, entry))
-    scored.sort(key=lambda item: (-item[0], item[1].repo_id))
-    primary_assigned = False
-    previous_repo = ""
+        scored_items.append((_priority_from_scope_tier(tier), len(candidate_files), entry))
+    scored_items.sort(key=lambda item: (-item[0], -item[1], item[2].repo_id))
     bindings: list[DesignRepoBindingEntry] = []
-    for score, entry in scored:
+    must_change_assigned = 0
+    for _, _, entry in scored_items:
         current = entry
-        if entry.decision == "in_scope":
-            if not primary_assigned:
-                current.role = "primary"
-                primary_assigned = True
-            else:
+        if current.scope_tier == "must_change":
+            must_change_assigned += 1
+            if must_change_assigned > 1:
+                current.scope_tier = "co_change"
                 current.role = "supporting"
-                if previous_repo:
-                    current.depends_on = [previous_repo]
-            previous_repo = current.repo_id
         bindings.append(current)
-    in_scope = [entry.repo_id for entry in bindings if entry.decision == "in_scope"]
-    summary = "、".join(in_scope) + " 进入本次 Design 范围。" if in_scope else "当前未识别到明确 in_scope repo。"
+    must_change = [entry.repo_id for entry in bindings if entry.decision == "in_scope" and entry.scope_tier == "must_change"]
+    co_change = [entry.repo_id for entry in bindings if entry.decision == "in_scope" and entry.scope_tier == "co_change"]
+    validate_only = [entry.repo_id for entry in bindings if entry.decision == "in_scope" and entry.scope_tier == "validate_only"]
+    reference_only = [entry.repo_id for entry in bindings if entry.decision == "in_scope" and entry.scope_tier == "reference_only"]
+    summary_parts: list[str] = []
+    if must_change:
+        summary_parts.append("必须改动仓库：" + "、".join(must_change))
+    if co_change:
+        summary_parts.append("协同改动仓库：" + "、".join(co_change))
+    if validate_only:
+        summary_parts.append("联动验证仓库：" + "、".join(validate_only))
+    if reference_only:
+        summary_parts.append("参考链路仓库：" + "、".join(reference_only))
+    summary = "；".join(summary_parts) if summary_parts else "当前未识别到明确 in_scope repo。"
     return DesignRepoBinding(repo_bindings=bindings, missing_repos=[], decision_summary=summary, mode="local")
 
 
@@ -92,6 +113,7 @@ def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, knowle
                 title=prepared.title,
                 refined_markdown=prepared.refined_markdown,
                 knowledge_brief_markdown=knowledge_brief_markdown,
+                responsibility_matrix_payload=prepared.responsibility_matrix_payload,
                 repo_research_payload=repo_research_payload,
                 template_path=str(template_path),
             ),
@@ -113,6 +135,7 @@ def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, knowle
                     repo_path=str(item.get("repo_path") or ""),
                     decision=str(item.get("decision") or "uncertain"),
                     role=str(item.get("role") or "reference"),
+                    scope_tier=str(item.get("scope_tier") or _infer_scope_tier_from_binding_item(item, prepared.responsibility_matrix_payload)),
                     serves_change_points=[int(value) for value in item.get("serves_change_points", []) if str(value).isdigit()],
                     system_name=str(item.get("system_name") or ""),
                     responsibility=str(item.get("responsibility") or ""),
@@ -128,6 +151,7 @@ def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, knowle
             )
         if not entries:
             raise ValueError("design_repo_binding_empty")
+        entries = _merge_matrix_priors(entries, fallback.repo_bindings, prepared.responsibility_matrix_payload)
         return DesignRepoBinding(
             repo_bindings=entries,
             missing_repos=[str(value) for value in payload.get("missing_repos", []) if str(value).strip()],
@@ -154,3 +178,142 @@ def _write_repo_binding_template(task_dir: Path) -> Path:
         handle.write(build_design_repo_binding_template_json())
         handle.flush()
         return Path(handle.name)
+
+
+def _local_scope_tier(
+    prepared: DesignPreparedInput,
+    repo_id: str,
+    candidate_dirs: list[str],
+    candidate_files: list[str],
+    primary_points: list[int],
+    secondary_points: list[int],
+    score: int,
+) -> str:
+    joined = " ".join([repo_id, *candidate_dirs, *candidate_files]).lower()
+    refined_text = " ".join(
+        [
+            prepared.refined_markdown.lower(),
+            prepared.refine_knowledge_read_markdown.lower(),
+        ]
+    )
+    if len(prepared.repo_researches) == 1 and score > 0:
+        return "must_change"
+    if "abtest" in joined or "common" in repo_id.lower():
+        if any(keyword in refined_text for keyword in ("ab", "实验", "灰度", "tcc", "开关", "配置")):
+            return "validate_only"
+        return "reference_only"
+    if any(keyword in joined for keyword in ("bff", "pin_card", "schema", "formatter", "api", "handler")):
+        return "validate_only" if score > 0 else "reference_only"
+    if primary_points and any(keyword in joined for keyword in ("converter", "loader", "engine", "status", "pack")):
+        return "must_change"
+    if primary_points:
+        all_primary_repo_ids = {
+            str(item.get("repo_id") or "")
+            for item in prepared.repo_assignment_payload.get("repo_briefs", [])
+            if isinstance(item, dict) and item.get("primary_change_points")
+        }
+        if all_primary_repo_ids == {repo_id}:
+            return "must_change"
+    if primary_points:
+        return "validate_only"
+    if secondary_points:
+        return "validate_only"
+    return "reference_only"
+
+
+def _infer_scope_tier_from_binding_item(item: dict[str, object], responsibility_matrix_payload: dict[str, object]) -> str:
+    matrix_by_repo = {
+        str(entry.get("repo_id") or ""): entry
+        for entry in responsibility_matrix_payload.get("repos", [])
+        if isinstance(entry, dict) and str(entry.get("repo_id") or "").strip()
+    }
+    matrix_entry = matrix_by_repo.get(str(item.get("repo_id") or ""), {})
+    if matrix_entry:
+        current = str(matrix_entry.get("recommended_scope_tier") or "").strip()
+        if current in {"must_change", "co_change", "validate_only", "reference_only"}:
+            return current
+    repo_id = str(item.get("repo_id") or "").lower()
+    role = str(item.get("role") or "reference").lower()
+    candidate_text = " ".join(str(value) for value in [*(item.get("candidate_dirs") or []), *(item.get("candidate_files") or [])]).lower()
+    if "abtest" in candidate_text or "common" in repo_id:
+        return "reference_only"
+    if role == "primary" and any(keyword in candidate_text for keyword in ("converter", "loader", "engine", "status", "pack")):
+        return "must_change"
+    if role in {"primary", "supporting"}:
+        return "validate_only"
+    return "reference_only"
+
+
+def _priority_from_scope_tier(scope_tier: str) -> int:
+    if scope_tier == "must_change":
+        return 4
+    if scope_tier == "co_change":
+        return 3
+    if scope_tier == "validate_only":
+        return 2
+    if scope_tier == "reference_only":
+        return 1
+    return 0
+
+
+def _role_from_scope_tier(scope_tier: str) -> str:
+    if scope_tier == "must_change":
+        return "primary"
+    if scope_tier in {"co_change", "validate_only"}:
+        return "supporting"
+    return "reference"
+
+
+def _responsibility_from_matrix_or_summary(
+    matrix_entry: dict[str, object],
+    research_entry: dict[str, object],
+    prepared: DesignPreparedInput,
+    repo_id: str,
+) -> str:
+    tier = str(matrix_entry.get("recommended_scope_tier") or "")
+    if tier == "must_change":
+        return f"{repo_id} 承担本次 change point 的状态定义或收敛职责。"
+    if tier == "co_change":
+        return f"{repo_id} 承担本次 change point 的协同改造职责，需要与主仓一起修改。"
+    if tier == "validate_only":
+        return f"{repo_id} 主要承担适配、联调或下游验证职责。"
+    if tier == "reference_only":
+        return f"{repo_id} 主要提供背景链路、配置或参考信息。"
+    return str(research_entry.get("summary") or prepared.title)
+
+
+def _change_summary_from_scope_tier(scope_tier: str, prepared: DesignPreparedInput, repo_id: str) -> list[str]:
+    if scope_tier == "must_change":
+        return prepared.sections.change_scope[:3] or [f"{repo_id} 承担本次核心改动。"]
+    if scope_tier == "co_change":
+        return [f"{repo_id} 需要配合主仓完成联动改造。"]
+    if scope_tier == "validate_only":
+        return [f"{repo_id} 需要确认适配、协议或展示层是否受影响。"]
+    return [f"{repo_id} 作为参考链路保留，本次默认不改。"]
+
+
+def _merge_matrix_priors(
+    entries: list[DesignRepoBindingEntry],
+    fallback_entries: list[DesignRepoBindingEntry],
+    responsibility_matrix_payload: dict[str, object],
+) -> list[DesignRepoBindingEntry]:
+    matrix_by_repo = {
+        str(item.get("repo_id") or ""): item
+        for item in responsibility_matrix_payload.get("repos", [])
+        if isinstance(item, dict) and str(item.get("repo_id") or "").strip()
+    }
+    merged: dict[str, DesignRepoBindingEntry] = {entry.repo_id: entry for entry in entries}
+    fallback_by_repo = {entry.repo_id: entry for entry in fallback_entries}
+    for repo_id, matrix_entry in matrix_by_repo.items():
+        tier = str(matrix_entry.get("recommended_scope_tier") or "").strip()
+        if tier not in {"must_change", "co_change", "validate_only", "reference_only"}:
+            continue
+        current = merged.get(repo_id) or fallback_by_repo.get(repo_id)
+        if current is None:
+            continue
+        current.scope_tier = tier
+        current.role = _role_from_scope_tier(tier)
+        current.decision = "in_scope"
+        current.reason = str(matrix_entry.get("reasoning") or current.reason or "")
+        merged[repo_id] = current
+    return sorted(merged.values(), key=lambda item: (-_priority_from_scope_tier(item.scope_tier), item.repo_id))

@@ -33,8 +33,10 @@ class DesignPreparedInput:
     sections: RefinedSections
     research_signals: DesignResearchSignals
     assessment: ComplexityAssessment
+    repo_discovery_payload: dict[str, object] = field(default_factory=dict)
     change_points_payload: dict[str, object] = field(default_factory=dict)
     repo_assignment_payload: dict[str, object] = field(default_factory=dict)
+    responsibility_matrix_payload: dict[str, object] = field(default_factory=dict)
     research_payload: dict[str, object] = field(default_factory=dict)
 
 
@@ -44,6 +46,7 @@ class DesignRepoBindingEntry:
     repo_path: str
     decision: str
     role: str
+    scope_tier: str
     serves_change_points: list[int]
     system_name: str
     responsibility: str
@@ -62,6 +65,7 @@ class DesignRepoBindingEntry:
             "repo_path": self.repo_path,
             "decision": self.decision,
             "role": self.role,
+            "scope_tier": self.scope_tier,
             "serves_change_points": self.serves_change_points,
             "system_name": self.system_name,
             "responsibility": self.responsibility,

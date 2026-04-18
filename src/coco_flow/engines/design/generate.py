@@ -25,24 +25,41 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
     system_changes: list[dict[str, object]] = []
     system_dependencies: list[dict[str, object]] = []
     in_scope_repo_ids: list[str] = []
+    must_change_repo_ids: list[str] = []
+    validate_repos: list[dict[str, object]] = []
+    reference_repos: list[dict[str, object]] = []
     for item in binding_items:
         if not isinstance(item, dict):
             continue
         if str(item.get("decision") or "") != "in_scope":
             continue
         repo_id = str(item.get("repo_id") or "")
+        scope_tier = str(item.get("scope_tier") or "")
         if repo_id:
             in_scope_repo_ids.append(repo_id)
-        system_changes.append(
+        if scope_tier in {"must_change", "co_change"}:
+            if repo_id:
+                must_change_repo_ids.append(repo_id)
+            system_changes.append(
+                {
+                    "system_id": repo_id,
+                    "system_name": str(item.get("system_name") or repo_id),
+                    "serves_change_points": item.get("serves_change_points") or [1],
+                    "responsibility": str(item.get("responsibility") or ""),
+                    "planned_changes": item.get("change_summary") or [],
+                    "upstream_inputs": item.get("depends_on") or [],
+                    "downstream_outputs": [],
+                    "touched_repos": [repo_id],
+                }
+            )
+            continue
+        target = validate_repos if scope_tier == "validate_only" else reference_repos
+        target.append(
             {
-                "system_id": repo_id,
+                "repo_id": repo_id,
                 "system_name": str(item.get("system_name") or repo_id),
-                "serves_change_points": item.get("serves_change_points") or [1],
-                "responsibility": str(item.get("responsibility") or ""),
-                "planned_changes": item.get("change_summary") or [],
-                "upstream_inputs": item.get("depends_on") or [],
-                "downstream_outputs": [],
-                "touched_repos": [repo_id],
+                "reason": str(item.get("reason") or ""),
+                "scope_tier": scope_tier or "reference_only",
             }
         )
     for item in binding_items:
@@ -50,10 +67,12 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
             continue
         if str(item.get("decision") or "") != "in_scope":
             continue
+        if str(item.get("scope_tier") or "") not in {"must_change", "co_change"}:
+            continue
         downstream_repo_id = str(item.get("repo_id") or "")
         depends_on = [str(value).strip() for value in item.get("depends_on", []) if str(value).strip()]
         for upstream_repo_id in depends_on:
-            if upstream_repo_id not in in_scope_repo_ids or not downstream_repo_id:
+            if upstream_repo_id not in must_change_repo_ids or not downstream_repo_id:
                 continue
             system_dependencies.append(
                 {
@@ -63,11 +82,19 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
                     "reason": f"{downstream_repo_id} 依赖 {upstream_repo_id} 提供前置输入或先行收敛结果。",
                 }
             )
+    if must_change_repo_ids:
+        solution_overview = "优先围绕必须改动仓库 " + "、".join(must_change_repo_ids) + " 收敛设计边界。"
+        if validate_repos:
+            solution_overview += " 其它仓库仅作为联动验证对象，不默认纳入主改造面。"
+    else:
+        solution_overview = f"优先围绕 {repo_binding_payload.get('decision_summary') or prepared.title} 收敛设计边界。"
     return {
         "system_change_points": prepared.sections.change_scope[:6] or [prepared.title],
-        "solution_overview": f"优先围绕 {repo_binding_payload.get('decision_summary') or prepared.title} 收敛设计边界。",
+        "solution_overview": solution_overview,
         "system_changes": system_changes,
         "system_dependencies": system_dependencies,
+        "validate_repos": validate_repos,
+        "reference_repos": reference_repos,
         "critical_flows": [
             {
                 "name": "主链路",
@@ -116,6 +143,7 @@ def generate_local_design_markdown(
     knowledge_brief_markdown: str,
 ) -> str:
     repo_bindings = [item for item in repo_binding_payload.get("repo_bindings", []) if isinstance(item, dict) and str(item.get("decision") or "") == "in_scope"]
+    must_change_bindings = [item for item in repo_bindings if str(item.get("scope_tier") or "") in {"must_change", "co_change"}]
     lines = [
         "# Design",
         "",
@@ -126,13 +154,14 @@ def generate_local_design_markdown(
     ]
     lines.extend(f"- {item}" for item in sections_payload.get("system_change_points", []) or [prepared.title])
     lines.extend(["", "## 方案设计", "", "### 总体方案", "", f"- {sections_payload.get('solution_overview') or '当前未形成总体方案。'}", "", "### 分系统改造", ""])
-    if repo_bindings:
-        for item in repo_bindings:
+    if must_change_bindings:
+        for item in must_change_bindings:
             lines.extend(
                 [
                     f"#### {str(item.get('system_name') or item.get('repo_id') or 'system')}",
                     f"- 仓库：{str(item.get('repo_id') or '')}",
                     f"- 角色：{str(item.get('role') or '')}",
+                    f"- scope_tier：{str(item.get('scope_tier') or '')}",
                     f"- 职责：{str(item.get('responsibility') or '')}",
                     "- 计划改动：",
                 ]
@@ -146,7 +175,23 @@ def generate_local_design_markdown(
                 lines.extend(f"  - {str(value)}" for value in candidate_files[:6] if str(value).strip())
             lines.append("")
     else:
-        lines.append("- 当前未识别到明确的 in_scope repo，需要补充设计依据。")
+        lines.append("- 当前未识别到明确的必须改动仓库，需要补充设计依据。")
+        lines.append("")
+    validate_repos = sections_payload.get("validate_repos") or []
+    if isinstance(validate_repos, list) and validate_repos:
+        lines.extend(["### 联动验证仓库", ""])
+        for item in validate_repos:
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"- {item.get('repo_id') or ''}：{item.get('reason') or '需要联动验证，但默认不纳入主改造面。'}")
+        lines.append("")
+    reference_repos = sections_payload.get("reference_repos") or []
+    if isinstance(reference_repos, list) and reference_repos:
+        lines.extend(["### 参考链路", ""])
+        for item in reference_repos:
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"- {item.get('repo_id') or ''}：作为背景链路参考，本次默认不改。")
         lines.append("")
     lines.extend(["### 系统依赖关系", ""])
     dependencies = sections_payload.get("system_dependencies") or []

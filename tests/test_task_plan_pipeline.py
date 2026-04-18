@@ -4,13 +4,16 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 import unittest
 
 from coco_flow.config import Settings
 from coco_flow.engines.design.assignment import build_design_change_points_payload
+from coco_flow.engines.design.binding import build_local_repo_binding
 from coco_flow.engines.design.models import DesignPreparedInput
-from coco_flow.engines.design.generate import build_design_sections_payload
+from coco_flow.engines.design.matrix import build_local_design_responsibility_matrix_payload
+from coco_flow.engines.design.generate import build_design_sections_payload, generate_local_design_markdown
 from coco_flow.engines.design.research import build_design_research_payload
 from coco_flow.engines.plan_models import (
     ComplexityAssessment,
@@ -171,6 +174,246 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             self.assertEqual(payload["system_dependencies"], [])
+
+    def test_design_sections_only_expand_must_change_repos(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-sections-tiers",
+                title="demo",
+                refined_markdown="# PRD Refined\n\n- demo\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[],
+                repo_researches=[],
+                repo_ids=set(),
+                repo_root=None,
+                sections=RefinedSections(
+                    change_scope=["统一成功态"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+            )
+            repo_binding_payload = {
+                "repo_bindings": [
+                    {
+                        "repo_id": "live_pack",
+                        "decision": "in_scope",
+                        "scope_tier": "must_change",
+                        "system_name": "Live Pack",
+                        "serves_change_points": [1],
+                        "responsibility": "核心状态收敛",
+                        "change_summary": ["改成功态逻辑"],
+                        "candidate_files": ["entities/converters/regular_auction_converter.go"],
+                        "depends_on": [],
+                    },
+                    {
+                        "repo_id": "live_shopapi",
+                        "decision": "in_scope",
+                        "scope_tier": "validate_only",
+                        "system_name": "Shop API",
+                        "reason": "需要确认下游适配是否受影响",
+                    },
+                    {
+                        "repo_id": "live_common",
+                        "decision": "in_scope",
+                        "scope_tier": "reference_only",
+                        "system_name": "Common",
+                        "reason": "仅提供 AB 背景",
+                    },
+                ],
+                "decision_summary": "must_change=live_pack",
+            }
+
+            payload = build_design_sections_payload(prepared, repo_binding_payload, "")
+            self.assertEqual(len(payload["system_changes"]), 1)
+            self.assertEqual(payload["system_changes"][0]["system_id"], "live_pack")
+            self.assertEqual(payload["validate_repos"][0]["repo_id"], "live_shopapi")
+            self.assertEqual(payload["reference_repos"][0]["repo_id"], "live_common")
+
+            markdown = generate_local_design_markdown(prepared, repo_binding_payload, payload, "")
+            self.assertIn("#### Live Pack", markdown)
+            self.assertIn("### 联动验证仓库", markdown)
+            self.assertIn("live_shopapi", markdown)
+            self.assertIn("### 参考链路", markdown)
+            self.assertIn("live_common", markdown)
+
+    def test_local_responsibility_matrix_prefers_state_aggregation_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-matrix",
+                title="统一成功态",
+                refined_markdown="# PRD Refined\n\n- 统一成功态\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[],
+                repo_researches=[],
+                repo_ids=set(),
+                repo_root=None,
+                sections=RefinedSections(
+                    change_scope=["统一成功态"],
+                    non_goals=["不新增 TCC 配置"],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+                change_points_payload={"change_points": [{"id": 1, "title": "统一成功态"}]},
+                research_payload={
+                    "repos": [
+                        {
+                            "repo_id": "live_pack",
+                            "summary": "负责竞拍状态收敛",
+                            "candidate_dirs": ["entities/converters/auction_converters", "engines"],
+                            "candidate_files": [
+                                "entities/loaders/auction_loaders/auction_status_loader.go",
+                                "entities/converters/auction_converters/regular_auction_converter.go",
+                                "engines/auction_card_data.go",
+                            ],
+                            "matched_terms": ["AuctionStatus_Success", "RegularAuctionConverter"],
+                            "notes": [],
+                            "evidence": [],
+                        },
+                        {
+                            "repo_id": "content_live_bff_lib",
+                            "summary": "负责 Lynx 装配和数据转换",
+                            "candidate_dirs": ["us/biz/pincard/pack"],
+                            "candidate_files": ["us/biz/pincard/pack/pop_auction.go", "us/biz/pincard/pin_card.go"],
+                            "matched_terms": ["AuctionStatus", "Lynx"],
+                            "notes": [],
+                            "evidence": [],
+                        },
+                        {
+                            "repo_id": "live_common",
+                            "summary": "提供 AB 配置",
+                            "candidate_dirs": ["abtest"],
+                            "candidate_files": ["abtest/struct.go"],
+                            "matched_terms": ["UseAuctionStatusSuccess"],
+                            "notes": [],
+                            "evidence": [],
+                        },
+                    ]
+                },
+            )
+
+            payload = build_local_design_responsibility_matrix_payload(prepared)
+            by_repo = {item["repo_id"]: item for item in payload["repos"]}
+            self.assertEqual(by_repo["live_pack"]["recommended_scope_tier"], "must_change")
+            self.assertEqual(by_repo["content_live_bff_lib"]["recommended_scope_tier"], "validate_only")
+            self.assertEqual(by_repo["live_common"]["recommended_scope_tier"], "reference_only")
+
+    def test_local_repo_binding_classifies_scope_tiers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            live_pack = Path(tmp) / "live_pack"
+            live_shopapi = Path(tmp) / "live_shopapi"
+            live_common = Path(tmp) / "live_common"
+            live_pack.mkdir()
+            live_shopapi.mkdir()
+            live_common.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-local-binding",
+                title="统一成功态",
+                refined_markdown="# PRD Refined\n\n- 统一成功态\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[
+                    RepoScope(repo_id="live_pack", repo_path=str(live_pack)),
+                    RepoScope(repo_id="live_shopapi", repo_path=str(live_shopapi)),
+                    RepoScope(repo_id="live_common", repo_path=str(live_common)),
+                ],
+                repo_researches=[
+                    RepoResearch(
+                        repo_id="live_pack",
+                        repo_path=str(live_pack),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[GlossaryEntry(business="AuctionStatus_Success", identifier="AuctionStatusSuccess", module="loaders")],
+                            unmatched_terms=[],
+                            candidate_files=[
+                                "entities/loaders/auction_loaders/auction_status_loader.go",
+                                "entities/converters/auction_converters/regular_auction_converter.go",
+                            ],
+                            candidate_dirs=["entities/converters/auction_converters"],
+                            notes=[],
+                        ),
+                    ),
+                    RepoResearch(
+                        repo_id="live_shopapi",
+                        repo_path=str(live_shopapi),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[GlossaryEntry(business="AuctionStatus", identifier="AuctionStatus", module="api")],
+                            unmatched_terms=[],
+                            candidate_files=["biz/service/tools/live_pack_converter.go"],
+                            candidate_dirs=["biz/service/tools"],
+                            notes=[],
+                        ),
+                    ),
+                    RepoResearch(
+                        repo_id="live_common",
+                        repo_path=str(live_common),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[GlossaryEntry(business="UseAuctionStatusSuccess", identifier="UseAuctionStatusSuccess", module="abtest")],
+                            unmatched_terms=[],
+                            candidate_files=["abtest/struct.go"],
+                            candidate_dirs=["abtest"],
+                            notes=[],
+                        ),
+                    ),
+                ],
+                repo_ids={"live_pack", "live_shopapi", "live_common"},
+                repo_root=str(live_pack),
+                sections=RefinedSections(
+                    change_scope=["统一成功态"],
+                    non_goals=["不新增 TCC 配置"],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=2, level="low", conclusion="低复杂度"),
+                change_points_payload={"change_points": [{"id": 1, "title": "统一成功态"}]},
+                responsibility_matrix_payload={
+                    "repos": [
+                        {"repo_id": "live_pack", "recommended_scope_tier": "must_change", "reasoning": "定义和收敛状态"},
+                        {"repo_id": "live_shopapi", "recommended_scope_tier": "validate_only", "reasoning": "适配层"},
+                        {"repo_id": "live_common", "recommended_scope_tier": "reference_only", "reasoning": "AB 配置"},
+                    ]
+                },
+                repo_assignment_payload={
+                    "repo_briefs": [
+                        {"repo_id": "live_pack", "primary_change_points": [1], "secondary_change_points": []},
+                        {"repo_id": "live_shopapi", "primary_change_points": [], "secondary_change_points": [1]},
+                        {"repo_id": "live_common", "primary_change_points": [], "secondary_change_points": []},
+                    ]
+                },
+            )
+
+            binding = build_local_repo_binding(prepared).to_payload()
+            by_repo = {item["repo_id"]: item for item in binding["repo_bindings"]}
+            self.assertEqual(by_repo["live_pack"]["scope_tier"], "must_change")
+            self.assertEqual(by_repo["live_shopapi"]["scope_tier"], "validate_only")
+            self.assertEqual(by_repo["live_common"]["scope_tier"], "reference_only")
 
     def test_native_design_research_uses_run_agent_for_multiple_candidate_repos(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -355,6 +598,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertTrue(change_points["change_points"])
             assignment = json.loads((task_dir / "design-repo-assignment.json").read_text(encoding="utf-8"))
             self.assertTrue(assignment["repo_briefs"])
+            matrix = json.loads((task_dir / "design-repo-responsibility-matrix.json").read_text(encoding="utf-8"))
+            self.assertTrue(matrix["repos"])
             repo_binding = json.loads((task_dir / "design-repo-binding.json").read_text(encoding="utf-8"))
             self.assertTrue(repo_binding["repo_bindings"])
             self.assertEqual(repo_binding["repo_bindings"][0]["repo_id"], "demo_repo")
@@ -371,6 +616,450 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("## 方案设计", design)
             self.assertIn("竞拍讲解卡需要支持主播侧状态提示", design)
             self.assertTrue((task_dir / "design-result.json").exists())
+
+    def test_design_can_infer_repos_from_selected_knowledge_when_repos_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            repo_root = Path(tmp) / "repo"
+            repo_root.mkdir(parents=True)
+            subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+            (repo_root / "app" / "auction_card").mkdir(parents=True)
+            (repo_root / "app" / "auction_card" / "render_handler.go").write_text(
+                "package auction_card\n\nfunc RenderAuctionCard() {}\n",
+                encoding="utf-8",
+            )
+            context_dir = repo_root / ".livecoding" / "context"
+            context_dir.mkdir(parents=True, exist_ok=True)
+            (context_dir / "glossary.md").write_text(
+                "| 业务术语 | 代码标识 | 说明 | 模块 |\n"
+                "| --- | --- | --- | --- |\n"
+                "| 竞拍奖励卡 | RenderAuctionCard | 竞拍奖励卡入口 | app/auction_card |\n",
+                encoding="utf-8",
+            )
+
+            timestamp = datetime.now().astimezone()
+            write_knowledge_document(
+                settings.knowledge_root / "domains" / "auction-reward-card-domain.md",
+                KnowledgeDocument(
+                    id="auction-reward-card-domain",
+                    kind="domain",
+                    status="approved",
+                    title="竞拍奖励卡领域知识",
+                    desc="包含竞拍奖励卡相关仓库线索",
+                    domainId="auction_reward_card",
+                    domainName="竞拍奖励卡",
+                    engines=["refine"],
+                    repos=["demo_repo"],
+                    priority="high",
+                    confidence="high",
+                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
+                    owner="tester",
+                    body=(
+                        "## Summary\n\n"
+                        "- 竞拍奖励卡的主逻辑位于主播侧渲染链路。\n"
+                    ),
+                    evidence=KnowledgeEvidence(
+                        inputTitle="",
+                        inputDescription="",
+                        repoMatches=["demo_repo"],
+                        keywordMatches=["竞拍奖励卡"],
+                        pathMatches=[str(repo_root)],
+                        candidateFiles=[],
+                        contextHits=[],
+                        retrievalNotes=[],
+                        openQuestions=[],
+                    ),
+                ),
+            )
+
+            task_id = "task-design-knowledge-discovery"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = timestamp.isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "竞拍奖励卡状态提示调整",
+                        "status": "refined",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "竞拍奖励卡状态提示调整",
+                        "repo_count": 0,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "refine-knowledge-selection.json").write_text(
+                json.dumps(
+                    {
+                        "selected_ids": ["auction-reward-card-domain"],
+                        "rejected_ids": [],
+                        "reason": "selected for refine",
+                        "candidates": [],
+                        "mode": "rule",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "refine-knowledge-read.md").write_text(
+                "# Refine Knowledge Read\n\n- 竞拍奖励卡主链路与 demo_repo 强相关。\n",
+                encoding="utf-8",
+            )
+            (task_dir / "prd-refined.md").write_text(
+                "# PRD Refined\n\n"
+                "## 需求概述\n\n"
+                "- 竞拍奖励卡需要补充主播侧状态提示。\n\n"
+                "## 功能点\n\n"
+                "- 支持竞拍奖励卡展示主播侧状态提示。\n\n"
+                "## 边界条件\n\n"
+                "- 非竞拍场景不展示。\n\n"
+                "## 验收标准\n\n"
+                "- 状态提示展示正确。\n",
+                encoding="utf-8",
+            )
+
+            status = design_task(task_id, settings=settings)
+
+            self.assertEqual(status, "designed")
+            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
+            self.assertEqual(research["mode"], "local")
+            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["demo_repo"])
+            repo_binding = json.loads((task_dir / "design-repo-binding.json").read_text(encoding="utf-8"))
+            self.assertEqual(repo_binding["repo_bindings"][0]["repo_id"], "demo_repo")
+            self.assertEqual(repo_binding["repo_bindings"][0]["decision"], "in_scope")
+            design_log = (task_dir / "design.log").read_text(encoding="utf-8")
+            self.assertIn("design_repo_discovery_ok: mode=knowledge_selection, bound=0, inferred=1", design_log)
+
+    def test_design_can_infer_repo_from_knowledge_candidate_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            repo_root = Path(tmp) / "candidate-file-repo"
+            repo_root.mkdir(parents=True)
+            subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+            target_file = repo_root / "service" / "reward_card" / "render_service.go"
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            target_file.write_text(
+                "package reward_card\n\nfunc RenderRewardCard() {}\n",
+                encoding="utf-8",
+            )
+
+            timestamp = datetime.now().astimezone()
+            write_knowledge_document(
+                settings.knowledge_root / "domains" / "reward-card-candidate-file.md",
+                KnowledgeDocument(
+                    id="reward-card-candidate-file",
+                    kind="domain",
+                    status="approved",
+                    title="奖励卡文件线索",
+                    desc="仅通过 candidateFiles 提供仓库线索",
+                    domainId="reward_card",
+                    domainName="奖励卡",
+                    engines=["refine"],
+                    repos=[],
+                    priority="high",
+                    confidence="high",
+                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
+                    owner="tester",
+                    body="## Summary\n\n- 奖励卡渲染链路在服务层。\n",
+                    evidence=KnowledgeEvidence(
+                        inputTitle="",
+                        inputDescription="",
+                        repoMatches=[],
+                        keywordMatches=["奖励卡"],
+                        pathMatches=[],
+                        candidateFiles=[str(target_file)],
+                        contextHits=[],
+                        retrievalNotes=[],
+                        openQuestions=[],
+                    ),
+                ),
+            )
+
+            task_id = "task-design-candidate-file-discovery"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = timestamp.isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "奖励卡展示逻辑调整",
+                        "status": "refined",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "奖励卡展示逻辑调整",
+                        "repo_count": 0,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "refine-knowledge-selection.json").write_text(
+                json.dumps(
+                    {
+                        "selected_ids": ["reward-card-candidate-file"],
+                        "rejected_ids": [],
+                        "reason": "selected for refine",
+                        "candidates": [],
+                        "mode": "rule",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "prd-refined.md").write_text(
+                "# PRD Refined\n\n"
+                "## 功能点\n\n"
+                "- 调整奖励卡渲染逻辑。\n",
+                encoding="utf-8",
+            )
+
+            status = design_task(task_id, settings=settings)
+
+            self.assertEqual(status, "designed")
+            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
+            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["candidate-file-repo"])
+
+    def test_design_can_fuzzy_match_repo_hint_from_recent_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            repo_root = Path(tmp) / "auction-card-repo"
+            repo_root.mkdir(parents=True)
+            subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+            (repo_root / "app" / "auction_card").mkdir(parents=True)
+            (repo_root / "app" / "auction_card" / "handler.go").write_text(
+                "package auction_card\n\nfunc HandleAuctionCard() {}\n",
+                encoding="utf-8",
+            )
+
+            timestamp = datetime.now().astimezone()
+            history_task_dir = settings.task_root / "history-task"
+            history_task_dir.mkdir(parents=True)
+            history_now = timestamp.isoformat()
+            (history_task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "history-task",
+                        "title": "历史任务",
+                        "status": "designed",
+                        "created_at": history_now,
+                        "updated_at": history_now,
+                        "source_type": "text",
+                        "source_value": "历史任务",
+                        "repo_count": 1,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (history_task_dir / "repos.json").write_text(
+                json.dumps(
+                    {"repos": [{"id": "auction-card-repo", "path": str(repo_root), "status": "designed"}]},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            write_knowledge_document(
+                settings.knowledge_root / "domains" / "auction-card-fuzzy-hint.md",
+                KnowledgeDocument(
+                    id="auction-card-fuzzy-hint",
+                    kind="domain",
+                    status="approved",
+                    title="竞拍卡仓库线索",
+                    desc="repoMatches 与历史 repo id 存在轻微格式差异",
+                    domainId="auction_card",
+                    domainName="竞拍卡",
+                    engines=["refine"],
+                    repos=[],
+                    priority="high",
+                    confidence="high",
+                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
+                    owner="tester",
+                    body="## Summary\n\n- 主链路仍在 auction card repo。\n",
+                    evidence=KnowledgeEvidence(
+                        inputTitle="",
+                        inputDescription="",
+                        repoMatches=["auction_card_repo"],
+                        keywordMatches=["竞拍卡"],
+                        pathMatches=[],
+                        candidateFiles=[],
+                        contextHits=[],
+                        retrievalNotes=[],
+                        openQuestions=[],
+                    ),
+                ),
+            )
+
+            task_id = "task-design-fuzzy-repo-hint"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = timestamp.isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "竞拍卡交互调整",
+                        "status": "refined",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "竞拍卡交互调整",
+                        "repo_count": 0,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "refine-knowledge-selection.json").write_text(
+                json.dumps(
+                    {
+                        "selected_ids": ["auction-card-fuzzy-hint"],
+                        "rejected_ids": [],
+                        "reason": "selected for refine",
+                        "candidates": [],
+                        "mode": "rule",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "prd-refined.md").write_text(
+                "# PRD Refined\n\n"
+                "## 功能点\n\n"
+                "- 调整竞拍卡交互逻辑。\n",
+                encoding="utf-8",
+            )
+
+            status = design_task(task_id, settings=settings)
+
+            self.assertEqual(status, "designed")
+            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
+            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["auction-card-repo"])
+
+    def test_design_can_resolve_remote_repo_hint_via_local_go_src_mirror(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            settings = make_settings(tmp_root)
+            home_root = tmp_root / "home"
+            repo_root = home_root / "go" / "src" / "code.byted.org" / "oec" / "live_shop"
+            repo_root.mkdir(parents=True)
+            subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+            (repo_root / "service" / "auction").mkdir(parents=True)
+            (repo_root / "service" / "auction" / "handler.go").write_text(
+                "package auction\n\nfunc HandleAuction() {}\n",
+                encoding="utf-8",
+            )
+
+            timestamp = datetime.now().astimezone()
+            write_knowledge_document(
+                settings.knowledge_root / "flows" / "auction-remote-repo-hint.md",
+                KnowledgeDocument(
+                    id="auction-remote-repo-hint",
+                    kind="flow",
+                    status="approved",
+                    title="竞拍远端 repo 线索",
+                    desc="仅给出 code.byted.org 形式的 repo hint",
+                    domainId="auction_remote",
+                    domainName="竞拍远端仓库",
+                    engines=["refine"],
+                    repos=["code.byted.org/oec/live_shop"],
+                    priority="high",
+                    confidence="high",
+                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
+                    owner="tester",
+                    body="## Summary\n\n- 竞拍主链路在 live_shop。\n",
+                    evidence=KnowledgeEvidence(
+                        inputTitle="",
+                        inputDescription="",
+                        repoMatches=["code.byted.org/oec/live_shop"],
+                        keywordMatches=["竞拍"],
+                        pathMatches=[],
+                        candidateFiles=[],
+                        contextHits=[],
+                        retrievalNotes=[],
+                        openQuestions=[],
+                    ),
+                ),
+            )
+
+            task_id = "task-design-remote-repo-hint"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = timestamp.isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "竞拍状态调整",
+                        "status": "refined",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "竞拍状态调整",
+                        "repo_count": 0,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "refine-knowledge-selection.json").write_text(
+                json.dumps(
+                    {
+                        "selected_ids": ["auction-remote-repo-hint"],
+                        "rejected_ids": [],
+                        "reason": "selected for refine",
+                        "candidates": [],
+                        "mode": "rule",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "prd-refined.md").write_text(
+                "# PRD Refined\n\n"
+                "## 功能点\n\n"
+                "- 调整竞拍状态展示。\n",
+                encoding="utf-8",
+            )
+
+            from unittest.mock import patch
+
+            with patch.dict("os.environ", {"GOPATH": str(home_root / "go")}):
+                status = design_task(task_id, settings=settings)
+
+            self.assertEqual(status, "designed")
+            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
+            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["live_shop"])
 
     def test_local_plan_writes_knowledge_selection_and_brief(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -513,7 +1202,9 @@ class PlanTaskPipelineTest(unittest.TestCase):
             plan = (task_dir / "plan.md").read_text(encoding="utf-8")
             self.assertIn("## 系统改造点", design)
             self.assertIn("## 方案设计", design)
-            self.assertIn("仓库 demo_repo 主要承接", design)
+            self.assertIn("### 分系统改造", design)
+            self.assertIn("- 仓库：demo_repo", design)
+            self.assertIn("- scope_tier：must_change", design)
             self.assertIn("## 实施策略", plan)
             self.assertIn("## 任务拆分", plan)
             self.assertIn("受影响 package 编译通过", plan)

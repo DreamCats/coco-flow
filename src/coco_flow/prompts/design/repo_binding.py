@@ -15,6 +15,7 @@ def build_design_repo_binding_template_json() -> str:
         '      "repo_path": "__FILL__",\n'
         '      "decision": "__FILL__",\n'
         '      "role": "__FILL__",\n'
+        '      "scope_tier": "__FILL__",\n'
         '      "serves_change_points": [1],\n'
         '      "system_name": "__FILL__",\n'
         '      "responsibility": "__FILL__",\n'
@@ -39,6 +40,7 @@ def build_design_repo_binding_agent_prompt(
     title: str,
     refined_markdown: str,
     knowledge_brief_markdown: str,
+    responsibility_matrix_payload: dict[str, object],
     repo_research_payload: dict[str, object],
     template_path: str,
 ) -> str:
@@ -49,14 +51,21 @@ def build_design_repo_binding_agent_prompt(
             "必须直接编辑指定 JSON 文件，不要只在回复里输出结果。",
             "只使用 in_scope / out_of_scope / uncertain 作为 decision。",
             "只使用 primary / supporting / reference 作为 role。",
+            "scope_tier 只使用 must_change / co_change / validate_only / reference_only。",
             "不要引入当前 research 中没有出现的仓库或文件。",
             "只要候选 repo 数量大于 1，也不要假设串行探索顺序本身就是依赖关系。",
+            "默认优先最小可闭合改动集；如果单仓可闭合，不要扩成多仓 must_change。",
+            "消费者/BFF/API/格式化适配层默认先判 validate_only，除非有明确证据说明必须改。",
+            "AB/TCC/配置仓默认先判 reference_only，除非 refined 需求明确要求改实验、开关或配置。",
+            "领域链路相关不等于本次必须修改；不要因为知识卡提到了某仓就判成 must_change。",
+            "通常 must_change 仓库不应超过 2 个，除非 repo research 明确给出强证据。",
             "完成后只需简短回复已完成。",
         ],
         output_contract=DESIGN_OUTPUT_CONTRACT,
         sections=[
             PromptSection(title="需要编辑的模板文件", body=f"- file: {template_path}\n- 直接编辑这个 JSON 文件，替换所有 __FILL__ 占位符。"),
             build_design_input_section(title=title, refined_markdown=refined_markdown, knowledge_brief_markdown=knowledge_brief_markdown),
+            PromptSection(title="Responsibility Matrix", body=render_json_block(responsibility_matrix_payload)),
             PromptSection(title="Repo Research", body=render_json_block(repo_research_payload)),
         ],
     )
