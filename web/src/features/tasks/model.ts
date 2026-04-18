@@ -222,16 +222,26 @@ export function repoReadyForCode(repo: RepoResult) {
   return repo.queueState === 'ready' || repo.queueState === 'failed'
 }
 
+export function executableCodeRepos(task: TaskRecord): RepoResult[] {
+  const repos = task.repos.filter((repo) => repo.executionMode !== 'reference_only')
+  return repos.length > 0 ? repos : task.repos
+}
+
+export function executableCodeRepoCount(task: TaskRecord): number {
+  return task.repos.filter((repo) => repo.executionMode !== 'reference_only').length
+}
+
 export function preferredCodeRepo(task: TaskRecord): RepoResult | null {
-  const activeRepo = task.codeProgress.activeRepoId ? task.repos.find((repo) => repo.id === task.codeProgress.activeRepoId) : null
+  const repos = executableCodeRepos(task)
+  const activeRepo = task.codeProgress.activeRepoId ? repos.find((repo) => repo.id === task.codeProgress.activeRepoId) : null
   if (activeRepo && activeRepo.executionMode !== 'reference_only') {
     return activeRepo
   }
   return (
-    task.repos.find((repo) => repo.queueState === 'running') ??
-    task.repos.find(repoReadyForCode) ??
-    task.repos.find((repo) => repo.executionMode !== 'reference_only') ??
-    task.repos[0] ??
+    repos.find((repo) => repo.queueState === 'running') ??
+    repos.find(repoReadyForCode) ??
+    repos.find((repo) => repo.executionMode !== 'reference_only') ??
+    repos[0] ??
     null
   )
 }

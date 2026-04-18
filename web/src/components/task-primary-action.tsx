@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { TaskRecord } from '../api'
+import { executableCodeRepoCount } from '../features/tasks/model'
 
 export function TaskPrimaryAction({
   task,
@@ -52,7 +53,8 @@ export function TaskPrimaryAction({
   onStartPlan: () => void
   onStartRemainingCode: () => void
 }) {
-  const repoCount = task.repos.length
+  const executableRepoCount = executableCodeRepoCount(task)
+  const repoCount = executableRepoCount || task.repos.length
   const codedCount = task.codeProgress.counts.done
   const failedCount = task.codeProgress.counts.failed
   const runningCount = task.codeProgress.counts.running
@@ -189,7 +191,7 @@ export function TaskPrimaryAction({
             : '本次推进失败了，建议先查看 code.log 和 code-result.json，再决定重试还是回退。'}
         </NoticeBox>
       ) : null}
-      {task.repos.length > 1 && canStartRemainingCode ? (
+      {repoCount > 1 && canStartRemainingCode ? (
         <NoticeBox tone="amber">这是一条多仓任务。建议优先一键推进剩余仓库，再到下方逐个处理例外情况。</NoticeBox>
       ) : null}
       {actionError ? <NoticeBox tone="rose">{actionError}</NoticeBox> : null}
@@ -396,6 +398,7 @@ function runningHeadline(status: TaskRecord['status']) {
 }
 
 function primaryHeadline(task: TaskRecord) {
+  const executableRepoCount = executableCodeRepoCount(task)
   if (isPendingRefineTask(task)) {
     return '需要先补正文再继续'
   }
@@ -409,9 +412,9 @@ function primaryHeadline(task: TaskRecord) {
     case 'planning':
       return '方案正在生成'
     case 'planned':
-      return task.codeProgress.referenceRepoIds.length === task.repos.length
+      return executableRepoCount === 0
         ? '当前只有参考仓'
-        : task.repos.length > 1
+        : executableRepoCount > 1
           ? '方案已完成，等待批量实现'
           : '方案已完成，准备进入实现'
     case 'failed':
@@ -444,7 +447,7 @@ function currentStageLabel(task: TaskRecord) {
 }
 
 function primaryNarrative(task: TaskRecord) {
-  const repoCount = task.repos.length
+  const repoCount = executableCodeRepoCount(task) || task.repos.length
   const codedCount = task.codeProgress.counts.done
   const failedCount = task.codeProgress.counts.failed
 

@@ -2,7 +2,7 @@ import type { RepoResult, TaskRecord } from '../../../api'
 import { getTaskArtifact } from '../../../api'
 import { useEffect, useMemo, useState } from 'react'
 import { ArtifactPanel, NotePanel, SectionCard, TabButton, TaskStatusBadge } from '../ui'
-import { codeActionLabelForRepo, preferredCodeRepo, repoReadyForCode } from '../model'
+import { codeActionLabelForRepo, executableCodeRepoCount, executableCodeRepos, preferredCodeRepo, repoReadyForCode } from '../model'
 
 type ResultTab = 'result' | 'verify' | 'diff' | 'log'
 
@@ -17,15 +17,16 @@ export function CodeStage({
 }) {
   const orderedRepos = useMemo(
     () =>
-      [...task.repos].sort((left, right) => {
+      [...executableCodeRepos(task)].sort((left, right) => {
         const indexGap = (left.executionIndex ?? Number.MAX_SAFE_INTEGER) - (right.executionIndex ?? Number.MAX_SAFE_INTEGER)
         if (indexGap !== 0) {
           return indexGap
         }
         return left.id.localeCompare(right.id)
       }),
-    [task.repos],
+    [task],
   )
+  const hiddenReferenceRepoCount = Math.max(task.repos.length - executableCodeRepoCount(task), 0)
   const [selectedRepoID, setSelectedRepoID] = useState(preferredCodeRepo(task)?.id ?? orderedRepos[0]?.id ?? '')
   const [resultTab, setResultTab] = useState<ResultTab>('result')
   const [repoResult, setRepoResult] = useState('')
@@ -91,7 +92,7 @@ export function CodeStage({
   return (
     <SectionCard title="阶段详情">
       <div className="space-y-5">
-        <CodeProgressPanel task={task} />
+        <CodeProgressPanel hiddenReferenceRepoCount={hiddenReferenceRepoCount} task={task} />
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
           <RepoQueuePanel repos={orderedRepos} selectedRepoID={selectedRepo?.id ?? ''} onSelectRepo={setSelectedRepoID} />
@@ -113,7 +114,7 @@ export function CodeStage({
   )
 }
 
-function CodeProgressPanel({ task }: { task: TaskRecord }) {
+function CodeProgressPanel({ task, hiddenReferenceRepoCount }: { task: TaskRecord; hiddenReferenceRepoCount: number }) {
   const progress = task.codeProgress
   const activeTone =
     task.status === 'coding'
@@ -131,6 +132,11 @@ function CodeProgressPanel({ task }: { task: TaskRecord }) {
           <div className="text-[11px] uppercase tracking-[0.2em] text-[#87867f] dark:text-[#b0aea5]">Code Progress</div>
           <div className="mt-2 text-sm text-[#5e5d59] dark:text-[#b0aea5]">{progress.activeLabel || progress.summary}</div>
           <div className="mt-2 text-sm leading-6 text-[#141413] dark:text-[#faf9f5]">{progress.summary}</div>
+          {hiddenReferenceRepoCount > 0 ? (
+            <div className="mt-3 inline-flex max-w-full items-center rounded-full border border-dashed border-[#d8d3c8] bg-[#f5f4ed] px-3 py-1 text-xs text-[#8a7a67] dark:border-[#3a3937] dark:bg-[#232220] dark:text-[#8f8a82]">
+              另有 {hiddenReferenceRepoCount} 个 `reference_only` 仓库仅作参考，不进入执行队列。
+            </div>
+          ) : null}
         </div>
         <div className="rounded-full border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-1 text-xs text-[#5e5d59] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
           {progress.progressPercent}%

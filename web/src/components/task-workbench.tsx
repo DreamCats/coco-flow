@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { TaskArtifactName, TaskRecord } from '../api'
+import { executableCodeRepoCount, executableCodeRepos } from '../features/tasks/model'
 import { ArtifactViewer, artifactLabel } from './artifact-viewer'
 import { DiffPanel } from './diff-panel'
 import { RepoStatusBadge } from './ui-primitives'
@@ -63,14 +64,14 @@ export function TaskWorkbench({
   const stageProfile = useMemo(() => resolveStageProfile(task), [task])
   const orderedRepos = useMemo(
     () =>
-      [...task.repos].sort((left, right) => {
+      [...executableCodeRepos(task)].sort((left, right) => {
         const priorityGap = (repoStatusPriority[left.status] ?? 99) - (repoStatusPriority[right.status] ?? 99)
         if (priorityGap !== 0) {
           return priorityGap
         }
         return left.id.localeCompare(right.id)
       }),
-    [task.repos],
+    [task],
   )
   const availableArtifacts = useMemo(
     () =>
@@ -94,7 +95,7 @@ export function TaskWorkbench({
   }, [forcedPane, focusToken])
 
   const repoScopedArtifact =
-    task.repos.length > 1 &&
+    orderedRepos.length > 1 &&
     (artifact === 'code.log' || artifact === 'code-result.json' || artifact === 'diff.json' || artifact === 'diff.patch')
   const activeRepoID = artifactRepo || selectedDiffRepo || orderedRepos[0]?.id || ''
   const liveArtifact = resolveLiveArtifact(task.status)
@@ -431,7 +432,7 @@ export function RepoContextPanel({
         <div>
           <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Repo Execution Lane</div>
           <h4 className="mt-2 text-[28px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">
-            {task.repos.length > 1 ? '多仓执行链路' : activeRepo.displayName}
+            {executableCodeRepoCount(task) > 1 ? '多仓执行链路' : activeRepo.displayName}
           </h4>
         </div>
         <RepoStatusBadge status={activeRepo.status} />

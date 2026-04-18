@@ -508,7 +508,7 @@ function deriveCodeContract(
   const graphPayload = parseJSONArtifact(task.artifacts['plan-execution-graph.json'])
   const validationPayload = parseJSONArtifact(task.artifacts['plan-validation.json'])
   const typedProgress = normalizeTypedCodeProgress(raw.codeProgress ?? raw.code_progress)
-  const bindings = normalizeBindingEntries(bindingPayload.bindings)
+  const bindings = normalizeBindingEntries(bindingPayload.repo_bindings ?? bindingPayload.bindings)
   const workItems = normalizeWorkItems(workItemsPayload.work_items)
   const validations = normalizeTaskValidations(validationPayload.task_validations)
   const dependencyMap = buildRepoDependencyMap(workItems, bindings)

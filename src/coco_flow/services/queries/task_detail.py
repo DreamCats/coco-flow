@@ -83,7 +83,8 @@ def build_task_detail(
     status = str(metadata.get("status") or "unknown")
     code_dispatch = read_json_file(task_dir / "code-dispatch.json")
     code_progress = read_json_file(task_dir / "code-progress.json")
-    repos = parse_repos(repos_meta, task_dir, code_dispatch, code_progress)
+    design_repo_binding = read_json_file(task_dir / "design-repo-binding.json")
+    repos = parse_repos(repos_meta, task_dir, code_dispatch, code_progress, design_repo_binding)
 
     return TaskDetail(
         task_id=task_id,
@@ -152,6 +153,7 @@ def parse_repos(
     task_dir: Path | None = None,
     code_dispatch: dict[str, object] | None = None,
     code_progress: dict[str, object] | None = None,
+    design_repo_binding: dict[str, object] | None = None,
 ) -> list[RepoBinding]:
     raw_repos = repos_meta.get("repos")
     if not isinstance(raw_repos, list):
@@ -159,6 +161,7 @@ def parse_repos(
 
     dispatch_by_repo = build_repo_batch_index(code_dispatch or {})
     progress_by_repo = build_repo_batch_index(code_progress or {})
+    design_binding_by_repo = build_design_binding_index(design_repo_binding or {})
 
     repos: list[RepoBinding] = []
     for item in raw_repos:
@@ -186,6 +189,7 @@ def parse_repos(
 
         dispatch_entry = dispatch_by_repo.get(repo_id, {})
         progress_entry = progress_by_repo.get(repo_id, {})
+        design_binding_entry = design_binding_by_repo.get(repo_id, {})
         if dispatch_entry:
             scope_tier = scope_tier or _optional_str(dispatch_entry.get("scope_tier"))
             execution_mode = _optional_str(dispatch_entry.get("execution_mode") or dispatch_entry.get("mode"))
@@ -208,6 +212,9 @@ def parse_repos(
                 depends_on_batch_ids = _string_list(
                     progress_entry.get("depends_on_batch_ids") or progress_entry.get("depends_on_batches")
                 ) or None
+        if design_binding_entry:
+            scope_tier = scope_tier or _optional_str(design_binding_entry.get("scope_tier"))
+            execution_mode = execution_mode or infer_execution_mode(scope_tier)
 
         if task_dir is not None and repo_id:
             report = read_repo_code_result(task_dir, repo_id)
@@ -287,6 +294,21 @@ def build_repo_batch_index(payload: dict[str, object]) -> dict[str, dict[str, ob
 
     indexed: dict[str, dict[str, object]] = {}
     for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        repo_id = _optional_str(entry.get("repo_id") or entry.get("repo"))
+        if not repo_id:
+            continue
+        indexed[repo_id] = entry
+    return indexed
+
+
+def build_design_binding_index(payload: dict[str, object]) -> dict[str, dict[str, object]]:
+    raw = payload.get("repo_bindings") or payload.get("bindings")
+    if not isinstance(raw, list):
+        return {}
+    indexed: dict[str, dict[str, object]] = {}
+    for entry in raw:
         if not isinstance(entry, dict):
             continue
         repo_id = _optional_str(entry.get("repo_id") or entry.get("repo"))
@@ -386,6 +408,16 @@ def infer_repo_build_from_report(report: dict[str, object]) -> str:
     if isinstance(verify_ok, bool):
         return "passed" if verify_ok else "failed"
     return "n/a"
+
+
+def infer_execution_mode(scope_tier: str | None) -> str | None:
+    if scope_tier == "validate_only":
+        return "verify_only"
+    if scope_tier == "reference_only":
+        return "reference_only"
+    if scope_tier:
+        return "apply"
+    return None
 
 
 def read_repo_verify_result(task_dir: Path, repo_id: str) -> dict[str, object] | None:
