@@ -32,7 +32,7 @@ export function buildTaskStages(task: TaskRecord): TaskStage[] {
       id: 'refine',
       label: 'Refine',
       status: !inputReady ? 'todo' : hasRefined ? (hasDesign || hasPlan || hasCodeOutput ? 'done' : 'active') : 'active',
-      summary: '提炼目标、边界 case、风险项和待确认问题。',
+      summary: task.status === 'refining' ? '正在提炼核心诉求、风险、讨论点和边界。' : '提炼核心诉求、风险、讨论点和边界。',
     },
     {
       id: 'design',
@@ -78,7 +78,7 @@ export function isPendingRefineTask(task: TaskRecord) {
 }
 
 export function isInputReady(task: TaskRecord) {
-  return new Set(['input_ready', 'refined', 'planning', 'planned', 'coding', 'partially_coded', 'coded', 'archived', 'failed']).has(task.status)
+  return new Set(['input_ready', 'refining', 'refined', 'planning', 'planned', 'coding', 'partially_coded', 'coded', 'archived', 'failed']).has(task.status)
 }
 
 export function stageStatusLabel(status: TaskStageStatus) {
@@ -117,6 +117,8 @@ export function taskStatusLabel(status: TaskStatus) {
       return '待提炼'
     case 'input_failed':
       return '输入失败'
+    case 'refining':
+      return '提炼中'
     case 'refined':
       return '待设计'
     case 'planning':
@@ -138,7 +140,7 @@ export function taskStatusLabel(status: TaskStatus) {
   }
 }
 
-export function truncateTaskTitle(title: string, maxChars = 12) {
+export function truncateTaskTitle(title: string, maxChars = 18) {
   const normalized = title.trim()
   if (normalized.length <= maxChars) {
     return normalized

@@ -10,6 +10,7 @@ from coco_flow.engines.refine import (
     LogHandler,
     STATUS_INITIALIZED,
     STATUS_REFINED,
+    STATUS_REFINING,
     append_refine_log,
     locate_task_dir,
     run_refine_engine,
@@ -28,7 +29,7 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
         raise ValueError(f"task metadata missing: {task_id}")
 
     status = str(task_meta.get("status") or "")
-    if status not in {STATUS_INITIALIZED, STATUS_INPUT_READY, STATUS_REFINED}:
+    if status not in {STATUS_INITIALIZED, STATUS_INPUT_READY, STATUS_REFINING, STATUS_REFINED}:
         raise ValueError(f"task status {status} does not allow refine")
 
     logger = on_log or (lambda line: append_refine_log(task_dir, line))
@@ -70,6 +71,26 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
             duration = datetime.now().astimezone() - started_at
             logger(f"duration: {round(duration.total_seconds(), 3)}s")
             logger("=== REFINE END ===")
+
+
+def start_refining_task(task_id: str, settings: Settings | None = None) -> str:
+    cfg = settings or load_settings()
+    task_dir = locate_task_dir(task_id, cfg)
+    if task_dir is None:
+        raise ValueError(f"task not found: {task_id}")
+
+    task_meta = read_json_file(task_dir / "task.json")
+    if not task_meta:
+        raise ValueError(f"task metadata missing: {task_id}")
+
+    status = str(task_meta.get("status") or "")
+    if status not in {STATUS_INITIALIZED, STATUS_INPUT_READY, STATUS_REFINED}:
+        raise ValueError(f"task status {status} does not allow refine")
+
+    task_meta["status"] = STATUS_REFINING
+    task_meta["updated_at"] = datetime.now().astimezone().isoformat()
+    (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return STATUS_REFINING
 
 
 def _write_markdown_artifact(path: Path, content: str) -> None:

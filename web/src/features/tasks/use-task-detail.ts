@@ -96,5 +96,5 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
 }
 
 function shouldPoll(task: TaskRecord) {
-  return task.status === 'input_processing' || task.status === 'initialized' || task.status === 'planning' || task.status === 'coding'
+  return task.status === 'input_processing' || task.status === 'initialized' || task.status === 'refining' || task.status === 'planning' || task.status === 'coding'
 }

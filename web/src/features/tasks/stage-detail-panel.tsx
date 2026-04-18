@@ -58,7 +58,7 @@ export function TaskStageDetailPanel({
 
       <div className="mt-5">
         {stage.id === 'input' ? <InputStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
-        {stage.id === 'refine' ? <RefineStage task={task} /> : null}
+        {stage.id === 'refine' ? <RefineStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'design' ? <DesignStage task={task} /> : null}
         {stage.id === 'plan' ? <PlanStage task={task} /> : null}
         {stage.id === 'code' ? <CodeStage busyAction={busyAction} onStartCode={handlers.onStartCode} task={task} /> : null}
@@ -71,11 +71,12 @@ export function TaskStageDetailPanel({
 function buildStageActions(task: TaskRecord, stageID: TaskStageID, busyAction: string, handlers: ActionHandlers) {
   if (stageID === 'refine') {
     const disabledByInput = task.status === 'input_processing' || task.status === 'input_failed'
+    const refining = task.status === 'refining'
     return [
       {
-        label: busyAction === 'refine' ? '提炼中...' : '开始提炼',
+        label: busyAction === 'refine' || refining ? '提炼中...' : '开始提炼',
         onClick: handlers.onStartRefine,
-        disabled: disabledByInput || (busyAction !== '' && busyAction !== 'refine'),
+        disabled: refining || disabledByInput || (busyAction !== '' && busyAction !== 'refine'),
         tone: 'primary' as const,
       },
     ]

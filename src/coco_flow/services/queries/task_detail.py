@@ -20,6 +20,7 @@ TRACKED_ARTIFACTS = [
     "source.json",
     "prd.source.md",
     "prd-refined.md",
+    "refine.notes.md",
     "refine-intent.json",
     "refine-query.json",
     "refine-knowledge-selection.json",
@@ -199,6 +200,8 @@ def build_next_action(
         return f"请检查 {(task_dir / 'input.log')} 或手动编辑 {(task_dir / 'prd.source.md')}，确认正文后再执行 coco-flow prd refine --task {task_id}"
     if status == "input_ready" and not has_refined:
         return f"coco-flow prd refine --task {task_id}"
+    if status == "refining":
+        return "refine 正在执行，请稍候刷新任务详情。"
     if is_pending_refine_state(task_dir):
         return f"请先补充 {task_dir / 'prd.source.md'} 的正文，然后重新执行 coco-flow prd refine --task {task_id}"
 
@@ -294,6 +297,10 @@ def build_timeline(status: str, task_dir: Path) -> list[TimelineItem]:
         input_state, refine_state = "done", "current"
         input_detail = "已完成输入整理"
         refine_detail = "等待生成 refined PRD"
+    elif status == "refining":
+        input_state, refine_state = "done", "current"
+        input_detail = "已完成输入整理"
+        refine_detail = "正在提炼核心诉求、风险、讨论点和边界"
     elif status == "refined":
         input_state, refine_state, plan_state = "done", "done", "current"
         input_detail = "已完成输入整理"

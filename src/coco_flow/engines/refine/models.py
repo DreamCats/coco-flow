@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable
 
 STATUS_INITIALIZED = "initialized"
+STATUS_REFINING = "refining"
 STATUS_REFINED = "refined"
 EXECUTOR_NATIVE = "native"
 EXECUTOR_LOCAL = "local"

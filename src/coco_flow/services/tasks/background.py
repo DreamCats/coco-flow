@@ -7,6 +7,7 @@ import threading
 
 from coco_flow.config import Settings
 from coco_flow.engines.input import STATUS_INPUT_FAILED
+from coco_flow.engines.refine import STATUS_REFINING
 from coco_flow.services.tasks.code import code_task
 from coco_flow.services.queries.task_detail import read_json_file
 from coco_flow.services.tasks.input import input_task

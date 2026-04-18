@@ -13,8 +13,10 @@ STATUS_INITIALIZED = "initialized"
 STATUS_INPUT_PROCESSING = "input_processing"
 STATUS_INPUT_READY = "input_ready"
 STATUS_INPUT_FAILED = "input_failed"
+STATUS_REFINING = "refining"
 STATUS_REFINED = "refined"
 STATUS_PLANNED = "planned"
+STATUS_FAILED = "failed"
 
 EDIT_RULES = {
     "prd.source.md": {
@@ -44,7 +46,7 @@ EDIT_RULES = {
         "invalidate_dirs": ["code-results", "code-logs", "diffs"],
     },
     "prd-refined.md": {
-        "allowed": {STATUS_REFINED, STATUS_PLANNED},
+        "allowed": {STATUS_REFINING, STATUS_REFINED, STATUS_PLANNED},
         "next_status": STATUS_REFINED,
         "invalidate": [
             "design.md",
@@ -59,6 +61,12 @@ EDIT_RULES = {
             "code.log",
         ],
         "invalidate_dirs": ["code-results", "code-logs", "diffs"],
+    },
+    "refine.notes.md": {
+        "allowed": {STATUS_INPUT_READY, STATUS_REFINING, STATUS_REFINED, STATUS_PLANNED, STATUS_FAILED},
+        "next_status": "__keep__",
+        "invalidate": [],
+        "invalidate_dirs": [],
     },
     "design.md": {
         "allowed": {STATUS_PLANNED},
@@ -106,7 +114,7 @@ def update_artifact(
     for dir_name in rule["invalidate_dirs"]:
         remove_tree(task_dir / dir_name)
 
-    next_status = str(rule["next_status"])
+    next_status = status if str(rule["next_status"]) == "__keep__" else str(rule["next_status"])
     task_meta["status"] = next_status
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
     (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n")
