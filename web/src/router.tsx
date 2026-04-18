@@ -12,6 +12,7 @@ import { AppDataProvider, useAppData } from './hooks/use-app-data'
 import { TopNavItem } from './components/ui-primitives'
 import { KnowledgePage } from './routes/knowledge'
 import { TasksIndexPage, TasksLayout, TaskDetailPage } from './routes/tasks'
+import { WorkflowPreviewPage } from './routes/workflow-preview'
 import { WorkspacePage } from './routes/workspace'
 
 const themeStorageKey = 'coco-ext-ui-theme'
@@ -122,6 +123,12 @@ function AppShell() {
                   title="知识工作台"
                   to="/knowledge"
                 />
+                <TopNavItem
+                  description="预览新的 6 阶段工作流 UI 草图，验证信息架构与交互。"
+                  isActive={location.pathname.startsWith('/workflow-preview')}
+                  title="流程草图"
+                  to="/workflow-preview"
+                />
               </div>
             </div>
           </div>
@@ -169,6 +176,12 @@ const workspaceRoute = createRoute({
   component: WorkspacePage,
 })
 
+const workflowPreviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'workflow-preview',
+  component: WorkflowPreviewPage,
+})
+
 const knowledgeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'knowledge',
@@ -180,6 +193,7 @@ const routeTree = rootRoute.addChildren([
   tasksRoute.addChildren([tasksIndexRoute, taskDetailRoute]),
   knowledgeRoute,
   workspaceRoute,
+  workflowPreviewRoute,
 ])
 
 const router = createRouter({ routeTree })

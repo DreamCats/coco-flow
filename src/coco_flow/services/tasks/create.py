@@ -48,8 +48,6 @@ def create_task(
     normalized_repos = normalize_repo_paths(repos)
     if not normalized_input:
         raise ValueError("input 不能为空")
-    if not normalized_repos:
-        raise ValueError("repos 不能为空")
 
     resolved_source = resolve_source(normalized_input, title)
     resolved_title = resolved_source.title

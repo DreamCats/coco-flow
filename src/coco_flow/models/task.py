@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TaskSummary(BaseModel):
@@ -87,7 +87,7 @@ class UpdateArtifactResponse(BaseModel):
 class CreateTaskRequest(BaseModel):
     input: str
     title: str | None = None
-    repos: list[str]
+    repos: list[str] = Field(default_factory=list)
 
 
 class CreateTaskResponse(BaseModel):

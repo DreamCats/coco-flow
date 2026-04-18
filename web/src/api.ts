@@ -240,6 +240,17 @@ export async function deleteTask(taskId: string) {
   return response.json() as Promise<{ task_id: string; status: string }>
 }
 
+export async function startRefine(taskId: string) {
+  const response = await fetch(`/api/tasks/${taskId}/refine`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: string; error?: string } | null
+    throw new Error(body?.detail || body?.error || '启动 refine 失败')
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
+}
+
 export async function startPlan(taskId: string) {
   const response = await fetch(`/api/tasks/${taskId}/plan`, {
     method: 'POST',
