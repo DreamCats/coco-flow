@@ -127,18 +127,18 @@ uv run python -m unittest discover -s tests -v
 
 - `refine` 支持 `native` 和 `local`
 - `native` 通过 ACP 混合模式执行 refine
-  - `intent extraction`：prompt-only
-  - `knowledge shortlist`：prompt-only
-  - `knowledge deep read`：readonly / explorer
+  - `intent extraction`：agent（固定 `refine-intent.json` 模板）
+  - `knowledge shortlist`：agent（固定 `refine-knowledge-selection.json` 模板）
+  - `knowledge deep read`：agent（固定 `refine-knowledge-read.md` 模板）
   - `generate refined draft`：agent（固定模板文件填充）
-  - `verify`：prompt-only
+  - `verify`：agent（固定 `refine-verify.json` 模板）
 - `local` 生成结构化兜底稿
 - `refine` 当前已支持业务记忆降级模式：
   - 默认优先读取 repo 下 `.livecoding/context/`
   - 若未找到可用上下文，显式降级为 `source_only`
   - 若只找到部分上下文，标记为 `partial_grounded`
 - `refine` 当前内部已拆成 `prepare -> intent -> knowledge selection -> knowledge brief -> generate` 多步编排
-- `native refine` 当前已按步骤使用 Coco 三种模式，而不是单一 prompt-only 链路
+- `native refine` 当前已按“controller 建模板 + agent 填文件”的方式组织主要结构化产物
 - `native refine` 还会在规则筛中的 approved knowledge 上额外做一步 LLM 适用性裁决；`local refine` 保持规则筛选回退
 - `refine` 当前会额外生成：
   - `refine-intent.json`

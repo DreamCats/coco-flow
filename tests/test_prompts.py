@@ -5,11 +5,15 @@ import unittest
 from coco_flow.prompts.core import PromptDocument, PromptSection, render_prompt
 from coco_flow.prompts.refine import (
     build_refine_generate_agent_prompt,
-    build_refine_intent_prompt,
-    build_refine_knowledge_read_prompt,
-    build_refine_shortlist_prompt,
+    build_refine_intent_agent_prompt,
+    build_refine_intent_template_json,
+    build_refine_knowledge_read_agent_prompt,
+    build_refine_knowledge_read_template_markdown,
+    build_refine_shortlist_agent_prompt,
+    build_refine_shortlist_template_json,
     build_refine_template_markdown,
-    build_refine_verify_prompt,
+    build_refine_verify_agent_prompt,
+    build_refine_verify_template_json,
 )
 
 
@@ -31,18 +35,20 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("输出契约：\ncontract", rendered)
         self.assertLess(rendered.index("Section A"), rendered.index("Section B"))
 
-    def test_refine_intent_prompt_contains_json_contract(self) -> None:
-        rendered = build_refine_intent_prompt(
+    def test_refine_intent_prompt_contains_template_file(self) -> None:
+        rendered = build_refine_intent_agent_prompt(
             title="测试需求",
             source_markdown="# PRD Source\n\n---\n\n这里是正文。",
             supplement="补充说明",
+            template_path="/tmp/refine-intent.json",
         )
         self.assertIn("Refine 的意图提炼", rendered)
-        self.assertIn('"goal"', rendered)
+        self.assertIn("/tmp/refine-intent.json", rendered)
         self.assertIn("输入材料", rendered)
+        self.assertIn("__FILL__", build_refine_intent_template_json())
 
     def test_refine_shortlist_prompt_contains_yaml_cards(self) -> None:
-        rendered = build_refine_shortlist_prompt(
+        rendered = build_refine_shortlist_agent_prompt(
             intent_payload={"goal": "测试", "change_points": ["A"]},
             knowledge_cards=[
                 {
@@ -53,10 +59,12 @@ class PromptSystemTest(unittest.TestCase):
                     "desc": "说明一",
                 }
             ],
+            template_path="/tmp/refine-shortlist.json",
         )
         self.assertIn("候选知识卡片", rendered)
         self.assertIn("```yaml", rendered)
         self.assertIn("id: k1", rendered)
+        self.assertIn("__FILL__", build_refine_shortlist_template_json())
 
     def test_refine_template_contains_fixed_sections(self) -> None:
         rendered = build_refine_template_markdown()
@@ -77,7 +85,7 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("/tmp/prd-refined.template.md", rendered)
 
     def test_refine_knowledge_read_prompt_contains_file_cards(self) -> None:
-        rendered = build_refine_knowledge_read_prompt(
+        rendered = build_refine_knowledge_read_agent_prompt(
             intent_payload={"goal": "测试"},
             knowledge_documents=[
                 {
@@ -88,20 +96,24 @@ class PromptSystemTest(unittest.TestCase):
                     "path": "/tmp/k1.md",
                 }
             ],
+            template_path="/tmp/refine-knowledge-read.md",
         )
         self.assertIn("已选知识文件", rendered)
         self.assertIn("/tmp/k1.md", rendered)
         self.assertIn("```yaml", rendered)
+        self.assertIn("待补充", build_refine_knowledge_read_template_markdown())
 
     def test_refine_verify_prompt_contains_json_result_contract(self) -> None:
-        rendered = build_refine_verify_prompt(
+        rendered = build_refine_verify_agent_prompt(
             title="测试需求",
             source_markdown="# PRD Source\n\n---\n\n这里是正文。",
             supplement="补充说明",
             refined_markdown="# PRD Refined\n\n## 核心诉求\n- ...",
+            template_path="/tmp/refine-verify.json",
         )
         self.assertIn('"ok": true', rendered)
         self.assertIn("待校验结果", rendered)
+        self.assertIn("__FILL__", build_refine_verify_template_json())
 
 
 if __name__ == "__main__":

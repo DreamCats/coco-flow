@@ -47,7 +47,7 @@
 
 - 对 shortlisted knowledge 做全文深读
 - 提取术语解释、稳定规则、冲突提醒
-- 使用 readonly / explorer 模式直接读取知识文件
+- 使用 agent 读取知识文件并写入 `refine-knowledge-read.md` 模板
 
 完成标志：
 
@@ -58,6 +58,7 @@
 目标：
 
 - 以 Input Bundle 为基础提炼核心诉求、风险 seed、讨论点 seed、边界 seed
+- 使用 agent 写入 `refine-intent.json` 模板
 
 完成标志：
 
@@ -67,9 +68,10 @@
 
 目标：
 
+- 先对 shortlisted knowledge 写出 `refine-knowledge-selection.json`
 - 按新 5 章结构生成 `prd-refined.md`
 - 先创建固定模板文件，再由 agent 填充模板
-- verifier 检查结构、风险、讨论点、边界、臆测
+- verifier 写出 `refine-verify.json`
 
 完成标志：
 

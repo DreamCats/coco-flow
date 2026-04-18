@@ -11,7 +11,8 @@ from coco_flow.config import Settings
 from coco_flow.prompts.refine import (
     build_refine_generate_agent_prompt,
     build_refine_template_markdown,
-    build_refine_verify_prompt,
+    build_refine_verify_agent_prompt,
+    build_refine_verify_template_json,
 )
 
 from .models import EXECUTOR_NATIVE, RefineEngineResult, RefineIntent, RefineKnowledgeRead, RefinePreparedInput, STATUS_REFINED
@@ -119,16 +120,25 @@ def generate_native_refine(
         raise ValueError("native_refine_agent_did_not_write_valid_template")
     on_log(f"generate_agent_ok: {len(raw)} bytes")
 
-    verify_raw = client.run_prompt_only(
-        build_refine_verify_prompt(
-            title=prepared.title,
-            source_markdown=prepared.source_markdown,
-            supplement=prepared.supplement,
-            refined_markdown=refined,
-        ),
-        settings.native_query_timeout,
-        fresh_session=True,
-    )
+    verify_template_path = _write_verify_template(prepared.task_dir)
+    try:
+        verify_reply = client.run_agent(
+            build_refine_verify_agent_prompt(
+                title=prepared.title,
+                source_markdown=prepared.source_markdown,
+                supplement=prepared.supplement,
+                refined_markdown=refined,
+                template_path=str(verify_template_path),
+            ),
+            settings.native_query_timeout,
+            cwd=str(prepared.task_dir),
+            fresh_session=True,
+        )
+        verify_raw = verify_template_path.read_text(encoding="utf-8") if verify_template_path.exists() else ""
+        _ = verify_reply
+    finally:
+        if verify_template_path.exists():
+            verify_template_path.unlink()
     on_log(f"verify_raw_preview: {_preview_text(verify_raw)}")
     try:
         verify_payload = parse_refine_verify_output(verify_raw)
@@ -194,6 +204,8 @@ def _parse_json_object_tolerant(raw: str) -> object:
 
 
 def _normalize_verify_payload(payload: dict[str, object]) -> dict[str, object]:
+    if _payload_has_fill_marker(payload):
+        raise ValueError("verify_output_contains_fill_marker")
     return {
         "ok": bool(payload.get("ok")),
         "issues": [str(item) for item in payload.get("issues", []) if str(item).strip()],
@@ -219,6 +231,20 @@ def _write_refine_template(task_dir: Path) -> Path:
         delete=False,
     ) as handle:
         handle.write(build_refine_template_markdown())
+        handle.flush()
+        return Path(handle.name)
+
+
+def _write_verify_template(task_dir: Path) -> Path:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=task_dir,
+        prefix=".refine-verify-",
+        suffix=".json",
+        delete=False,
+    ) as handle:
+        handle.write(build_refine_verify_template_json())
         handle.flush()
         return Path(handle.name)
 
@@ -304,6 +330,16 @@ def _looks_like_unfilled_template(content: str) -> bool:
         "\n- [建议补充] 待补充",
     )
     return any(marker in content for marker in placeholders)
+
+
+def _payload_has_fill_marker(value: object) -> bool:
+    if isinstance(value, str):
+        return "__FILL__" in value
+    if isinstance(value, list):
+        return any(_payload_has_fill_marker(item) for item in value)
+    if isinstance(value, dict):
+        return any(_payload_has_fill_marker(item) for item in value.values())
+    return False
 
 
 def _split_markdown_sections(content: str) -> dict[str, str]:

@@ -490,11 +490,11 @@ artifact：
 
 ### 需要 LLM
 
-- intent extraction
-- chunk 级知识候选判断
-- 知识深读提炼（readonly / explorer）
+- intent extraction（agent + `refine-intent.json` 模板）
+- chunk 级知识候选判断（agent + `refine-knowledge-selection.json` 模板）
+- 知识深读提炼（agent + `refine-knowledge-read.md` 模板）
 - refined 文档生成（agent + 固定模板文件）
-- verifier / critique
+- verifier / critique（agent + `refine-verify.json` 模板）
 
 ## 降级逻辑
 

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
+import tempfile
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
-from coco_flow.prompts.refine import build_refine_intent_prompt
+from coco_flow.prompts.refine import build_refine_intent_agent_prompt, build_refine_intent_template_json
 
 from .models import RefineIntent, RefinePreparedInput
 
@@ -64,16 +66,45 @@ def extract_native_refine_intent(prepared: RefinePreparedInput, settings: Settin
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
-    raw = client.run_prompt_only(
-        build_refine_intent_prompt(
-            title=prepared.title,
-            source_markdown=prepared.source_markdown,
-            supplement=prepared.supplement,
-        ),
-        settings.native_query_timeout,
-        fresh_session=True,
-    )
+    template_path = _write_intent_template(prepared.task_dir)
+    try:
+        reply = client.run_agent(
+            build_refine_intent_agent_prompt(
+                title=prepared.title,
+                source_markdown=prepared.source_markdown,
+                supplement=prepared.supplement,
+                template_path=str(template_path),
+            ),
+            settings.native_query_timeout,
+            cwd=str(prepared.task_dir),
+            fresh_session=True,
+        )
+        raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
+        if _contains_fill_marker(raw):
+            raise ValueError("intent_template_unfilled")
+        _ = reply
+    finally:
+        if template_path.exists():
+            template_path.unlink()
     return parse_native_refine_intent_output(raw, prepared)
+
+
+def _write_intent_template(task_dir: Path) -> Path:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=task_dir,
+        prefix=".refine-intent-",
+        suffix=".json",
+        delete=False,
+    ) as handle:
+        handle.write(build_refine_intent_template_json())
+        handle.flush()
+        return Path(handle.name)
+
+
+def _contains_fill_marker(raw: str) -> bool:
+    return "__FILL__" in raw
 
 
 def parse_native_refine_intent_output(raw: str, prepared: RefinePreparedInput) -> RefineIntent:
@@ -83,6 +114,8 @@ def parse_native_refine_intent_output(raw: str, prepared: RefinePreparedInput) -
         raise ValueError(f"invalid_intent_json: {error}") from error
     if not isinstance(payload, dict):
         raise ValueError("intent_output_is_not_object")
+    if _payload_has_fill_marker(payload):
+        raise ValueError("intent_output_contains_fill_marker")
     return RefineIntent(
         goal=str(payload.get("goal") or prepared.title).strip() or prepared.title,
         change_points=_normalized_string_list(payload.get("change_points"))[:6],
@@ -91,6 +124,16 @@ def parse_native_refine_intent_output(raw: str, prepared: RefinePreparedInput) -
         discussion_seed=_normalized_string_list(payload.get("discussion_seed"))[:8],
         boundary_seed=_normalized_string_list(payload.get("boundary_seed"))[:6],
     )
+
+
+def _payload_has_fill_marker(value: object) -> bool:
+    if isinstance(value, str):
+        return "__FILL__" in value
+    if isinstance(value, list):
+        return any(_payload_has_fill_marker(item) for item in value)
+    if isinstance(value, dict):
+        return any(_payload_has_fill_marker(item) for item in value.values())
+    return False
 
 
 def _normalized_lines(content: str) -> list[str]:

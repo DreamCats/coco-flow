@@ -3,11 +3,17 @@ from __future__ import annotations
 import json
 from math import ceil
 from pathlib import Path
+import tempfile
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.models import KnowledgeDocument
-from coco_flow.prompts.refine import build_refine_knowledge_read_prompt, build_refine_shortlist_prompt
+from coco_flow.prompts.refine import (
+    build_refine_knowledge_read_agent_prompt,
+    build_refine_knowledge_read_template_markdown,
+    build_refine_shortlist_agent_prompt,
+    build_refine_shortlist_template_json,
+)
 from coco_flow.services.queries.knowledge import KIND_DIRS, KnowledgeStore
 
 from .models import EXECUTOR_NATIVE, KnowledgeCard, RefineIntent, RefineKnowledgeRead, RefineKnowledgeSelection, RefinePreparedInput
@@ -47,7 +53,7 @@ def shortlist_refine_knowledge(
         selected_docs = _selected_documents(candidates, selection.selected_ids)
         return selected_docs, selection
 
-    selection = _native_select(cards, candidates, scored_cards, intent, settings, on_log)
+    selection = _native_select(cards, candidates, scored_cards, prepared, intent, settings, on_log)
     selected_docs = _selected_documents(candidates, selection.selected_ids)
     return selected_docs, selection
 
@@ -71,9 +77,10 @@ def read_selected_knowledge(
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
+    template_path = _write_knowledge_read_template(prepared.task_dir)
     try:
-        markdown = client.run_readonly_agent(
-            build_refine_knowledge_read_prompt(
+        reply = client.run_agent(
+            build_refine_knowledge_read_agent_prompt(
                 intent_payload=intent.to_payload(),
                 knowledge_documents=[
                     {
@@ -85,14 +92,19 @@ def read_selected_knowledge(
                     }
                     for document in selected_documents
                 ],
+                template_path=str(template_path),
             ),
             settings.native_query_timeout,
-            cwd=str(settings.knowledge_root),
+            cwd=str(prepared.task_dir),
             fresh_session=True,
-        ).strip()
+        )
+        markdown = template_path.read_text(encoding="utf-8").strip() if template_path.exists() else ""
+        if _looks_like_unfilled_knowledge_read(markdown):
+            raise ValueError("knowledge_read_template_unfilled")
         if not markdown:
             raise ValueError("empty_knowledge_read")
-        on_log(f"knowledge_read_mode: readonly_agent ({len(selected_documents)} docs)")
+        on_log(f"knowledge_read_mode: agent ({len(selected_documents)} docs)")
+        _ = reply
         return RefineKnowledgeRead(
             markdown=markdown.rstrip() + "\n",
             selected_ids=[document.id for document in selected_documents],
@@ -101,6 +113,9 @@ def read_selected_knowledge(
     except ValueError as error:
         on_log(f"knowledge_read_fallback: {error}")
         return _read_knowledge_locally(selected_documents)
+    finally:
+        if template_path.exists():
+            template_path.unlink()
 
 
 def _rule_select(cards: list[KnowledgeCard], scored_cards: list[tuple[int, KnowledgeCard]]) -> RefineKnowledgeSelection:
@@ -120,6 +135,7 @@ def _native_select(
     cards: list[KnowledgeCard],
     documents: list[KnowledgeDocument],
     scored_cards: list[tuple[int, KnowledgeCard]],
+    prepared: RefinePreparedInput,
     intent: RefineIntent,
     settings: Settings,
     on_log,
@@ -135,25 +151,35 @@ def _native_select(
     total_chunks = ceil(len(cards) / SHORTLIST_CHUNK_SIZE)
     for index in range(total_chunks):
         chunk_cards = cards[index * SHORTLIST_CHUNK_SIZE : (index + 1) * SHORTLIST_CHUNK_SIZE]
+        template_path = _write_shortlist_template(prepared.task_dir)
         try:
-            raw = client.run_prompt_only(
-                build_refine_shortlist_prompt(
+            reply = client.run_agent(
+                build_refine_shortlist_agent_prompt(
                     intent_payload=intent.to_payload(),
                     knowledge_cards=[card.to_payload() for card in chunk_cards],
+                    template_path=str(template_path),
                 ),
                 settings.native_query_timeout,
+                cwd=str(prepared.task_dir),
                 fresh_session=True,
             )
+            raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
+            if "__FILL__" in raw:
+                raise ValueError("shortlist_template_unfilled")
             payload = _parse_shortlist_output(raw, chunk_cards)
             selected_ids.extend(payload["selected_ids"])
             rejected_ids.extend(payload["rejected_ids"])
             if payload["reason"]:
                 reasons.append(str(payload["reason"]))
+            _ = reply
         except ValueError as error:
             on_log(f"knowledge_shortlist_chunk_fallback: chunk={index + 1}/{total_chunks} error={error}")
             for card in chunk_cards[:2]:
                 if _card_score_lookup(scored_cards, card.id) > 0:
                     selected_ids.append(card.id)
+        finally:
+            if template_path.exists():
+                template_path.unlink()
     selected_ids = _ordered_unique(selected_ids)[:4]
     if not selected_ids:
         selection = _rule_select(cards, scored_cards)
@@ -249,6 +275,38 @@ def _knowledge_document_path(settings: Settings, document: KnowledgeDocument) ->
     return settings.knowledge_root / kind_dir / f"{document.id}.md"
 
 
+def _write_shortlist_template(task_dir: Path) -> Path:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=task_dir,
+        prefix=".refine-shortlist-",
+        suffix=".json",
+        delete=False,
+    ) as handle:
+        handle.write(build_refine_shortlist_template_json())
+        handle.flush()
+        return Path(handle.name)
+
+
+def _write_knowledge_read_template(task_dir: Path) -> Path:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=task_dir,
+        prefix=".refine-knowledge-read-",
+        suffix=".md",
+        delete=False,
+    ) as handle:
+        handle.write(build_refine_knowledge_read_template_markdown())
+        handle.flush()
+        return Path(handle.name)
+
+
+def _looks_like_unfilled_knowledge_read(markdown: str) -> bool:
+    return "待补充" in markdown
+
+
 def _parse_shortlist_output(raw: str, cards: list[KnowledgeCard]) -> dict[str, object]:
     try:
         payload = json.loads(raw)
@@ -256,6 +314,8 @@ def _parse_shortlist_output(raw: str, cards: list[KnowledgeCard]) -> dict[str, o
         raise ValueError(f"invalid_shortlist_json: {error}") from error
     if not isinstance(payload, dict):
         raise ValueError("shortlist_output_is_not_object")
+    if _payload_has_fill_marker(payload):
+        raise ValueError("shortlist_output_contains_fill_marker")
     valid_ids = {card.id for card in cards}
     selected_ids = [item for item in [str(item).strip() for item in payload.get("selected_ids", [])] if item in valid_ids]
     rejected_ids = [item for item in [str(item).strip() for item in payload.get("rejected_ids", [])] if item in valid_ids]
@@ -264,6 +324,16 @@ def _parse_shortlist_output(raw: str, cards: list[KnowledgeCard]) -> dict[str, o
         "rejected_ids": _ordered_unique(rejected_ids),
         "reason": str(payload.get("reason") or "").strip(),
     }
+
+
+def _payload_has_fill_marker(value: object) -> bool:
+    if isinstance(value, str):
+        return "__FILL__" in value
+    if isinstance(value, list):
+        return any(_payload_has_fill_marker(item) for item in value)
+    if isinstance(value, dict):
+        return any(_payload_has_fill_marker(item) for item in value.values())
+    return False
 
 
 def _selected_documents(documents: list[KnowledgeDocument], selected_ids: list[str]) -> list[KnowledgeDocument]:
