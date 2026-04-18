@@ -28,6 +28,8 @@ TRACKED_ARTIFACTS = [
     "refine-knowledge-read.md",
     "refine-verify.json",
     "refine-result.json",
+    "design-change-points.json",
+    "design-repo-assignment.json",
     "design-research.json",
     "design-knowledge-brief.md",
     "design-repo-binding.json",

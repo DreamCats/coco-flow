@@ -2,6 +2,7 @@ import type { TaskRecord } from '../../../api'
 import { updateTaskArtifact } from '../../../api'
 import { useMemo, useState } from 'react'
 import { hasArtifact } from '../model'
+import { TaskRepoBindingModal } from '../task-repo-binding-modal'
 import { TaskStageEditorModal } from '../task-stage-editor-modal'
 import { ActionButton, ArtifactPanel, NotePanel, SectionCard, TabButton } from '../ui'
 
@@ -15,6 +16,7 @@ type DesignProgressStep = {
 export function DesignStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpdated: () => Promise<void> | void }) {
   const [tab, setTab] = useState<DesignTab>('artifact')
   const [editingTab, setEditingTab] = useState<'artifact' | 'notes' | null>(null)
+  const [bindingRepos, setBindingRepos] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -107,9 +109,14 @@ export function DesignStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
             </TabButton>
           </div>
           {tab !== 'log' ? (
-            <ActionButton onClick={() => openEditor(tab === 'artifact' ? 'artifact' : 'notes')} tone="secondary">
-              {tab === 'artifact' ? '编辑原文' : '编辑补充'}
-            </ActionButton>
+            <div className="flex flex-wrap gap-2">
+              <ActionButton onClick={() => setBindingRepos(true)} tone="secondary">
+                {task.repos.length > 0 ? '调整仓库' : '绑定仓库（可选）'}
+              </ActionButton>
+              <ActionButton onClick={() => openEditor(tab === 'artifact' ? 'artifact' : 'notes')} tone="secondary">
+                {tab === 'artifact' ? '编辑原文' : '编辑补充'}
+              </ActionButton>
+            </div>
           ) : null}
         </div>
         <div className="mt-4">
@@ -137,6 +144,12 @@ export function DesignStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
         placeholder={editingTab === 'artifact' ? '请输入 Design 文档...' : '请输入 Design 补充说明...'}
         title={editingTab === 'artifact' ? '编辑 Design 原文' : '编辑 Design 补充说明'}
         value={draft}
+      />
+      <TaskRepoBindingModal
+        onClose={() => setBindingRepos(false)}
+        onUpdated={onTaskUpdated}
+        open={bindingRepos}
+        task={task}
       />
     </>
   )

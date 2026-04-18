@@ -105,19 +105,23 @@ def build_local_design_research_payload(prepared: DesignPreparedInput) -> dict[s
     scores = _compute_prefilter_scores(prepared)
     candidate_repo_ids = _select_candidate_repo_ids(scores)
     skipped_repo_ids = [item["repo_id"] for item in scores if item["repo_id"] not in candidate_repo_ids]
-    candidate_change_points = list(range(1, len(prepared.sections.change_scope) + 1)) or [1]
     highest_candidate = candidate_repo_ids[0] if candidate_repo_ids else ""
+    assignment_by_repo = _repo_assignment_map(prepared.repo_assignment_payload)
 
     repos: list[dict[str, object]] = []
     for item in scores:
         repo = item["repo"]
         repo_id = item["repo_id"]
         selected = repo_id in candidate_repo_ids
+        assignment = assignment_by_repo.get(repo_id, {})
         role_hint = "reference"
         if selected and repo_id == highest_candidate:
             role_hint = "primary"
         elif selected:
             role_hint = "supporting"
+        primary_change_points = [int(value) for value in assignment.get("primary_change_points", []) if str(value).isdigit()]
+        secondary_change_points = [int(value) for value in assignment.get("secondary_change_points", []) if str(value).isdigit()]
+        serves_change_points = primary_change_points or secondary_change_points or [1]
 
         notes = [str(value) for value in repo.finding.notes[:4] if str(value).strip()]
         evidence = _build_local_evidence(repo)
@@ -132,8 +136,10 @@ def build_local_design_research_payload(prepared: DesignPreparedInput) -> dict[s
                 "exploration_mode": "heuristic",
                 "decision": "in_scope_candidate" if selected else "out_of_scope",
                 "role_hint": role_hint,
-                "serves_change_points": candidate_change_points[:],
-                "summary": _build_local_summary(prepared, repo.repo_id, selected),
+                "serves_change_points": serves_change_points,
+                "primary_change_points": primary_change_points,
+                "secondary_change_points": secondary_change_points,
+                "summary": _build_local_summary(prepared, repo.repo_id, selected, primary_change_points, secondary_change_points),
                 "matched_terms": [entry.business for entry in repo.finding.matched_terms[:6]],
                 "candidate_dirs": [str(value) for value in repo.finding.candidate_dirs[:6] if str(value).strip()],
                 "candidate_files": [str(value) for value in repo.finding.candidate_files[:8] if str(value).strip()],
@@ -212,7 +218,17 @@ def _confidence_from_score(score: int) -> str:
     return "low"
 
 
-def _build_local_summary(prepared: DesignPreparedInput, repo_id: str, selected: bool) -> str:
+def _build_local_summary(
+    prepared: DesignPreparedInput,
+    repo_id: str,
+    selected: bool,
+    primary_change_points: list[int],
+    secondary_change_points: list[int],
+) -> str:
+    if selected and primary_change_points:
+        return f"{repo_id} 是 change points {', '.join(str(item) for item in primary_change_points)} 的 primary candidate。"
+    if selected and secondary_change_points:
+        return f"{repo_id} 是 change points {', '.join(str(item) for item in secondary_change_points)} 的 secondary candidate。"
     if selected:
         return f"{repo_id} 在当前 refined 范围内存在明确改动信号，建议进入 Design 深挖。"
     return f"{repo_id} 当前命中信号较弱，暂不作为本轮 Design 的优先探索仓库。"
@@ -246,6 +262,7 @@ def _explore_repo_with_agent(
         raise ValueError(f"repo_path_missing:{repo_scope.repo_path}")
 
     template_path = _write_repo_research_template(prepared.task_dir)
+    assignment = _repo_assignment_map(prepared.repo_assignment_payload).get(repo_id, {})
     try:
         client.run_agent(
             build_design_repo_research_agent_prompt(
@@ -256,6 +273,9 @@ def _explore_repo_with_agent(
                 repo_path=repo_scope.repo_path,
                 prefilter_score=int(local_entry.get("prefilter_score") or 0),
                 prefilter_reasons=[str(value) for value in local_entry.get("prefilter_reasons", []) if str(value).strip()],
+                change_points=[item for item in prepared.change_points_payload.get("change_points", []) if isinstance(item, dict)],
+                primary_change_points=[int(value) for value in assignment.get("primary_change_points", []) if str(value).isdigit()],
+                secondary_change_points=[int(value) for value in assignment.get("secondary_change_points", []) if str(value).isdigit()],
                 template_path=str(template_path),
             ),
             settings.native_query_timeout,
@@ -313,6 +333,24 @@ def _normalize_agent_entry(payload: dict[str, object], local_entry: dict[str, ob
             for value in local_entry.get("serves_change_points", [])
             if str(value).strip().isdigit()
         ],
+        "primary_change_points": [
+            int(value)
+            for value in payload.get("primary_change_points", [])
+            if str(value).strip().isdigit()
+        ] or [
+            int(value)
+            for value in local_entry.get("primary_change_points", [])
+            if str(value).strip().isdigit()
+        ],
+        "secondary_change_points": [
+            int(value)
+            for value in payload.get("secondary_change_points", [])
+            if str(value).strip().isdigit()
+        ] or [
+            int(value)
+            for value in local_entry.get("secondary_change_points", [])
+            if str(value).strip().isdigit()
+        ],
         "summary": str(payload.get("summary") or local_entry.get("summary") or "").strip(),
         "matched_terms": _string_list("matched_terms", limit=6),
         "candidate_dirs": _string_list("candidate_dirs", limit=6),
@@ -348,3 +386,18 @@ def _write_repo_research_template(task_dir: Path) -> Path:
         handle.write(build_design_repo_research_template_json())
         handle.flush()
         return Path(handle.name)
+
+
+def _repo_assignment_map(payload: dict[str, object]) -> dict[str, dict[str, object]]:
+    repo_briefs = payload.get("repo_briefs")
+    if not isinstance(repo_briefs, list):
+        return {}
+    result: dict[str, dict[str, object]] = {}
+    for item in repo_briefs:
+        if not isinstance(item, dict):
+            continue
+        repo_id = str(item.get("repo_id") or "").strip()
+        if not repo_id:
+            continue
+        result[repo_id] = item
+    return result

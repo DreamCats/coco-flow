@@ -18,6 +18,7 @@ from coco_flow.models import (
     TaskDetail,
     TaskActionResponse,
     TaskListResponse,
+    UpdateTaskReposRequest,
     UpdateKnowledgeDocumentContentRequest,
     UpdateKnowledgeDocumentRequest,
     UpdateArtifactRequest,
@@ -34,6 +35,7 @@ from coco_flow.services.tasks.code import start_coding_task
 from coco_flow.services.tasks.design import start_designing_task
 from coco_flow.services.tasks.plan import start_planning_task
 from coco_flow.services.queries.repos import list_recent_repos, validate_repo_path
+from coco_flow.services.tasks.repos import update_task_repos
 from coco_flow.services.tasks.refine import start_refining_task
 from coco_flow.api.presenters import task_detail_item, task_list_item
 from coco_flow.services.queries.knowledge import KnowledgeStore
@@ -159,6 +161,17 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
             return validate_repo_path(path)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.put("/api/tasks/{task_id}/repos", response_model=TaskActionResponse)
+    def update_task_repos_handler(task_id: str, payload: UpdateTaskReposRequest) -> TaskActionResponse:
+        try:
+            status = update_task_repos(task_id, payload.repos, settings=store.settings)
+            return TaskActionResponse(task_id=task_id, status=status)
+        except ValueError as error:
+            message = str(error)
+            if "not found" in message:
+                raise HTTPException(status_code=404, detail=message) from error
+            raise HTTPException(status_code=409, detail=message) from error
 
     @app.get("/api/fs/roots")
     def fs_roots():

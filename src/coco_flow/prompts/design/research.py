@@ -13,6 +13,8 @@ def build_design_repo_research_template_json() -> str:
         '  "decision": "__FILL__",\n'
         '  "role_hint": "__FILL__",\n'
         '  "serves_change_points": [1],\n'
+        '  "primary_change_points": [1],\n'
+        '  "secondary_change_points": [],\n'
         '  "summary": "__FILL__",\n'
         '  "matched_terms": ["__FILL__"],\n'
         '  "candidate_dirs": ["__FILL__"],\n'
@@ -35,6 +37,9 @@ def build_design_repo_research_agent_prompt(
     repo_path: str,
     prefilter_score: int,
     prefilter_reasons: list[str],
+    change_points: list[dict[str, object]],
+    primary_change_points: list[int],
+    secondary_change_points: list[int],
     template_path: str,
 ) -> str:
     document = PromptDocument(
@@ -68,10 +73,21 @@ def build_design_repo_research_agent_prompt(
                         f"- repo_id: {repo_id}",
                         f"- repo_path: {repo_path}",
                         f"- prefilter_score: {prefilter_score}",
+                        f"- primary_change_points: {primary_change_points or []}",
+                        f"- secondary_change_points: {secondary_change_points or []}",
                         "- prefilter_reasons:",
                         *(f"  - {item}" for item in prefilter_reasons),
                     ]
                 ),
+            ),
+            PromptSection(
+                title="Change Points",
+                body="\n".join(
+                    [
+                        f"- cp#{int(item.get('id') or 0)}: {str(item.get('title') or '').strip()}"
+                        for item in change_points
+                    ]
+                ) or "- no change points",
             ),
         ],
     )

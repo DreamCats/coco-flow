@@ -4,6 +4,7 @@ import json
 
 from coco_flow.config import Settings
 
+from .assignment import build_design_change_points_payload, build_design_repo_assignment_payload
 from .binding import build_repo_binding
 from .generate import build_design_sections_payload, generate_design_markdown
 from .knowledge import build_design_knowledge_brief
@@ -18,9 +19,17 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
         raise ValueError("prd-refined.md 为空，无法执行 design")
 
     knowledge_brief_markdown = build_design_knowledge_brief(prepared)
+    change_points_payload = build_design_change_points_payload(prepared)
+    repo_assignment_payload = build_design_repo_assignment_payload(prepared, change_points_payload)
+    prepared.change_points_payload = change_points_payload
+    prepared.repo_assignment_payload = repo_assignment_payload
     research_payload = build_design_research_payload(prepared, settings, knowledge_brief_markdown, on_log)
     prepared.research_payload = research_payload
-    artifacts: dict[str, str | dict[str, object]] = {"design-research.json": research_payload}
+    artifacts: dict[str, str | dict[str, object]] = {
+        "design-change-points.json": change_points_payload,
+        "design-repo-assignment.json": repo_assignment_payload,
+        "design-research.json": research_payload,
+    }
     if knowledge_brief_markdown.strip():
         artifacts["design-knowledge-brief.md"] = knowledge_brief_markdown
 
@@ -50,6 +59,8 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
         "selected_knowledge_ids": [str(item) for item in prepared.refine_knowledge_selection_payload.get("selected_ids", []) if str(item).strip()],
         "artifacts": sorted(artifacts.keys()),
     }
+    on_log("design_change_points: true")
+    on_log("design_repo_assignment: true")
     on_log("design_repo_binding: true")
     on_log("design_sections: true")
     on_log("status: designed")

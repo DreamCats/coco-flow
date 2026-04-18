@@ -33,6 +33,8 @@ class DesignPreparedInput:
     sections: RefinedSections
     research_signals: DesignResearchSignals
     assessment: ComplexityAssessment
+    change_points_payload: dict[str, object] = field(default_factory=dict)
+    repo_assignment_payload: dict[str, object] = field(default_factory=dict)
     research_payload: dict[str, object] = field(default_factory=dict)
 
 

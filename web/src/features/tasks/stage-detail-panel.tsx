@@ -95,17 +95,7 @@ function buildStageActions(task: TaskRecord, stage: TaskStage, stages: TaskStage
         },
       ]
     }
-    if (task.repos.length === 0 || stage.status === 'blocked') {
-      return [
-        {
-          label: '待绑定仓库',
-          onClick: undefined,
-          disabled: true,
-          tone: 'secondary' as const,
-        },
-      ]
-    }
-    const running = stage.status === 'current' || busyAction === 'plan'
+    const running = task.status === 'designing' || busyAction === 'design'
     return [
       {
         label: running ? '设计生成中...' : stage.status === 'done' || stage.status === 'failed' ? '重新生成设计' : '生成设计',
@@ -127,16 +117,6 @@ function buildStageActions(task: TaskRecord, stage: TaskStage, stages: TaskStage
         },
       ]
     }
-    if (task.repos.length === 0 || stage.status === 'blocked') {
-      return [
-        {
-          label: '待绑定仓库',
-          onClick: undefined,
-          disabled: true,
-          tone: 'secondary' as const,
-        },
-      ]
-    }
     if (designStage.status === 'current') {
       return [
         {
@@ -147,7 +127,7 @@ function buildStageActions(task: TaskRecord, stage: TaskStage, stages: TaskStage
         },
       ]
     }
-    const running = stage.status === 'current' || busyAction === 'plan'
+    const running = task.status === 'planning' || busyAction === 'plan'
     return [
       {
         label: running ? '计划生成中...' : stage.status === 'done' || stage.status === 'failed' ? '重新生成计划' : '生成计划',

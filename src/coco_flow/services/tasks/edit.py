@@ -35,6 +35,8 @@ EDIT_RULES = {
             "refine-result.json",
             "design.md",
             "design.log",
+            "design-change-points.json",
+            "design-repo-assignment.json",
             "design-research.json",
             "design-knowledge-brief.md",
             "design-repo-binding.json",
@@ -60,6 +62,8 @@ EDIT_RULES = {
         "invalidate": [
             "design.md",
             "design.log",
+            "design-change-points.json",
+            "design-repo-assignment.json",
             "design-research.json",
             "design-knowledge-brief.md",
             "design-repo-binding.json",

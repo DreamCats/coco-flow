@@ -129,6 +129,8 @@ def _reset_refine_outputs(task_dir: Path) -> None:
     for name in (
         "design.md",
         "design.log",
+        "design-change-points.json",
+        "design-repo-assignment.json",
         "design-research.json",
         "design-knowledge-brief.md",
         "design-repo-binding.json",

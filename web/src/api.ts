@@ -357,6 +357,19 @@ export async function updateTaskArtifact(taskId: string, name: TaskArtifactName,
   return response.json() as Promise<UpdateArtifactResponse>
 }
 
+export async function updateTaskRepos(taskId: string, repos: string[]) {
+  const response = await fetch(`/api/tasks/${taskId}/repos`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repos }),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: string; error?: string } | null
+    throw new Error(body?.detail || body?.error || '更新仓库失败')
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
+}
+
 export async function listRecentRepos() {
   const response = await fetchJSON<{ repos: RepoCandidate[] }>('/api/repos/recent')
   return response.repos

@@ -103,6 +103,8 @@ def _reset_design_outputs(task_dir: Path) -> None:
     for name in (
         "design.md",
         "design.log",
+        "design-change-points.json",
+        "design-repo-assignment.json",
         "design-research.json",
         "design-knowledge-brief.md",
         "design-repo-binding.json",
@@ -113,6 +115,6 @@ def _reset_design_outputs(task_dir: Path) -> None:
         path = task_dir / name
         if path.exists():
             path.unlink()
-    for pattern in (".design-template-*.md", ".design-repo-binding-*.json", ".design-verify-*.json"):
+    for pattern in (".design-template-*.md", ".design-research-*.json", ".design-repo-binding-*.json", ".design-verify-*.json"):
         for path in task_dir.glob(pattern):
             path.unlink()

@@ -65,8 +65,8 @@ function buildFallbackTaskStages(task: TaskRecord): TaskStage[] {
     {
       id: 'design',
       label: 'Design',
-      status: !hasRefined ? 'pending' : !hasRepoBinding ? 'blocked' : hasDesign ? 'done' : task.status === 'designing' ? 'current' : 'current',
-      summary: hasRepoBinding ? '绑定仓库后补齐代码调研和方案设计。' : '进入设计前需要先绑定仓库。',
+      status: !hasRefined ? 'pending' : hasDesign ? 'done' : task.status === 'designing' ? 'current' : 'current',
+      summary: hasRepoBinding ? '基于已绑定仓库或自动 discovery 收敛代码调研和方案设计。' : '可选绑定仓库以加速 Design；若不绑定则先做 repo discovery。',
     },
     {
       id: 'plan',
