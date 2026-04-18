@@ -147,13 +147,12 @@ function CodeProgressPanel({ task, hiddenReferenceRepoCount }: { task: TaskRecor
         <div className={`h-full rounded-full transition-all duration-300 ${activeTone}`} style={{ width: `${progress.progressPercent}%` }} />
       </div>
 
-      <div className="mt-4 grid gap-2 md:grid-cols-6">
+      <div className="mt-4 flex flex-wrap gap-2">
         <StatPill label="ready" value={progress.counts.ready} />
         <StatPill label="running" value={progress.counts.running} />
-        <StatPill label="blocked" value={progress.counts.blocked} />
+        {progress.counts.blocked > 0 ? <StatPill label="blocked" value={progress.counts.blocked} /> : null}
         <StatPill label="failed" value={progress.counts.failed} />
         <StatPill label="done" value={progress.counts.done} />
-        <StatPill label="reference" value={progress.counts.reference} />
       </div>
 
       <div className="mt-4 grid gap-2 md:grid-cols-5">
