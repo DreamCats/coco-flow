@@ -84,6 +84,12 @@ EDIT_RULES = {
         "invalidate": [],
         "invalidate_dirs": [],
     },
+    "design.notes.md": {
+        "allowed": {STATUS_REFINED, STATUS_DESIGNING, STATUS_DESIGNED, STATUS_PLANNED, STATUS_FAILED},
+        "next_status": "__keep__",
+        "invalidate": [],
+        "invalidate_dirs": [],
+    },
     "design.md": {
         "allowed": {STATUS_DESIGNED, STATUS_PLANNED},
         "next_status": STATUS_DESIGNED,

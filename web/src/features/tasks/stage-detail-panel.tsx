@@ -62,7 +62,7 @@ export function TaskStageDetailPanel({
       <div className="mt-5">
         {stage.id === 'input' ? <InputStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'refine' ? <RefineStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
-        {stage.id === 'design' ? <DesignStage task={task} /> : null}
+        {stage.id === 'design' ? <DesignStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'plan' ? <PlanStage task={task} /> : null}
         {stage.id === 'code' ? <CodeStage busyAction={busyAction} onStartCode={handlers.onStartCode} task={task} /> : null}
         {stage.id === 'archive' ? <ArchiveStage task={task} /> : null}

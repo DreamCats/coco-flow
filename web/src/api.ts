@@ -24,6 +24,7 @@ export type TaskArtifactName =
   | 'prd.source.md'
   | 'prd-refined.md'
   | 'refine.notes.md'
+  | 'design.notes.md'
   | 'refine.log'
   | 'design.log'
   | 'design.md'

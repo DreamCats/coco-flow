@@ -21,6 +21,7 @@ TRACKED_ARTIFACTS = [
     "prd.source.md",
     "prd-refined.md",
     "refine.notes.md",
+    "design.notes.md",
     "refine-intent.json",
     "refine-query.json",
     "refine-knowledge-selection.json",
