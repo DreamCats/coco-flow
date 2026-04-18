@@ -36,7 +36,7 @@ export function CodeStage({
 
       <div className="mt-4">
         {tab === 'artifact' ? (
-          <ArtifactPanel content={task.artifacts['code.log'] || task.nextAction || ''} title="code.log" />
+          <ArtifactPanel content={task.artifacts['code.log'] || task.nextAction || ''} renderAs="plain" title="code.log" />
         ) : tab === 'notes' ? (
           <NotePanel content={task.nextAction || '当前没有额外说明。'} />
         ) : (

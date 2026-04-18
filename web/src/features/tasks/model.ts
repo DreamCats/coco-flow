@@ -142,10 +142,35 @@ export function taskStatusLabel(status: TaskStatus) {
 
 export function truncateTaskTitle(title: string, maxChars = 18) {
   const normalized = title.trim()
-  if (normalized.length <= maxChars) {
+  if (measureDisplayWidth(normalized) <= maxChars) {
     return normalized
   }
-  return `${normalized.slice(0, maxChars)}...`
+  const ellipsis = '...'
+  const maxWidth = Math.max(0, maxChars - measureDisplayWidth(ellipsis))
+  let currentWidth = 0
+  let index = 0
+  while (index < normalized.length) {
+    const char = normalized[index]!
+    const width = measureCharWidth(char)
+    if (currentWidth + width > maxWidth) {
+      break
+    }
+    currentWidth += width
+    index += 1
+  }
+  return `${normalized.slice(0, index)}${ellipsis}`
+}
+
+function measureDisplayWidth(value: string) {
+  let total = 0
+  for (const char of value) {
+    total += measureCharWidth(char)
+  }
+  return total
+}
+
+function measureCharWidth(char: string) {
+  return /[\u2e80-\u9fff\uff00-\uffef]/.test(char) ? 1 : 0.5
 }
 
 export function repoReadyForCode(repo: RepoResult) {

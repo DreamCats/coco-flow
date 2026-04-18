@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from coco_flow.config import Settings
+from coco_flow.engines.refine.generate import parse_refine_verify_output
 from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
 from coco_flow.services.tasks.refine import refine_task
 
@@ -136,6 +137,15 @@ class RefineTaskTest(unittest.TestCase):
                 ),
             )
 
+            def write_template(*args, **kwargs):
+                cwd = Path(kwargs["cwd"])
+                template_path = next(cwd.glob(".refine-template-*.md"))
+                template_path.write_text(
+                    "# PRD Refined\n\n## 核心诉求\n- 提炼竞拍讲解卡的竞拍态提示诉求\n\n## 改动范围\n- 新增竞拍态提示\n\n## 风险提示\n- 误展示导致口径错误\n\n## 讨论点\n- [待确认] 是否只在竞拍态展示\n\n## 边界与非目标\n- 不默认扩展其他卡片\n",
+                    encoding="utf-8",
+                )
+                return "done"
+
             with patch(
                 "coco_flow.clients.CocoACPClient.run_prompt_only",
                 side_effect=[
@@ -150,20 +160,181 @@ class RefineTaskTest(unittest.TestCase):
                         }
                     ),
                     json.dumps({"selected_ids": ["auction-flow"], "rejected_ids": [], "reason": "术语和风险最相关"}),
-                    "## 术语解释\n- 竞拍讲解卡属于竞拍展示链路。\n\n## 风险提示\n- 非竞拍态误展示会影响口径。\n",
-                    "# PRD Refined\n\n## 核心诉求\n- 提炼竞拍讲解卡的竞拍态提示诉求\n\n## 改动范围\n- 新增竞拍态提示\n\n## 风险提示\n- 误展示导致口径错误\n\n## 讨论点\n- [待确认] 是否只在竞拍态展示\n\n## 边界与非目标\n- 不默认扩展其他卡片\n",
                     json.dumps({"ok": True, "issues": [], "missing_sections": [], "reason": "结构完整"}),
                 ],
-            ) as run_prompt_only_mock:
+            ) as run_prompt_only_mock, patch(
+                "coco_flow.clients.CocoACPClient.run_readonly_agent",
+                return_value="## 术语解释\n- 竞拍讲解卡属于竞拍展示链路。\n\n## 风险提示\n- 非竞拍态误展示会影响口径。\n",
+            ) as run_readonly_agent_mock, patch(
+                "coco_flow.clients.CocoACPClient.run_agent",
+                side_effect=write_template,
+            ) as run_agent_mock:
                 status = refine_task("task-native", settings=settings)
 
             self.assertEqual(status, "refined")
-            self.assertEqual(run_prompt_only_mock.call_count, 5)
+            self.assertEqual(run_prompt_only_mock.call_count, 3)
+            self.assertEqual(run_readonly_agent_mock.call_count, 1)
+            self.assertEqual(run_agent_mock.call_count, 1)
             verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
             self.assertEqual(verify["ok"], True)
             selection = json.loads((task_dir / "refine-knowledge-selection.json").read_text(encoding="utf-8"))
             self.assertEqual(selection["mode"], "llm")
             self.assertEqual(selection["selected_ids"], ["auction-flow"])
+
+    def test_native_refine_falls_back_when_verify_rejects_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), refine_executor="native")
+            now = datetime.now().astimezone()
+            write_knowledge_document(
+                settings.knowledge_root / "flows" / "auction-flow.md",
+                KnowledgeDocument(
+                    id="auction-flow",
+                    kind="flow",
+                    status="approved",
+                    title="竞拍讲解卡主链路",
+                    desc="归纳竞拍讲解卡主链路和风险。",
+                    domainId="auction_pop_card",
+                    domainName="竞拍讲解卡",
+                    engines=["refine"],
+                    repos=[],
+                    priority="high",
+                    confidence="high",
+                    updatedAt=now.strftime("%Y-%m-%d %H:%M"),
+                    owner="tester",
+                    body="## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n",
+                    evidence=empty_evidence(),
+                ),
+            )
+            task_dir = build_task(
+                settings=settings,
+                task_id="task-rewrite",
+                title="竞拍讲解卡需求",
+                source_markdown=(
+                    "# PRD Source\n\n"
+                    "- title: 竞拍讲解卡需求\n"
+                    "- source_type: text\n\n"
+                    "---\n\n"
+                    "竞拍讲解卡需要展示竞拍态提示。\n"
+                ),
+            )
+
+            def write_template(*args, **kwargs):
+                cwd = Path(kwargs["cwd"])
+                template_path = next(cwd.glob(".refine-template-*.md"))
+                template_path.write_text(
+                    "# PRD Refined\n\n## 核心诉求\n- 提炼竞拍讲解卡的竞拍态提示诉求\n\n## 改动范围\n- 新增竞拍态提示\n\n## 风险提示\n- 不同入口一致性问题\n\n## 讨论点\n- [待确认] 是否只在竞拍态展示\n\n## 边界与非目标\n- 不默认扩展其他卡片\n",
+                    encoding="utf-8",
+                )
+                return "done"
+
+            with patch(
+                "coco_flow.clients.CocoACPClient.run_prompt_only",
+                side_effect=[
+                    json.dumps(
+                        {
+                            "goal": "提炼竞拍讲解卡的竞拍态提示诉求",
+                            "change_points": ["新增竞拍态提示"],
+                            "terms": ["竞拍讲解卡", "竞拍态提示"],
+                            "risks_seed": ["误展示导致口径错误"],
+                            "discussion_seed": ["是否只在竞拍态展示"],
+                            "boundary_seed": ["不默认扩展其他卡片"],
+                        }
+                    ),
+                    json.dumps({"selected_ids": ["auction-flow"], "rejected_ids": [], "reason": "术语和风险最相关"}),
+                    json.dumps({"ok": False, "issues": ["风险提示越界"], "missing_sections": [], "reason": "风险项不收敛"}),
+                ],
+            ) as run_prompt_only_mock, patch(
+                "coco_flow.clients.CocoACPClient.run_readonly_agent",
+                return_value="## 术语解释\n- 竞拍讲解卡属于竞拍展示链路。\n",
+            ) as run_readonly_agent_mock, patch(
+                "coco_flow.clients.CocoACPClient.run_agent",
+                side_effect=write_template,
+            ) as run_agent_mock:
+                status = refine_task("task-rewrite", settings=settings)
+
+            self.assertEqual(status, "refined")
+            self.assertEqual(run_prompt_only_mock.call_count, 3)
+            self.assertEqual(run_readonly_agent_mock.call_count, 1)
+            self.assertEqual(run_agent_mock.call_count, 1)
+            verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
+            self.assertEqual(verify["ok"], False)
+            self.assertEqual(verify["issues"], ["风险提示越界"])
+
+    def test_verify_failure_before_fallback_is_persisted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), refine_executor="native")
+            now = datetime.now().astimezone()
+            write_knowledge_document(
+                settings.knowledge_root / "flows" / "auction-flow.md",
+                KnowledgeDocument(
+                    id="auction-flow",
+                    kind="flow",
+                    status="approved",
+                    title="竞拍讲解卡主链路",
+                    desc="归纳竞拍讲解卡主链路和风险。",
+                    domainId="auction_pop_card",
+                    domainName="竞拍讲解卡",
+                    engines=["refine"],
+                    repos=[],
+                    priority="high",
+                    confidence="high",
+                    updatedAt=now.strftime("%Y-%m-%d %H:%M"),
+                    owner="tester",
+                    body="## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n",
+                    evidence=empty_evidence(),
+                ),
+            )
+            task_dir = build_task(
+                settings=settings,
+                task_id="task-verify-fallback",
+                title="竞拍讲解卡需求",
+                source_markdown=(
+                    "# PRD Source\n\n"
+                    "- title: 竞拍讲解卡需求\n"
+                    "- source_type: text\n\n"
+                    "---\n\n"
+                    "竞拍讲解卡需要展示竞拍态提示。\n"
+                ),
+            )
+
+            def write_template(*args, **kwargs):
+                cwd = Path(kwargs["cwd"])
+                template_path = next(cwd.glob(".refine-template-*.md"))
+                template_path.write_text(
+                    "# PRD Refined\n\n## 核心诉求\n- 初稿\n\n## 改动范围\n- 初稿\n\n## 风险提示\n- 初稿风险\n\n## 讨论点\n- [待确认] 初稿讨论点\n\n## 边界与非目标\n- 初稿边界\n",
+                    encoding="utf-8",
+                )
+                return "done"
+
+            with patch(
+                "coco_flow.clients.CocoACPClient.run_prompt_only",
+                side_effect=[
+                    json.dumps(
+                        {
+                            "goal": "提炼竞拍讲解卡的竞拍态提示诉求",
+                            "change_points": ["新增竞拍态提示"],
+                            "terms": ["竞拍讲解卡", "竞拍态提示"],
+                            "risks_seed": ["误展示导致口径错误"],
+                            "discussion_seed": ["是否只在竞拍态展示"],
+                            "boundary_seed": ["不默认扩展其他卡片"],
+                        }
+                    ),
+                    json.dumps({"selected_ids": ["auction-flow"], "rejected_ids": [], "reason": "术语和风险最相关"}),
+                    json.dumps({"ok": False, "issues": ["需要重写"], "missing_sections": [], "reason": "初稿不理想"}),
+                ],
+            ), patch(
+                "coco_flow.clients.CocoACPClient.run_readonly_agent",
+                return_value="## 术语解释\n- 竞拍讲解卡属于竞拍展示链路。\n",
+            ), patch(
+                "coco_flow.clients.CocoACPClient.run_agent",
+                side_effect=write_template,
+            ):
+                status = refine_task("task-verify-fallback", settings=settings)
+
+            self.assertEqual(status, "refined")
+            verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
+            self.assertEqual(verify["ok"], False)
+            self.assertEqual(verify["issues"], ["需要重写"])
 
     def test_plan_research_can_parse_new_refined_sections(self) -> None:
         from coco_flow.engines.plan_research import parse_refined_sections
@@ -181,6 +352,87 @@ class RefineTaskTest(unittest.TestCase):
         self.assertIn("不处理非竞拍卡", sections.non_goals)
         self.assertIn("口径误展示", sections.key_constraints)
         self.assertIn("[待确认] 是否对旧卡片生效", sections.open_questions)
+
+    def test_parse_refine_verify_output_accepts_fenced_json(self) -> None:
+        payload = parse_refine_verify_output(
+            '```json\n{"ok": true, "issues": [], "missing_sections": [], "reason": "结构完整"}\n```'
+        )
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["reason"], "结构完整")
+
+    def test_native_refine_accepts_fenced_verify_json_without_repair_loop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), refine_executor="native")
+            now = datetime.now().astimezone()
+            write_knowledge_document(
+                settings.knowledge_root / "flows" / "auction-flow.md",
+                KnowledgeDocument(
+                    id="auction-flow",
+                    kind="flow",
+                    status="approved",
+                    title="竞拍讲解卡主链路",
+                    desc="归纳竞拍讲解卡主链路和风险。",
+                    domainId="auction_pop_card",
+                    domainName="竞拍讲解卡",
+                    engines=["refine"],
+                    repos=[],
+                    priority="high",
+                    confidence="high",
+                    updatedAt=now.strftime("%Y-%m-%d %H:%M"),
+                    owner="tester",
+                    body="## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n",
+                    evidence=empty_evidence(),
+                ),
+            )
+            build_task(
+                settings=settings,
+                task_id="task-repair",
+                title="竞拍讲解卡需求",
+                source_markdown=(
+                    "# PRD Source\n\n"
+                    "- title: 竞拍讲解卡需求\n"
+                    "- source_type: text\n\n"
+                    "---\n\n"
+                    "竞拍讲解卡需要展示竞拍态提示。\n"
+                ),
+            )
+
+            def write_template(*args, **kwargs):
+                cwd = Path(kwargs["cwd"])
+                template_path = next(cwd.glob(".refine-template-*.md"))
+                template_path.write_text(
+                    "# PRD Refined\n\n## 核心诉求\n- 提炼竞拍讲解卡的竞拍态提示诉求\n\n## 改动范围\n- 新增竞拍态提示\n\n## 风险提示\n- 误展示导致口径错误\n\n## 讨论点\n- [待确认] 是否只在竞拍态展示\n\n## 边界与非目标\n- 不默认扩展其他卡片\n",
+                    encoding="utf-8",
+                )
+                return "done"
+
+            with patch(
+                "coco_flow.clients.CocoACPClient.run_prompt_only",
+                side_effect=[
+                    json.dumps(
+                        {
+                            "goal": "提炼竞拍讲解卡的竞拍态提示诉求",
+                            "change_points": ["新增竞拍态提示"],
+                            "terms": ["竞拍讲解卡", "竞拍态提示"],
+                            "risks_seed": ["误展示导致口径错误"],
+                            "discussion_seed": ["是否只在竞拍态展示"],
+                            "boundary_seed": ["不默认扩展其他卡片"],
+                        }
+                    ),
+                    json.dumps({"selected_ids": ["auction-flow"], "rejected_ids": [], "reason": "术语和风险最相关"}),
+                    '```json\n{"ok": true, "issues": [], "missing_sections": [], "reason": "结构完整"}\n```',
+                ],
+            ) as run_prompt_only_mock, patch(
+                "coco_flow.clients.CocoACPClient.run_readonly_agent",
+                return_value="## 术语解释\n- 竞拍讲解卡属于竞拍展示链路。\n\n## 风险提示\n- 非竞拍态误展示会影响口径。\n",
+            ), patch(
+                "coco_flow.clients.CocoACPClient.run_agent",
+                side_effect=write_template,
+            ):
+                status = refine_task("task-repair", settings=settings)
+
+            self.assertEqual(status, "refined")
+            self.assertEqual(run_prompt_only_mock.call_count, 3)
 
 
 def build_task(*, settings: Settings, task_id: str, title: str, source_markdown: str) -> Path:

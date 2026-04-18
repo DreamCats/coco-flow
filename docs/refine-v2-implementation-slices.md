@@ -47,6 +47,7 @@
 
 - 对 shortlisted knowledge 做全文深读
 - 提取术语解释、稳定规则、冲突提醒
+- 使用 readonly / explorer 模式直接读取知识文件
 
 完成标志：
 
@@ -67,6 +68,7 @@
 目标：
 
 - 按新 5 章结构生成 `prd-refined.md`
+- 先创建固定模板文件，再由 agent 填充模板
 - verifier 检查结构、风险、讨论点、边界、臆测
 
 完成标志：

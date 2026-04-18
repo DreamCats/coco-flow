@@ -4,9 +4,11 @@ import unittest
 
 from coco_flow.prompts.core import PromptDocument, PromptSection, render_prompt
 from coco_flow.prompts.refine import (
-    build_refine_generate_prompt,
+    build_refine_generate_agent_prompt,
     build_refine_intent_prompt,
+    build_refine_knowledge_read_prompt,
     build_refine_shortlist_prompt,
+    build_refine_template_markdown,
     build_refine_verify_prompt,
 )
 
@@ -56,17 +58,40 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("```yaml", rendered)
         self.assertIn("id: k1", rendered)
 
-    def test_refine_generate_prompt_contains_output_sections(self) -> None:
-        rendered = build_refine_generate_prompt(
+    def test_refine_template_contains_fixed_sections(self) -> None:
+        rendered = build_refine_template_markdown()
+        self.assertIn("# PRD Refined", rendered)
+        self.assertIn("风险提示", rendered)
+        self.assertIn("边界与非目标", rendered)
+
+    def test_refine_generate_agent_prompt_points_to_template_file(self) -> None:
+        rendered = build_refine_generate_agent_prompt(
             title="测试需求",
             source_markdown="# PRD Source\n\n---\n\n这里是正文。",
             supplement="补充说明",
             intent_payload={"goal": "测试目标"},
             knowledge_read_markdown="## 术语解释\n- 术语A",
+            template_path="/tmp/prd-refined.template.md",
         )
-        self.assertIn("# PRD Refined", rendered)
-        self.assertIn("风险提示", rendered)
-        self.assertIn("边界与非目标", rendered)
+        self.assertIn("需要编辑的模板文件", rendered)
+        self.assertIn("/tmp/prd-refined.template.md", rendered)
+
+    def test_refine_knowledge_read_prompt_contains_file_cards(self) -> None:
+        rendered = build_refine_knowledge_read_prompt(
+            intent_payload={"goal": "测试"},
+            knowledge_documents=[
+                {
+                    "id": "k1",
+                    "title": "知识一",
+                    "kind": "flow",
+                    "desc": "说明一",
+                    "path": "/tmp/k1.md",
+                }
+            ],
+        )
+        self.assertIn("已选知识文件", rendered)
+        self.assertIn("/tmp/k1.md", rendered)
+        self.assertIn("```yaml", rendered)
 
     def test_refine_verify_prompt_contains_json_result_contract(self) -> None:
         rendered = build_refine_verify_prompt(

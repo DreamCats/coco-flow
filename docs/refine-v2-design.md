@@ -451,6 +451,12 @@ artifact：
 - Refine Intent
 - 知识深读结果
 
+实现方式：
+
+- 系统先在 task 目录里创建固定模板文件
+- 再由 agent 直接编辑模板文件填充内容
+- 不让模型自由组织章节结构
+
 输出必须严格遵守 5 章结构。
 
 #### 7. `verify / critique`
@@ -465,7 +471,7 @@ artifact：
 4. 是否被知识文档带偏
 5. 是否引入实现方案或臆测
 
-建议只允许一次 rewrite，不做无上限自循环。
+`verify` 只做一次守门；失败后直接降级到 local refine，不再做 rewrite / repair 自循环。
 
 artifact：
 
@@ -486,8 +492,8 @@ artifact：
 
 - intent extraction
 - chunk 级知识候选判断
-- 知识深读提炼
-- refined 文档生成
+- 知识深读提炼（readonly / explorer）
+- refined 文档生成（agent + 固定模板文件）
 - verifier / critique
 
 ## 降级逻辑

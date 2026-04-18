@@ -1,6 +1,7 @@
 import type { TaskRecord } from '../../../api'
 import { useMemo, useState } from 'react'
 import { updateTaskArtifact } from '../../../api'
+import { hasArtifact } from '../model'
 import { TaskStageEditorModal } from '../task-stage-editor-modal'
 import { ActionButton, ArtifactPanel, NotePanel, SectionCard, TabButton } from '../ui'
 
@@ -20,8 +21,14 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
 
   const steps = useMemo(() => buildRefineProgress(task), [task])
   const completedCount = steps.filter((step) => step.done).length
-  const progressPercent = Math.max(8, Math.round((completedCount / steps.length) * 100))
+  const progressPercent = task.status === 'refining' || task.status === 'refined' ? Math.round((completedCount / steps.length) * 100) : 0
   const activeLabel = steps.find((step) => step.current)?.label ?? (task.status === 'refined' ? '提炼完成' : '等待开始')
+  const progressTone =
+    task.status === 'refining'
+      ? 'bg-[#4fa06d]'
+      : task.status === 'refined'
+        ? 'bg-[#2c8c58]'
+        : 'bg-[#cdbda6] dark:bg-[#4a4640]'
   const notesContent = task.artifacts['refine.notes.md'] || '当前没有额外补充说明。'
   const logContent = task.artifacts['refine.log'] || '当前没有 refine 日志。'
   const currentValue = editingTab === 'artifact' ? task.artifacts['prd-refined.md'] || '' : task.artifacts['refine.notes.md'] || ''
@@ -65,7 +72,7 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
           </div>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#efeae0] dark:bg-[#232220]">
             <div
-              className="h-full rounded-full bg-[#c96442] transition-all duration-300"
+              className={`h-full rounded-full transition-all duration-300 ${progressTone}`}
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -109,7 +116,7 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
         <div className="mt-4">
           {tab === 'artifact' ? <ArtifactPanel content={task.artifacts['prd-refined.md'] || ''} title="prd-refined.md" /> : null}
           {tab === 'notes' ? <NotePanel content={notesContent} /> : null}
-          {tab === 'log' ? <ArtifactPanel content={logContent} title="refine.log" /> : null}
+          {tab === 'log' ? <ArtifactPanel content={logContent} renderAs="plain" title="refine.log" /> : null}
         </div>
       </SectionCard>
 
@@ -134,11 +141,11 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
 
 function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
   const log = task.artifacts['refine.log'] || ''
-  const hasIntent = Boolean(task.artifacts['refine-intent.json']) || log.includes('intent_goal:')
-  const hasKnowledgeSelection = Boolean(task.artifacts['refine-knowledge-selection.json']) || log.includes('selected_knowledge_ids:')
-  const hasKnowledgeRead = Boolean(task.artifacts['refine-knowledge-read.md']) || log.includes('knowledge_read_mode:')
-  const hasDraft = Boolean(task.artifacts['prd-refined.md']) || log.includes('generate_prompt_ok:')
-  const hasVerified = Boolean(task.artifacts['refine-verify.json']) || task.status === 'refined'
+  const hasIntent = hasArtifact(task.artifacts['refine-intent.json']) || log.includes('intent_goal:')
+  const hasKnowledgeSelection = hasArtifact(task.artifacts['refine-knowledge-selection.json']) || log.includes('selected_knowledge_ids:')
+  const hasKnowledgeRead = hasArtifact(task.artifacts['refine-knowledge-read.md']) || log.includes('knowledge_read_mode:')
+  const hasDraft = hasArtifact(task.artifacts['prd-refined.md']) || log.includes('generate_prompt_ok:')
+  const hasVerified = hasArtifact(task.artifacts['refine-verify.json']) || task.status === 'refined'
 
   if (task.status === 'refined') {
     return [
@@ -147,6 +154,16 @@ function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
       { label: '知识筛选', done: true, current: false },
       { label: '生成初稿', done: true, current: false },
       { label: '完成校验', done: true, current: false },
+    ]
+  }
+
+  if (task.status !== 'refining') {
+    return [
+      { label: '读取输入', done: false, current: false },
+      { label: '提炼意图', done: false, current: false },
+      { label: '知识筛选', done: false, current: false },
+      { label: '生成初稿', done: false, current: false },
+      { label: '完成校验', done: false, current: false },
     ]
   }
 
@@ -161,10 +178,10 @@ function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
           : '完成校验'
 
   return [
-    { label: '读取输入', done: true, current: currentStep === '读取输入' && task.status === 'refining' },
-    { label: '提炼意图', done: hasIntent, current: currentStep === '提炼意图' && task.status === 'refining' },
-    { label: '知识筛选', done: hasKnowledgeSelection, current: currentStep === '知识筛选' && task.status === 'refining' },
-    { label: '生成初稿', done: hasDraft, current: currentStep === '生成初稿' && task.status === 'refining' },
-    { label: '完成校验', done: hasVerified, current: currentStep === '完成校验' && task.status === 'refining' },
+    { label: '读取输入', done: hasIntent || hasKnowledgeSelection || hasKnowledgeRead || hasDraft || hasVerified, current: currentStep === '读取输入' },
+    { label: '提炼意图', done: hasIntent, current: currentStep === '提炼意图' },
+    { label: '知识筛选', done: hasKnowledgeSelection, current: currentStep === '知识筛选' },
+    { label: '生成初稿', done: hasDraft, current: currentStep === '生成初稿' },
+    { label: '完成校验', done: hasVerified, current: currentStep === '完成校验' },
   ]
 }

@@ -101,9 +101,12 @@ def resolve_source(raw_input: str, explicit_title: str | None, defer_lark_resolu
 
 def maybe_local_file(raw_input: str) -> Path | None:
     candidate = Path(raw_input).expanduser()
-    if not candidate.exists() or not candidate.is_file():
+    try:
+        if not candidate.exists() or not candidate.is_file():
+            return None
+        return candidate.resolve()
+    except OSError:
         return None
-    return candidate.resolve()
 
 
 def is_likely_url(raw_input: str) -> bool:

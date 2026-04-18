@@ -23,9 +23,9 @@ export function PlanStage({ task }: { task: TaskRecord }) {
         {tab === 'artifact' ? (
           <ArtifactPanel content={task.artifacts['plan.md'] || ''} title="plan.md" />
         ) : tab === 'graph' ? (
-          <ArtifactPanel content={graphContent} title="执行关系" />
+          <ArtifactPanel content={graphContent} renderAs="plain" title="执行关系" />
         ) : (
-          <NotePanel content={task.artifacts['plan.log'] || task.nextAction || '当前没有额外说明。'} />
+          <NotePanel content={task.artifacts['plan.log'] || task.nextAction || '当前没有额外说明。'} renderAs="plain" />
         )}
       </div>
     </SectionCard>

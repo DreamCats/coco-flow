@@ -42,6 +42,7 @@ _STOPWORDS = {
 _RISK_HINTS = ("风险", "兼容", "依赖", "异常", "回退", "失败", "冲突", "影响")
 _QUESTION_HINTS = ("?", "？", "待确认", "TODO", "todo", "确认", "是否", "补充")
 _BOUNDARY_HINTS = ("仅", "不", "除外", "不做", "非目标", "不涉及", "限定", "范围")
+_BACKGROUND_HINTS = ("背景", "当前", "现状", "目前", "已有", "存在", "有时", "会导致")
 
 
 def extract_refine_intent(prepared: RefinePreparedInput) -> RefineIntent:
@@ -117,7 +118,18 @@ def _extract_discussion(lines: list[str]) -> list[str]:
 
 
 def _extract_by_hints(lines: list[str], hints: tuple[str, ...], *, limit: int) -> list[str]:
-    return _unique([line[:120] for line in lines if any(hint in line for hint in hints)])[:limit]
+    selected: list[str] = []
+    for line in lines:
+        if not any(hint in line for hint in hints):
+            continue
+        if hints == _RISK_HINTS and _looks_like_background(line):
+            continue
+        selected.append(line[:120])
+    return _unique(selected)[:limit]
+
+
+def _looks_like_background(line: str) -> bool:
+    return any(hint in line for hint in _BACKGROUND_HINTS) and "可能" not in line and "误" not in line
 
 
 def _extract_key_terms(content: str) -> list[str]:

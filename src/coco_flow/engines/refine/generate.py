@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import json
 import re
+from json import JSONDecodeError, JSONDecoder
+from pathlib import Path
+import tempfile
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
-from coco_flow.prompts.refine import build_refine_generate_prompt, build_refine_verify_prompt
+from coco_flow.prompts.refine import (
+    build_refine_generate_agent_prompt,
+    build_refine_template_markdown,
+    build_refine_verify_prompt,
+)
 
 from .models import EXECUTOR_NATIVE, RefineEngineResult, RefineIntent, RefineKnowledgeRead, RefinePreparedInput, STATUS_REFINED
 
@@ -83,19 +90,34 @@ def generate_native_refine(
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
-    prompt = build_refine_generate_prompt(
-        title=prepared.title,
-        source_markdown=prepared.source_markdown,
-        supplement=prepared.supplement,
-        intent_payload=intent.to_payload(),
-        knowledge_read_markdown=knowledge_read.markdown,
-    )
-    on_log(f"generate_prompt_start: timeout={settings.native_query_timeout}")
-    raw = client.run_prompt_only(prompt, settings.native_query_timeout, fresh_session=True)
+    template_path = _write_refine_template(prepared.task_dir)
+    try:
+        prompt = build_refine_generate_agent_prompt(
+            title=prepared.title,
+            source_markdown=prepared.source_markdown,
+            supplement=prepared.supplement,
+            intent_payload=intent.to_payload(),
+            knowledge_read_markdown=knowledge_read.markdown,
+            template_path=str(template_path),
+        )
+        on_log(f"generate_agent_start: timeout={settings.native_query_timeout}")
+        agent_reply = client.run_agent(
+            prompt,
+            settings.native_query_timeout,
+            cwd=str(prepared.task_dir),
+            fresh_session=True,
+        )
+        on_log(f"generate_agent_reply: {_preview_text(agent_reply)}")
+        raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
+    finally:
+        if template_path.exists():
+            template_path.unlink()
+
     refined = extract_refined_content(raw)
     if not refined:
-        raise ValueError("native_refine_returned_empty_content")
-    on_log(f"generate_prompt_ok: {len(raw)} bytes")
+        on_log(f"generate_template_preview: {_preview_text(raw)}")
+        raise ValueError("native_refine_agent_did_not_write_valid_template")
+    on_log(f"generate_agent_ok: {len(raw)} bytes")
 
     verify_raw = client.run_prompt_only(
         build_refine_verify_prompt(
@@ -107,7 +129,11 @@ def generate_native_refine(
         settings.native_query_timeout,
         fresh_session=True,
     )
-    verify_payload = parse_refine_verify_output(verify_raw)
+    on_log(f"verify_raw_preview: {_preview_text(verify_raw)}")
+    try:
+        verify_payload = parse_refine_verify_output(verify_raw)
+    except ValueError as error:
+        raise ValueError(f"invalid_verify_json: {error}") from error
     artifacts["refine-verify.json"] = verify_payload
     if not bool(verify_payload.get("ok")):
         issues = verify_payload.get("issues") or []
@@ -126,24 +152,75 @@ def generate_native_refine(
 
 def extract_refined_content(raw: str) -> str:
     content = raw.strip()
-    if not content or not _HEADING_RE.search(content):
+    if not content:
         return ""
-    return content.rstrip() + "\n"
+    if _looks_like_unfilled_template(content):
+        return ""
+    if _HEADING_RE.search(content):
+        return content.rstrip() + "\n"
+    if _looks_like_refined_markdown(content):
+        return "# PRD Refined\n\n" + content.rstrip() + "\n"
+    return ""
 
 
 def parse_refine_verify_output(raw: str) -> dict[str, object]:
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"invalid_verify_json: {error}") from error
+    payload = _parse_json_object_tolerant(raw)
     if not isinstance(payload, dict):
         raise ValueError("verify_output_is_not_object")
+    return _normalize_verify_payload(payload)
+
+
+def _parse_json_object_tolerant(raw: str) -> object:
+    normalized = raw.strip()
+    if not normalized:
+        raise ValueError("verify_output_is_empty")
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", normalized, re.S)
+    if fence_match:
+        normalized = fence_match.group(1).strip()
+    try:
+        return json.loads(normalized)
+    except JSONDecodeError:
+        pass
+    decoder = JSONDecoder()
+    for index, char in enumerate(normalized):
+        if char != "{":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(normalized[index:])
+            return payload
+        except JSONDecodeError:
+            continue
+    raise ValueError("verify_output_has_no_parseable_json_object")
+
+
+def _normalize_verify_payload(payload: dict[str, object]) -> dict[str, object]:
     return {
         "ok": bool(payload.get("ok")),
         "issues": [str(item) for item in payload.get("issues", []) if str(item).strip()],
         "missing_sections": [str(item) for item in payload.get("missing_sections", []) if str(item).strip()],
         "reason": str(payload.get("reason") or ""),
     }
+
+
+def _preview_text(raw: str, limit: int = 160) -> str:
+    normalized = " ".join(raw.strip().split())
+    if len(normalized) <= limit:
+        return normalized or "(empty)"
+    return normalized[:limit] + "..."
+
+
+def _write_refine_template(task_dir: Path) -> Path:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=task_dir,
+        prefix=".refine-template-",
+        suffix=".md",
+        delete=False,
+    ) as handle:
+        handle.write(build_refine_template_markdown())
+        handle.flush()
+        return Path(handle.name)
 
 
 def build_local_refined_markdown(
@@ -153,7 +230,7 @@ def build_local_refined_markdown(
     knowledge_read: RefineKnowledgeRead,
 ) -> str:
     change_scope = intent.change_points or [intent.goal]
-    risks = intent.risks_seed or _extract_hint_lines(knowledge_read.markdown, "风险") or ["当前未识别到明确高风险项，建议人工复核。"]
+    risks = _normalize_risks(intent.risks_seed) or _normalize_risks(_extract_hint_lines(knowledge_read.markdown, "风险")) or ["当前未识别到明确高风险项，建议人工复核。"]
     discussions = intent.discussion_seed or ["[建议补充] 当前输入信息仍偏少，建议补充业务口径和确认结论。"]
     boundaries = intent.boundary_seed or ["仅围绕当前输入明确提到的需求范围推进，不默认扩展到相邻能力。"]
     return (
@@ -194,6 +271,39 @@ def _extract_hint_lines(markdown: str, title: str) -> list[str]:
         return []
     sections = _split_markdown_sections(markdown)
     return [line.strip("- ").strip() for line in sections.get(title, "").splitlines() if line.strip()]
+
+
+def _normalize_risks(items: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for item in items:
+        current = item.strip()
+        if not current:
+            continue
+        if _is_background_like_risk(current):
+            continue
+        if "可能" not in current and "风险" not in current and "误" not in current and "影响" not in current:
+            current = f"{current}，需要确认是否会影响现有状态判断。"
+        normalized.append(current)
+    return normalized
+
+
+def _is_background_like_risk(text: str) -> bool:
+    background_hints = ("背景", "当前", "现状", "目前", "已有", "有时", "会导致")
+    return any(hint in text for hint in background_hints) and "可能" not in text and "误" not in text
+
+
+def _looks_like_refined_markdown(content: str) -> bool:
+    headings = [f"## {section}" for section in _REQUIRED_SECTIONS]
+    return all(heading in content for heading in headings)
+
+
+def _looks_like_unfilled_template(content: str) -> bool:
+    placeholders = (
+        "\n- 待补充",
+        "\n- [待确认] 待补充",
+        "\n- [建议补充] 待补充",
+    )
+    return any(marker in content for marker in placeholders)
 
 
 def _split_markdown_sections(content: str) -> dict[str, str]:

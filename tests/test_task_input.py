@@ -34,6 +34,24 @@ def make_settings(root: Path) -> Settings:
 
 
 class InputTaskTest(unittest.TestCase):
+    def test_create_long_text_input_does_not_try_treat_as_file_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            long_input = "# PRD\n\n" + ("竞拍讲解卡成交后展示独立 Success 态\n" * 40)
+
+            task_id, status = create_task(
+                raw_input=long_input,
+                title="长文本需求",
+                supplement="",
+                repos=[],
+                settings=settings,
+                defer_lark_resolution=True,
+            )
+
+            self.assertEqual(status, "input_ready")
+            task_dir = settings.task_root / task_id
+            self.assertTrue((task_dir / "prd.source.md").exists())
+
     def test_create_text_task_marks_input_ready(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))

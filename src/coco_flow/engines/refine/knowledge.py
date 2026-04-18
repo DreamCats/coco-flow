@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 from math import ceil
+from pathlib import Path
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.models import KnowledgeDocument
 from coco_flow.prompts.refine import build_refine_knowledge_read_prompt, build_refine_shortlist_prompt
-from coco_flow.services.queries.knowledge import KnowledgeStore
+from coco_flow.services.queries.knowledge import KIND_DIRS, KnowledgeStore
 
 from .models import EXECUTOR_NATIVE, KnowledgeCard, RefineIntent, RefineKnowledgeRead, RefineKnowledgeSelection, RefinePreparedInput
 
@@ -70,19 +71,28 @@ def read_selected_knowledge(
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
-    raw_documents = "\n\n".join(_render_document_for_prompt(document) for document in selected_documents)
     try:
-        markdown = client.run_prompt_only(
+        markdown = client.run_readonly_agent(
             build_refine_knowledge_read_prompt(
                 intent_payload=intent.to_payload(),
-                knowledge_documents_markdown=raw_documents,
+                knowledge_documents=[
+                    {
+                        "id": document.id,
+                        "title": document.title,
+                        "kind": document.kind,
+                        "desc": document.desc or "无",
+                        "path": str(_knowledge_document_path(settings, document)),
+                    }
+                    for document in selected_documents
+                ],
             ),
             settings.native_query_timeout,
+            cwd=str(settings.knowledge_root),
             fresh_session=True,
         ).strip()
         if not markdown:
             raise ValueError("empty_knowledge_read")
-        on_log(f"knowledge_read_mode: llm ({len(selected_documents)} docs)")
+        on_log(f"knowledge_read_mode: readonly_agent ({len(selected_documents)} docs)")
         return RefineKnowledgeRead(
             markdown=markdown.rstrip() + "\n",
             selected_ids=[document.id for document in selected_documents],
@@ -234,19 +244,9 @@ def _split_markdown_sections(content: str) -> dict[str, str]:
     return sections
 
 
-def _render_document_for_prompt(document: KnowledgeDocument) -> str:
-    return "\n".join(
-        [
-            f"### {document.title}",
-            "",
-            f"- id: {document.id}",
-            f"- kind: {document.kind}",
-            f"- domain_name: {document.domainName or document.domainId or 'unknown'}",
-            f"- desc: {document.desc or '无'}",
-            "",
-            document.body.strip(),
-        ]
-    ).strip()
+def _knowledge_document_path(settings: Settings, document: KnowledgeDocument) -> Path:
+    kind_dir = KIND_DIRS.get(document.kind, "flows")
+    return settings.knowledge_root / kind_dir / f"{document.id}.md"
 
 
 def _parse_shortlist_output(raw: str, cards: list[KnowledgeCard]) -> dict[str, object]:

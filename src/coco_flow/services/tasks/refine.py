@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import json
+import shutil
 
 from coco_flow.config import Settings, load_settings
 from coco_flow.engines.input import STATUS_INPUT_READY
@@ -87,6 +88,7 @@ def start_refining_task(task_id: str, settings: Settings | None = None) -> str:
     if status not in {STATUS_INITIALIZED, STATUS_INPUT_READY, STATUS_REFINED}:
         raise ValueError(f"task status {status} does not allow refine")
 
+    _reset_refine_outputs(task_dir)
     task_meta["status"] = STATUS_REFINING
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
     (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -106,3 +108,40 @@ def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -
         _write_json_artifact(path, payload)
         return
     _write_markdown_artifact(path, payload)
+
+
+def _reset_refine_outputs(task_dir: Path) -> None:
+    for name in (
+        "prd-refined.md",
+        "refine-intent.json",
+        "refine-query.json",
+        "refine-knowledge-selection.json",
+        "refine-knowledge-read.md",
+        "refine-verify.json",
+        "refine-result.json",
+        "refine.log",
+    ):
+        path = task_dir / name
+        if path.exists():
+            path.unlink()
+    for path in task_dir.glob(".refine-template-*.md"):
+        path.unlink()
+    for name in (
+        "design.md",
+        "plan.md",
+        "plan-knowledge-selection.json",
+        "plan-knowledge-brief.md",
+        "plan-scope.json",
+        "plan-execution.json",
+        "plan-verify.json",
+        "plan.log",
+        "code-result.json",
+        "code.log",
+    ):
+        path = task_dir / name
+        if path.exists():
+            path.unlink()
+    for directory in ("code-results", "code-logs", "diffs"):
+        path = task_dir / directory
+        if path.exists():
+            shutil.rmtree(path)
