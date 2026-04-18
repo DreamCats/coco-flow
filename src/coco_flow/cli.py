@@ -17,6 +17,7 @@ from coco_flow.services import TaskStore
 from coco_flow.services.queries.knowledge import KnowledgeStore
 from coco_flow.services.tasks.create import create_task
 from coco_flow.services.tasks.code import code_task
+from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.lifecycle import archive_task, reset_task
 from coco_flow.services.tasks.plan import plan_task
 from coco_flow.services.tasks.refine import refine_task
@@ -114,6 +115,16 @@ def refine_task_cmd(task_id: str) -> None:
     typer.echo(f"{task_id}: {status}")
 
 
+@tasks_app.command("design")
+def design_task_cmd(task_id: str) -> None:
+    try:
+        status = design_task(task_id)
+    except ValueError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(f"{task_id}: {status}")
+
+
 @tasks_app.command("plan")
 def plan_task_cmd(task_id: str) -> None:
     try:
@@ -197,6 +208,11 @@ def prd_refine_cmd(
     typer.echo(f"{task_id}: {status}")
 
 
+@prd_app.command("design")
+def prd_design_cmd(task: str = typer.Option(..., "--task", help="Target task id.")) -> None:
+    design_task_cmd(task)
+
+
 @prd_app.command("plan")
 def prd_plan_cmd(task: str = typer.Option(..., "--task", help="Target task id.")) -> None:
     plan_task_cmd(task)
@@ -233,6 +249,9 @@ def prd_run_cmd(
     if refine_status == "initialized":
         typer.echo("refine 仍处于 initialized，请先补充 prd.source.md 正文后再继续。")
         raise typer.Exit(code=0)
+
+    design_status = design_task(task_id, settings=settings)
+    typer.echo(f"design: {design_status}")
 
     plan_status = plan_task(task_id, settings=settings)
     typer.echo(f"plan: {plan_status}")

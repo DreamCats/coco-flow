@@ -25,12 +25,13 @@ from coco_flow.models import (
 )
 from coco_flow.services import TaskStore
 from coco_flow.engines.input import STATUS_INPUT_PROCESSING
-from coco_flow.services.tasks.background import start_background_code, start_background_input, start_background_plan, start_background_refine
+from coco_flow.services.tasks.background import start_background_code, start_background_design, start_background_input, start_background_plan, start_background_refine
 from coco_flow.services.tasks.input import create_task
 from coco_flow.services.tasks.edit import update_artifact
 from coco_flow.services.runtime.fs_tools import list_fs_entries, list_fs_roots
 from coco_flow.services.tasks.lifecycle import archive_task, reset_task
 from coco_flow.services.tasks.code import start_coding_task
+from coco_flow.services.tasks.design import start_designing_task
 from coco_flow.services.tasks.plan import start_planning_task
 from coco_flow.services.queries.repos import list_recent_repos, validate_repo_path
 from coco_flow.services.tasks.refine import start_refining_task
@@ -187,7 +188,7 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         task = store.get_task(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
-        if task.status not in {"initialized", "input_processing", "input_ready", "input_failed", "refined", "planned", "failed"}:
+        if task.status not in {"initialized", "input_processing", "input_ready", "input_failed", "refined", "designing", "designed", "planned", "failed"}:
             raise HTTPException(status_code=409, detail=f"当前状态为 {task.status}，仅允许删除未进入 code 的 task")
         task_dir = store.settings.task_root / task_id
         if task_dir.exists():
@@ -200,6 +201,18 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         try:
             status = start_refining_task(task_id, settings=store.settings)
             start_background_refine(task_id, store.settings)
+            return TaskActionResponse(task_id=task_id, status=status)
+        except ValueError as error:
+            message = str(error)
+            if "not found" in message:
+                raise HTTPException(status_code=404, detail=message) from error
+            raise HTTPException(status_code=409, detail=message) from error
+
+    @app.post("/api/tasks/{task_id}/design", response_model=TaskActionResponse, status_code=202)
+    def design_task_handler(task_id: str) -> TaskActionResponse:
+        try:
+            status = start_designing_task(task_id, settings=store.settings)
+            start_background_design(task_id, store.settings)
             return TaskActionResponse(task_id=task_id, status=status)
         except ValueError as error:
             message = str(error)

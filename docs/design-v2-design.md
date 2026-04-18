@@ -5,9 +5,11 @@
 结论优先：
 
 - `Design` 应从当前 `plan` 前半段正式拆出，成为 `Refine` 与 `Plan` 之间的独立阶段。
-- `Design` 的正式输入基线是 `prd-refined.md`，不是 `prd.source.md`；`Refine` 产物提供结构化提示，repo 本地 context 提供技术落点。
+- `Design` 的正式输入基线是 `prd-refined.md`，不是 `prd.source.md`；`Refine` 产物提供结构化提示，`Refine` 已筛过并深读过的知识文档应直接前置复用。
 - `repos.json` 在 `Input` 阶段只表示“用户绑定的候选 repo”，真正的“哪些 repo 本次要做、各自承担什么职责、依赖关系是什么”，应在 `Design` 阶段定稿。
+- 只要进入深度探索的候选 repo 数量大于 `1`，就必须并发启动多个 explorer agent，不能串行逐仓探索。
 - `native Design` 应继续复用 `Refine` 的模式：controller 建模板文件，agent 直接填结构化产物；不采用 prompt-only JSON 作为主链路。
+- `design.md` 不应默认由程序硬渲染，而应由 controller 建固定模板、agent 按结构化结果填充；程序 renderer 只作为 fallback。
 - `Plan` 在拆分后不再负责主责任 repo 判断和设计章节生成，只负责把 `Design` 的结论转成执行计划。
 
 ## 目标
@@ -65,19 +67,21 @@
 
 1. `prd-refined.md`
 2. `refine-intent.json`
-3. `refine-knowledge-read.md`
-4. `input.json`
-5. `repos.json`
-6. repo 本地 context 与 repo research 结果
-7. 设计阶段可用的 approved knowledge 文档
+3. `refine-knowledge-selection.json`
+4. `refine-knowledge-read.md`
+5. `input.json`
+6. `repos.json`
+7. repo research 结果
+8. 设计阶段可选的 supplemental knowledge 文档
 
 其中：
 
 - `prd-refined.md` 是唯一的需求事实基线。
-- `refine-intent.json` 和 `refine-knowledge-read.md` 是结构化辅助输入。
+- `refine-intent.json`、`refine-knowledge-selection.json` 和 `refine-knowledge-read.md` 是 Design 的第一手知识输入，不应被忽略。
 - `input.json` 只提供标题、补充说明和来源级上下文。
 - `repos.json` 提供候选 repo 集合，但还不是最终设计结论。
-- repo 本地 context 和 research 只用于技术落点判断，不能覆盖需求事实。
+- repo research 只用于技术落点判断，不能覆盖需求事实。
+- Design 阶段如需追加知识文档，应只作为补充链路，而不是重新从零开始做知识发现。
 
 ### 必需输入
 
@@ -91,8 +95,9 @@
 
 - `input.json.supplement`
 - `refine-intent.json`
+- `refine-knowledge-selection.json`
 - `refine-knowledge-read.md`
-- `.livecoding/context/` 中的 glossary / architecture / patterns / gotchas
+- repo 内基于文件结构、术语命中和候选路径的 research 结果
 
 ### 不应作为主判断基线的输入
 
@@ -110,7 +115,8 @@
 2. `refine-intent.json` 只能帮助提炼设计焦点，不能覆盖 refined 结论。
 3. `refine-knowledge-read.md` 只能提供术语解释、稳定规则和冲突提醒，不能替代当前需求。
 4. `repos.json` 在进入 `Design` 时只表示“候选 repo 集合”，不表示“这些 repo 已经全部确认要改”。
-5. repo 本地 context 只用于技术 grounding，不用于定义业务事实。
+5. repo research 只用于技术 grounding，不用于定义业务事实。
+6. Design 默认先继承 `Refine` 已筛选的知识；只有在 repo 探索后仍然缺关键依据时，才补做 Design 专项知识。
 
 ### Design Bundle 视图
 
@@ -120,11 +126,12 @@
 task/<task_id>/
 ├── prd-refined.md
 ├── refine-intent.json
+├── refine-knowledge-selection.json
 ├── refine-knowledge-read.md
 ├── input.json
 ├── repos.json
-└── repo local context
-    └── <repo>/.livecoding/context/*
+└── repo research snapshots
+    └── per-repo candidate dirs / files / glossary hits
 ```
 
 ## repo 绑定在 Design 的语义
@@ -282,31 +289,35 @@ task/<task_id>/
 建议 `Design` 至少生成下面这些 artifact：
 
 1. `design-research.json`
-2. `design-scope.json`
-3. `design-knowledge-selection.json`
-4. `design-knowledge-brief.md`
-5. `design-repo-binding.json`
-6. `design-sections.json`
-7. `design-verify.json`
-8. `design-result.json`
+2. `design-knowledge-brief.md`
+3. `design-repo-binding.json`
+4. `design-sections.json`
+5. `design.md`
+6. `design-verify.json`
+7. `design-result.json`
+
+可选 artifact：
+
+- `design-knowledge-selection.json`
+  仅在 Design 阶段确实补做了一轮专项知识筛选时生成。
 
 建议职责如下：
 
 - `design-research.json`
   - 记录每个 repo 的本地 research 结果
-  - 包括 glossary hits、unmatched terms、candidate dirs/files、notes、context availability
-- `design-scope.json`
-  - 记录设计阶段的范围收敛结果
-  - 只回答范围、系统焦点、repo 焦点、风险焦点、验证焦点
-- `design-knowledge-selection.json`
-  - 记录 design 阶段选了哪些知识文档、为什么选
+  - 包括 glossary hits、unmatched terms、candidate dirs/files、notes
 - `design-knowledge-brief.md`
+  - 默认基于 `Refine` 已筛选的知识结果重组生成
+  - 如有必要，可以合并 Design 专项补充知识
   - 只沉淀能服务设计判断的信息
   - 例如稳定规则、系统边界、验证重点、协议约束
 - `design-repo-binding.json`
   - 作为 repo 绑定的正式契约
 - `design-sections.json`
   - 作为 `design.md` 背后的正式结构对象
+- `design.md`
+  - 面向人阅读的模板化 LLM 产物
+  - 必须和 `design-sections.json` / `design-repo-binding.json` 保持一致
 - `design-verify.json`
   - 记录 verifier 对设计结构完整性和 repo 绑定一致性的校验结果
 - `design-result.json`
@@ -335,7 +346,7 @@ DesignSections(
 
 也就是说：
 
-- `design.md` 是给人看的渲染结果
+- `design.md` 是给人看的最终文档
 - `design-sections.json` 是给 `Plan` 和后续流程吃的正式输入
 
 `Plan` 不应在 `design-sections.json` 已存在时，再去从 Markdown 中猜字段。
@@ -345,12 +356,14 @@ DesignSections(
 建议采用下面的落盘顺序：
 
 1. 先写结构化 artifact
-2. 再本地 render `design.md`
-3. 最后同步 `repos.json` 和 task status
+2. controller 生成固定 `design.md` 模板
+3. agent 基于 `design-sections.json` 和 `design-repo-binding.json` 填模板
+4. verifier 校验 Markdown 与结构化结果一致
+5. 最后同步 `repos.json` 和 task status
 
-不要让 agent 直接生成最终 `design.md` 后，再让程序反向猜结构。
+程序 renderer 只作为 fallback，不作为默认主路径。
 
-## Design 阶段的知识与 repo context
+## Design 阶段的知识与 repo research
 
 这也是 `Design` 和 `Refine` 的关键不同点。
 
@@ -361,17 +374,27 @@ DesignSections(
 
 ### `Design` 的知识来源
 
-`Design` 应同时消费两类上下文：
+`Design` 应同时消费两类输入：
 
 1. 设计知识文档
-2. repo 本地 context / research
+2. repo research
 
 两者分工不同：
 
 - 设计知识文档：解释稳定规则、系统边界、协议约束、验证重点
-- repo 本地 context：解释真实代码落点、术语映射、目录范围和实现习惯
+- repo research：解释真实代码落点、术语映射、目录范围和候选改动区域
 
-### 设计知识的筛选条件
+### 知识链路的默认顺序
+
+默认顺序不应是“先探索 repo，再从零开始筛知识”，而应是：
+
+1. 先继承 `Refine` 已筛选、已深读的知识结果。
+2. 用这份知识结果帮助做 repo 初筛和 repo explorer 提问。
+3. 只有在 repo 探索后仍缺关键设计依据时，才补做 Design 专项知识。
+
+也就是说，Design 不应重新从零开始做一遍完整知识发现；默认应复用 `Refine` 的产物。
+
+### Design 专项知识的筛选条件
 
 正式状态建议是：
 
@@ -384,6 +407,16 @@ DesignSections(
 
 但这个兼容应只作为过渡，不应长期把 `design` 和 `plan` 混成一个知识入口。
 
+### `design-knowledge-brief.md` 的来源
+
+建议按下面顺序构造：
+
+1. 先读取 `refine-knowledge-read.md`
+2. 按 Design 视角重组为更偏“系统边界 / 稳定规则 / 协议约束 / 验证重点”的 brief
+3. 如果补做了 Design 专项知识，再把新增结果合并进 brief
+
+这样做的目的，是避免知识链路重复跑两遍，同时让 Design 的输入仍然更贴合设计判断。
+
 ### repo research 的角色
 
 repo research 在 `Design` 阶段是正式输入，不再只是 `plan` 的内部准备步骤。
@@ -395,7 +428,6 @@ repo research 在 `Design` 阶段是正式输入，不再只是 `plan` 的内部
 - candidate dirs
 - candidate files
 - repo notes
-- context availability
 
 这些结果应持久化进 `design-research.json`，而不是只写进 `plan.log`。
 
@@ -421,15 +453,15 @@ repo research 在 `Design` 阶段是正式输入，不再只是 `plan` 的内部
 1. controller 先在 task 目录创建固定模板文件。
 2. agent 只负责直接编辑模板文件。
 3. controller 再读取文件、检查占位符、做 schema 校验。
-4. 校验通过后再 render 正式 Markdown。
+4. verifier 再检查模板化 Markdown 是否与结构化结果一致。
+5. 只有默认主路径失败时，程序 renderer 才负责兜底。
 
 建议模板化的 artifact：
 
-- `design-scope.json`
-- `design-knowledge-selection.json`
 - `design-knowledge-brief.md`
 - `design-repo-binding.json`
 - `design-sections.json`
+- `design.md`
 - `design-verify.json`
 
 可以注意一点：
@@ -447,6 +479,13 @@ repo research 在 `Design` 阶段是正式输入，不再只是 `plan` 的内部
 
 - prompt 要求模型直接在 stdout 返回一个大 JSON
 
+对于最终 `design.md`，默认方式也应一致：
+
+- controller 建 Markdown 模板
+- agent 读取结构化 artifact 后直接填 Markdown 模板
+- verifier 守门
+- renderer 只在失败时兜底
+
 ## Design 引擎编排逻辑
 
 本版 `Design` 也建议采用多步小任务，不用单个超大 Prompt。
@@ -456,25 +495,34 @@ repo research 在 `Design` 阶段是正式输入，不再只是 `plan` 的内部
 ```mermaid
 flowchart TD
     A["prepare design bundle
-    不使用 LLM"] --> B["repo research
+    不使用 LLM"] --> A2["重用并整理 Refine 知识
+    轻量 LLM 或不使用 LLM"]
+    A2 --> B["候选仓库初筛
     不使用 LLM"]
-    B --> C["design scope extraction
-    agent + design-scope.json 模板"]
-    C --> D["knowledge shortlist
-    agent + design-knowledge-selection.json 模板"]
-    D --> E["knowledge brief
-    agent + design-knowledge-brief.md 模板"]
-    E --> F["repo binding adjudication
+    B --> C{"候选 repo 数 > 1"}
+    C -->|是| D["并发 explorer
+    每个 repo 一个 agent"]
+    C -->|否| E["单 repo explorer
+    agent"]
+    D --> F["聚合 repo research
+    不使用 LLM"]
+    E --> F
+    F --> G["如有必要补做 Design 专项知识
+    agent + design-knowledge-selection.json / brief"]
+    F --> H["repo binding adjudication
     agent + design-repo-binding.json 模板"]
-    F --> G["design sections generation
+    G --> H
+    H --> I["design sections generation
     agent + design-sections.json 模板"]
-    G --> H["verify / critique
+    I --> J["design.md 模板填充
+    agent + design.md 模板"]
+    J --> K["verify / critique
     agent + design-verify.json 模板"]
-    H --> I{"是否通过
+    K --> L{"是否通过
     不使用 LLM"}
-    I -->|是| J["render design.md
+    L -->|是| M["同步 repos.json
     sync repos.json"]
-    I -->|否| K["fallback local design"]
+    L -->|否| N["fallback local design"]
 ```
 
 ### 各步骤职责
@@ -487,87 +535,84 @@ flowchart TD
 
 - 读取 `prd-refined.md`
 - 读取 `refine-intent.json`
+- 读取 `refine-knowledge-selection.json`
 - 读取 `refine-knowledge-read.md`
 - 读取 `input.json`
 - 读取 `repos.json`
 - 做基本空值检查
 
-#### 2. `repo research`
+#### 2. `重用并整理 Refine 知识`
 
-不需要 LLM。
+默认不需要大模型；必要时可用一次轻量 LLM。
 
 负责：
 
-- 对每个候选 repo 读取 `.livecoding/context`
-- 提取 glossary 命中
-- 搜索 candidate dirs / files
-- 形成 per-repo research snapshot
-
-artifact：
-
-- `design-research.json`
-
-#### 3. `design scope extraction`
-
-需要 LLM。
-
-目标：
-
-- 把 refined 需求压成设计阶段的范围基线
-- 提炼系统焦点、repo 焦点、风险焦点和验证焦点
-
-建议输出结构：
-
-- `summary`
-- `boundaries`
-- `system_focus`
-- `repo_focus`
-- `risk_focus`
-- `validation_focus`
-
-artifact：
-
-- `design-scope.json`
-
-#### 4. `knowledge shortlist`
-
-需要 LLM。
-
-目标：
-
-- 基于 `Design Scope` 和 repo research，从 approved knowledge 中选出少量与设计决策最相关的文档
-
-artifact：
-
-- `design-knowledge-selection.json`
-
-#### 5. `knowledge brief`
-
-需要 LLM。
-
-目标：
-
-- 深读已选知识
-- 提取只服务设计判断的内容
-
-建议输出重点：
-
-- 系统边界
-- 稳定规则
-- 协议 / 配置 / 实验相关约束
-- 验证要点
+- 继承 `Refine` 已筛过、已深读的知识结果
+- 把 `Refine` 的知识结果重组为更适合 Design 的 brief
+- 作为后续 repo 初筛和 explorer 提问的前置上下文
 
 artifact：
 
 - `design-knowledge-brief.md`
 
-#### 6. `repo binding adjudication`
+#### 3. `候选仓库初筛`
+
+不需要 LLM。
+
+目标：
+
+- 用 refined 需求和 inherited knowledge 对候选 repo 做一轮便宜筛选
+- 先排除明显无关的 repo
+- 决定哪些 repo 值得进入深度 explorer
+
+#### 4. `并发探索候选仓库`
 
 需要 LLM。
 
 目标：
 
-- 基于 refined 需求、repo research 和 knowledge brief，正式判断 repo binding
+- 对每个候选 repo 做只读深挖
+- 提取职责、候选目录、候选文件、依赖线索、角色判断
+
+硬约束：
+
+- 只要进入深度探索的候选 repo 数量大于 `1`，就必须并发启动多个 explorer agent。
+- 不允许把多个必要 repo 串行逐仓探索。
+
+#### 5. `聚合仓库探索结果`
+
+不需要 LLM。
+
+负责：
+
+- 汇总所有 explorer 的输出
+- 标准化为统一的 per-repo research 结果
+
+artifact：
+
+- `design-research.json`
+
+#### 6. `如有必要，补做 Design 专项知识`
+
+需要 LLM，但不是默认必跑。
+
+目标：
+
+- 只在 repo 探索后发现仍缺设计依据时，补充专项知识
+- 例如协议边界、配置约束、实验规则或验证重点仍不清楚
+
+artifact：
+
+- `design-knowledge-selection.json`
+- 合并后的 `design-knowledge-brief.md`
+
+#### 7. `repo binding adjudication`
+
+需要 LLM。
+
+目标：
+
+- 基于 refined 需求、inherited knowledge、repo research，以及可选的 Design 专项知识，正式判断 repo binding
 
 artifact：
 
@@ -575,7 +620,7 @@ artifact：
 
 这一步是本版新增的核心，不应再放到 `Plan` 阶段顺带完成。
 
-#### 7. `design sections generation`
+#### 8. `design sections generation`
 
 需要 LLM。
 
@@ -588,7 +633,21 @@ artifact：
 
 - `design-sections.json`
 
-#### 8. `verify / critique`
+#### 9. `design.md 模板填充`
+
+需要 LLM。
+
+目标：
+
+- controller 先生成固定章节模板
+- agent 只基于 `design-sections.json` 和 `design-repo-binding.json` 填充 `design.md`
+- 不允许自由改章节结构
+
+artifact：
+
+- `design.md`
+
+#### 10. `verify / critique`
 
 需要 LLM。
 
@@ -597,19 +656,20 @@ artifact：
 1. repo binding 是否和设计章节一致
 2. 是否明确回答系统职责和依赖关系
 3. 是否覆盖协议 / 配置 / 实验 / QA 等专项判断
-4. 是否明显脱离本地 research 的证据范围
+4. `design.md` 是否和结构化 artifact 一致
+5. 是否明显脱离本地 research 的证据范围
 
 artifact：
 
 - `design-verify.json`
 
-#### 9. `render design.md`
+#### 11. `fallback local design`
 
 不需要 LLM。
 
 负责：
 
-- 用 renderer 把 `design-sections.json` 和 `design-repo-binding.json` 渲染成正式 `design.md`
+- 只有默认主路径失败时，程序 renderer 才负责兜底生成可继续推进的 `design.md`
 - 将必要绑定字段同步回 `repos.json`
 
 ## 哪些环节需要 LLM，哪些不需要
@@ -617,20 +677,22 @@ artifact：
 ### 不需要 LLM
 
 - 读取 refined / input / repos artifact
-- 读取 repo 本地 context
+- 重组 `Refine` 已有知识结果
+- 候选仓库初筛
 - glossary 命中
 - candidate files / dirs 搜索
+- 聚合并发 explorer 结果
 - research 结果落盘
-- render `design.md`
 - 同步 `repos.json`
 
 ### 需要 LLM
 
-- `design-scope.json` 模板填充
-- `design-knowledge-selection.json` 模板填充
-- `design-knowledge-brief.md` 模板填充
+- 并发 explorer 深挖候选 repo
+- 可选的 `design-knowledge-selection.json` 模板填充
+- `design-knowledge-brief.md` 的补充生成
 - `design-repo-binding.json` 模板填充
 - `design-sections.json` 模板填充
+- `design.md` 模板填充
 - `design-verify.json` 模板填充
 
 ## 降级逻辑
@@ -643,16 +705,16 @@ artifact：
 
 行为：
 
-- 不报错
-- `design-knowledge-selection.json` 返回空结果
-- 继续依赖 repo research 和 refined 输入生成 design
+- 如果 `Refine` 阶段已经提供可用知识，则直接沿用
+- 如果 Design 专项知识没有命中，不报错
+- 继续依赖 inherited knowledge、repo research 和 refined 输入生成 design
 
-### 部分 repo 没有 context
+### 部分 repo research 证据很弱
 
 允许继续，但要显式标记：
 
-- `context_available=false`
-- 在 `design-research.json` 或 `design-repo-binding.json` 中写明 grounding 不完整
+- 在 `design-research.json` 中写明候选路径和术语命中不足
+- 在 `design-repo-binding.json` 中降低置信度，不要伪装成已确认结论
 
 ### repo binding 无法确认
 
@@ -668,9 +730,11 @@ artifact：
 
 允许局部或整体降级：
 
-- `scope` 失败：本地规则提炼最小 scope
-- `knowledge` 失败：降级为无知识模式
+- `知识重组` 失败：直接沿用 `refine-knowledge-read.md`
+- `explorer` 失败：保留已成功 repo 的结果，并标记缺失 repo 为低置信度
+- `knowledge` 失败：降级为仅使用 inherited knowledge
 - `repo binding` 失败：本地规则给出低置信度 binding，并显式标记
+- `design.md` 模板填充失败：回退到程序 renderer
 - `verify` 失败：直接回退到 local design，不再做 rewrite loop
 
 ## 与当前实现的主要差异
@@ -679,9 +743,10 @@ artifact：
 
 1. `prepare_plan_build()` 中与设计相关的输入组装，拆到 `prepare_design_build()`
 2. `build_repo_researches()` 与 `build_design_research_signals()` 正式归属到 `Design`
-3. 当前 `plan-scope.json` 的范围收敛，迁移为 `design-scope.json`
+3. 当前 `plan` 内部的 knowledge brief，拆成“默认继承 refine 知识 + 可选补做 design 专项知识”
 4. 当前 design prompt 的 marker 文本输出，升级为 `design-sections.json` 模板化产物
 5. 当前由 `plan` 隐式完成的 repo 责任判断，升级为 `design-repo-binding.json`
+6. 当前程序直出 `design.md` 的方式，升级为“模板化 LLM 主路径 + renderer fallback”
 
 拆分后的 `Plan` 建议只保留：
 
@@ -703,16 +768,23 @@ artifact：
 1. 把 `Design` 从 `Plan` 前半段正式拆成独立阶段。
 2. 把 repo 绑定的正式语义前移到 `Design`。
 3. 把 `design.md` 背后的结构对象沉淀成正式 artifact。
-4. 沿用 `Refine` 的 controller 建模板 + agent 填文件模式，避免继续走 prompt-only JSON 主链路。
+4. 把 `Refine` 已筛选的知识文档结果前置复用，而不是在 Design 里从零开始重跑知识链路。
+5. 对多个必要 repo 的 explorer 强制并发，避免串行放大总耗时。
+6. 沿用 `Refine` 的 controller 建模板 + agent 填文件模式，避免继续走 prompt-only JSON 主链路。
 
 如果继续推进实现，建议顺序是：
 
 1. 先落 `design-repo-binding.json` 和 `design-sections.json` 的正式 schema。
-2. 再把当前 `plan` 的 repo research 与 design generation 迁到 `Design`。
-3. 最后收窄 `Plan`，让它只消费 `Design` 结果生成执行计划。
+2. 再把“继承 refine 知识 + 并发 repo explorer”迁到 `Design`。
+3. 接着把 `design.md` 改成模板化 LLM 主路径。
+4. 最后收窄 `Plan`，让它只消费 `Design` 结果生成执行计划。
 
 ## 新 Session 启动语
 
 可以直接带下面这句话：
 
 > 当前 Input 和 Refine 已经完成重构，Refine 采用 controller 建模板 + agent 填结构化产物的模式。现在继续设计 Design 阶段，要求尽量复用这套模式，不走 prompt-only JSON 优先路线，并把 repo 绑定正式前移到 Design。
+
+如果需要更完整一点，也可以直接带：
+
+> 当前 Input 和 Refine 已经完成重构。Design 阶段默认应继承 Refine 已筛选和深读过的知识结果，再做候选 repo 初筛与并发 explorer；只要必要 repo 数量大于 1，就必须并发探索。Design 的正式机器契约是 `design-repo-binding.json` 和 `design-sections.json`，最终 `design.md` 走 controller 建模板 + agent 填模板的主路径，renderer 只做 fallback。

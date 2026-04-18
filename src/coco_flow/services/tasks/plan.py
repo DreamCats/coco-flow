@@ -6,13 +6,13 @@ from pathlib import Path
 
 from coco_flow.config import Settings, load_settings
 from coco_flow.engines.plan import (
+    STATUS_DESIGNED,
     LogHandler,
     STATUS_FAILED,
     STATUS_PLANNED,
     STATUS_PLANNING,
-    STATUS_REFINED,
     append_plan_log,
-    run_plan_engine,
+    run_execution_engine,
     sync_repo_statuses,
     update_task_status,
 )
@@ -29,9 +29,11 @@ def plan_task(task_id: str, settings: Settings | None = None, on_log: LogHandler
     task_meta = read_json_file(task_dir / "task.json")
     if not task_meta:
         raise ValueError(f"task metadata missing: {task_id}")
+    if not (task_dir / "design.md").exists():
+        raise ValueError(f"task {task_id} 尚未生成 design.md，不能执行 plan")
 
     status = str(task_meta.get("status") or "")
-    if status not in {STATUS_REFINED, STATUS_PLANNED, STATUS_PLANNING, STATUS_FAILED}:
+    if status not in {STATUS_DESIGNED, STATUS_PLANNED, STATUS_PLANNING, STATUS_FAILED}:
         raise ValueError(f"task status {status} does not allow plan")
 
     logger = on_log or (lambda line: append_plan_log(task_dir, line))
@@ -44,8 +46,7 @@ def plan_task(task_id: str, settings: Settings | None = None, on_log: LogHandler
         logger(f"executor: {cfg.plan_executor}")
 
     try:
-        result = run_plan_engine(task_dir, task_meta, cfg, logger)
-        (task_dir / "design.md").write_text(result.design_markdown, encoding="utf-8")
+        result = run_execution_engine(task_dir, task_meta, cfg, logger)
         (task_dir / "plan.md").write_text(result.plan_markdown, encoding="utf-8")
         for name, payload in result.intermediate_artifacts.items():
             _write_intermediate_artifact(task_dir / name, payload)
@@ -72,9 +73,11 @@ def start_planning_task(task_id: str, settings: Settings | None = None) -> str:
     task_meta = read_json_file(task_dir / "task.json")
     if not task_meta:
         raise ValueError(f"task metadata missing: {task_id}")
+    if not (task_dir / "design.md").exists():
+        raise ValueError(f"task {task_id} 尚未生成 design.md，不能执行 plan")
 
     status = str(task_meta.get("status") or "")
-    if status not in {STATUS_REFINED, STATUS_PLANNED, STATUS_FAILED}:
+    if status not in {STATUS_DESIGNED, STATUS_PLANNED, STATUS_FAILED}:
         raise ValueError(f"task status {status} does not allow plan")
 
     update_task_status(task_dir, task_meta, STATUS_PLANNING)

@@ -15,12 +15,14 @@ STATUS_INPUT_READY = "input_ready"
 STATUS_INPUT_FAILED = "input_failed"
 STATUS_REFINING = "refining"
 STATUS_REFINED = "refined"
+STATUS_DESIGNING = "designing"
+STATUS_DESIGNED = "designed"
 STATUS_PLANNED = "planned"
 STATUS_FAILED = "failed"
 
 EDIT_RULES = {
     "prd.source.md": {
-        "allowed": {STATUS_INITIALIZED, STATUS_INPUT_PROCESSING, STATUS_INPUT_READY, STATUS_INPUT_FAILED, STATUS_REFINED, STATUS_PLANNED},
+        "allowed": {STATUS_INITIALIZED, STATUS_INPUT_PROCESSING, STATUS_INPUT_READY, STATUS_INPUT_FAILED, STATUS_REFINED, STATUS_DESIGNED, STATUS_PLANNED},
         "next_status": STATUS_INPUT_READY,
         "invalidate": [
             "input.log",
@@ -31,12 +33,19 @@ EDIT_RULES = {
             "refine-knowledge-read.md",
             "refine-verify.json",
             "refine-result.json",
+            "design.md",
+            "design.log",
+            "design-research.json",
+            "design-knowledge-brief.md",
+            "design-repo-binding.json",
+            "design-sections.json",
+            "design-verify.json",
+            "design-result.json",
             "plan-knowledge-selection.json",
             "plan-knowledge-brief.md",
             "plan-scope.json",
             "plan-execution.json",
             "plan-verify.json",
-            "design.md",
             "plan.md",
             "refine.log",
             "plan.log",
@@ -46,10 +55,17 @@ EDIT_RULES = {
         "invalidate_dirs": ["code-results", "code-logs", "diffs"],
     },
     "prd-refined.md": {
-        "allowed": {STATUS_REFINING, STATUS_REFINED, STATUS_PLANNED},
+        "allowed": {STATUS_REFINING, STATUS_REFINED, STATUS_DESIGNING, STATUS_DESIGNED, STATUS_PLANNED},
         "next_status": STATUS_REFINED,
         "invalidate": [
             "design.md",
+            "design.log",
+            "design-research.json",
+            "design-knowledge-brief.md",
+            "design-repo-binding.json",
+            "design-sections.json",
+            "design-verify.json",
+            "design-result.json",
             "plan.md",
             "plan-knowledge-selection.json",
             "plan-knowledge-brief.md",
@@ -63,14 +79,14 @@ EDIT_RULES = {
         "invalidate_dirs": ["code-results", "code-logs", "diffs"],
     },
     "refine.notes.md": {
-        "allowed": {STATUS_INPUT_READY, STATUS_REFINING, STATUS_REFINED, STATUS_PLANNED, STATUS_FAILED},
+        "allowed": {STATUS_INPUT_READY, STATUS_REFINING, STATUS_REFINED, STATUS_DESIGNING, STATUS_DESIGNED, STATUS_PLANNED, STATUS_FAILED},
         "next_status": "__keep__",
         "invalidate": [],
         "invalidate_dirs": [],
     },
     "design.md": {
-        "allowed": {STATUS_PLANNED},
-        "next_status": STATUS_PLANNED,
+        "allowed": {STATUS_DESIGNED, STATUS_PLANNED},
+        "next_status": STATUS_DESIGNED,
         "invalidate": [],
         "invalidate_dirs": [],
     },

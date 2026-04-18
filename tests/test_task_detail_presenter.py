@@ -11,6 +11,41 @@ from coco_flow.services.queries.task_detail import build_next_action, build_time
 
 
 class TaskDetailPresenterTest(unittest.TestCase):
+    def test_build_timeline_covers_designing_and_designed_with_six_stages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp)
+            (task_dir / "prd-refined.md").write_text("# PRD Refined\n", encoding="utf-8")
+            (task_dir / "design.md").write_text("# Design\n", encoding="utf-8")
+
+            cases = [
+                (
+                    "designing",
+                    ["done", "done", "current", "pending", "pending", "pending"],
+                    {
+                        "Design": "正在调研代码并生成 design.md",
+                        "Plan": "等待 Design 产物就绪",
+                    },
+                ),
+                (
+                    "designed",
+                    ["done", "done", "done", "current", "pending", "pending"],
+                    {
+                        "Design": "已生成 design.md",
+                        "Plan": "等待生成 plan.md",
+                    },
+                ),
+            ]
+
+            for status, states, details in cases:
+                with self.subTest(status=status):
+                    timeline = build_timeline(status, task_dir)
+                    self.assertEqual(len(timeline), 6)
+                    self.assertEqual([item.label for item in timeline], ["Input", "Refine", "Design", "Plan", "Code", "Archive"])
+                    self.assertEqual([item.state for item in timeline], states)
+                    for label, expected in details.items():
+                        item = next(entry for entry in timeline if entry.label == label)
+                        self.assertEqual(item.detail, expected)
+
     def test_suggest_next_repo_skips_blocked_repo(self) -> None:
         repos = [
             RepoBinding(repo_id="repo-b", path="/tmp/repo-b", status="planned", failure_type="blocked_by_dependency"),

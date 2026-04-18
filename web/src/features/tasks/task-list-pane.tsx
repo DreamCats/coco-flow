@@ -156,7 +156,7 @@ function TaskPaneMessage({ children }: { children: React.ReactNode }) {
 }
 
 function canDeleteTaskStatus(status: TaskListItem['status']) {
-  return new Set(['initialized', 'input_processing', 'input_ready', 'input_failed', 'refined', 'planned', 'failed']).has(status)
+  return new Set(['initialized', 'input_processing', 'input_ready', 'input_failed', 'refined', 'designing', 'designed', 'planned', 'failed']).has(status)
 }
 
 function PlusIcon() {

@@ -10,6 +10,7 @@ from coco_flow.engines.input import STATUS_INPUT_FAILED
 from coco_flow.engines.refine import STATUS_REFINING
 from coco_flow.services.tasks.code import code_task
 from coco_flow.services.queries.task_detail import read_json_file
+from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.input import input_task
 from coco_flow.services.tasks.plan import mark_task_failed, plan_task
 from coco_flow.services.tasks.refine import refine_task
@@ -34,6 +35,16 @@ def start_background_refine(task_id: str, settings: Settings) -> None:
         target=_run_background_refine,
         args=(task_id, settings),
         name=f"coco-flow-refine-{task_id}",
+        daemon=True,
+    )
+    worker.start()
+
+
+def start_background_design(task_id: str, settings: Settings) -> None:
+    worker = threading.Thread(
+        target=_run_background_design,
+        args=(task_id, settings),
+        name=f"coco-flow-design-{task_id}",
         daemon=True,
     )
     worker.start()
@@ -101,7 +112,32 @@ def _run_background_refine(task_id: str, settings: Settings) -> None:
     finally:
         duration = datetime.now().astimezone() - started_at
         _append_log_line(task_dir, f"duration: {round(duration.total_seconds(), 3)}s")
-        _append_log_line(task_dir, "=== REFINE END ===")
+    _append_log_line(task_dir, "=== REFINE END ===")
+
+
+def _run_background_design(task_id: str, settings: Settings) -> None:
+    task_dir = settings.task_root / task_id
+    started_at = datetime.now().astimezone()
+    _append_named_log_line(task_dir, "design.log", "=== DESIGN START ===")
+    _append_named_log_line(task_dir, "design.log", f"task_id: {task_id}")
+    _append_named_log_line(task_dir, "design.log", f"task_dir: {task_dir}")
+    _append_named_log_line(task_dir, "design.log", f"executor: {settings.plan_executor}")
+
+    try:
+        status = design_task(
+            task_id,
+            settings=settings,
+            on_log=lambda line: _append_named_log_line(task_dir, "design.log", line),
+        )
+        _append_named_log_line(task_dir, "design.log", f"status: {status}")
+    except Exception as error:
+        _append_named_log_line(task_dir, "design.log", f"error: {error}")
+        mark_task_failed(task_id, settings=settings)
+        _append_named_log_line(task_dir, "design.log", f"status: {STATUS_FAILED}")
+    finally:
+        duration = datetime.now().astimezone() - started_at
+        _append_named_log_line(task_dir, "design.log", f"duration: {round(duration.total_seconds(), 3)}s")
+        _append_named_log_line(task_dir, "design.log", "=== DESIGN END ===")
 
 
 def _run_background_plan(task_id: str, settings: Settings) -> None:

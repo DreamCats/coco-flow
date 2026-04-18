@@ -13,6 +13,7 @@ from coco_flow.engines.plan_generate import (
     build_design_prompt,
     build_design_verify_prompt,
     build_execution_prompt,
+    build_execution_prompt_from_design_markdown,
     build_execution_verify_prompt,
     build_plan_scope_prompt,
     extract_design_outputs,
@@ -42,6 +43,8 @@ from coco_flow.services.queries.task_detail import read_json_file
 
 STATUS_INITIALIZED = "initialized"
 STATUS_REFINED = "refined"
+STATUS_DESIGNING = "designing"
+STATUS_DESIGNED = "designed"
 STATUS_PLANNING = "planning"
 STATUS_PLANNED = "planned"
 STATUS_FAILED = "failed"
@@ -63,6 +66,241 @@ def run_plan_engine(
     if executor == EXECUTOR_LOCAL:
         return plan_task_local(task_dir, task_meta, settings, on_log=on_log)
     raise ValueError(f"unknown plan executor: {settings.plan_executor}")
+
+
+def run_design_engine(
+    task_dir: Path,
+    task_meta: dict[str, object],
+    settings: Settings,
+    on_log: LogHandler,
+) -> PlanEngineResult:
+    executor = settings.plan_executor.strip().lower()
+    if executor == EXECUTOR_NATIVE:
+        return design_task_native(task_dir, task_meta, settings, on_log=on_log)
+    if executor == EXECUTOR_LOCAL:
+        return design_task_local(task_dir, task_meta, settings, on_log=on_log)
+    raise ValueError(f"unknown plan executor: {settings.plan_executor}")
+
+
+def run_execution_engine(
+    task_dir: Path,
+    task_meta: dict[str, object],
+    settings: Settings,
+    on_log: LogHandler,
+) -> PlanEngineResult:
+    executor = settings.plan_executor.strip().lower()
+    if executor == EXECUTOR_NATIVE:
+        return execution_task_native(task_dir, task_meta, settings, on_log=on_log)
+    if executor == EXECUTOR_LOCAL:
+        return execution_task_local(task_dir, task_meta, settings, on_log=on_log)
+    raise ValueError(f"unknown plan executor: {settings.plan_executor}")
+
+
+def design_task_local(
+    task_dir: Path,
+    task_meta: dict[str, object],
+    settings: Settings,
+    on_log: LogHandler,
+) -> PlanEngineResult:
+    build = prepare_plan_build(task_dir, task_meta, settings)
+    log_plan_research(build, on_log)
+    on_log("fallback_local_design: true")
+    design = build_design(build, ai=None)
+    on_log(f"status: {STATUS_DESIGNED}")
+    return PlanEngineResult(
+        status=STATUS_DESIGNED,
+        design_markdown=design,
+        plan_markdown="",
+        intermediate_artifacts=build_design_intermediate_artifacts(build),
+    )
+
+
+def design_task_native(
+    task_dir: Path,
+    task_meta: dict[str, object],
+    settings: Settings,
+    on_log: LogHandler,
+) -> PlanEngineResult:
+    build = prepare_plan_build(task_dir, task_meta, settings)
+    log_plan_research(build, on_log)
+    on_log("generator_mode: explorer(readonly)")
+
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+
+    on_log(f"scope_start: timeout={settings.native_query_timeout}")
+    try:
+        scope_raw = client.run_prompt_only(
+            build_plan_scope_prompt(build),
+            settings.native_query_timeout,
+            cwd=build.repo_root,
+            fresh_session=True,
+        )
+        build.llm_scope = extract_plan_scope_output(scope_raw)
+        on_log(f"scope_ok: {len(scope_raw)} bytes")
+    except ValueError as error:
+        on_log(f"scope_error: {error}")
+        return design_task_local(task_dir, task_meta, settings, on_log=on_log)
+
+    on_log(f"design_prompt_start: timeout={settings.native_query_timeout}")
+    try:
+        design_raw = client.run_readonly_agent(
+            build_design_prompt(build),
+            settings.native_query_timeout,
+            build.repo_root or os.getcwd(),
+            fresh_session=True,
+        )
+    except ValueError as error:
+        on_log(f"generate_design_with_native_error: {error}")
+        return design_task_local(task_dir, task_meta, settings, on_log=on_log)
+
+    on_log(f"design_prompt_ok: {len(design_raw)} bytes")
+    design_ai, ok = extract_design_outputs(design_raw)
+    if not ok:
+        on_log("parse_design_output_error: missing required marker sections")
+        return design_task_local(task_dir, task_meta, settings, on_log=on_log)
+    validate_design_outputs(build, design_ai)
+
+    on_log(f"design_verify_start: timeout={settings.native_query_timeout}")
+    try:
+        design_verify_raw = client.run_prompt_only(
+            build_design_verify_prompt(build, design_ai),
+            settings.native_query_timeout,
+            cwd=build.repo_root,
+            fresh_session=True,
+        )
+        design_verify_payload = parse_plan_verify_output(design_verify_raw)
+        on_log(f"design_verify_ok: {len(design_verify_raw)} bytes")
+        if not bool(design_verify_payload.get("ok")):
+            issues = design_verify_payload.get("issues")
+            issue_text = "; ".join(str(item) for item in issues[:3]) if isinstance(issues, list) else "unknown"
+            on_log(f"design_verify_failed: {issue_text}")
+            return design_task_local(task_dir, task_meta, settings, on_log=on_log)
+        on_log("design_verify_passed: true")
+    except ValueError as error:
+        on_log(f"design_verify_error: {error}")
+        return design_task_local(task_dir, task_meta, settings, on_log=on_log)
+
+    ai_sections = PlanAISections(design=design_ai)
+    design = build_design(build, ai=ai_sections)
+    on_log(f"status: {STATUS_DESIGNED}")
+    result = PlanEngineResult(
+        status=STATUS_DESIGNED,
+        design_markdown=design,
+        plan_markdown="",
+        intermediate_artifacts=build_design_intermediate_artifacts(build),
+    )
+    result.intermediate_artifacts["plan-scope.json"] = build.llm_scope.to_payload()
+    result.intermediate_artifacts["plan-verify.json"] = {"design": design_verify_payload}
+    return result
+
+
+def execution_task_local(
+    task_dir: Path,
+    task_meta: dict[str, object],
+    settings: Settings,
+    on_log: LogHandler,
+) -> PlanEngineResult:
+    build = prepare_plan_build(task_dir, task_meta, settings)
+    log_plan_research(build, on_log)
+    on_log("fallback_local_plan: true")
+    plan = build_plan(build, ai=None)
+    on_log(f"status: {STATUS_PLANNED}")
+    return PlanEngineResult(
+        status=STATUS_PLANNED,
+        design_markdown="",
+        plan_markdown=plan,
+        intermediate_artifacts=build_execution_intermediate_artifacts(build, ai=None),
+    )
+
+
+def execution_task_native(
+    task_dir: Path,
+    task_meta: dict[str, object],
+    settings: Settings,
+    on_log: LogHandler,
+) -> PlanEngineResult:
+    build = prepare_plan_build(task_dir, task_meta, settings)
+    log_plan_research(build, on_log)
+    on_log("generator_mode: explorer(readonly)")
+
+    design_markdown = read_text_if_exists(task_dir / "design.md")
+    if not design_markdown.strip():
+        on_log("execution_missing_design: true")
+        return execution_task_local(task_dir, task_meta, settings, on_log=on_log)
+
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+
+    on_log(f"execution_prompt_start: timeout={settings.native_query_timeout}")
+    try:
+        execution_raw = client.run_prompt_only(
+            build_execution_prompt_from_design_markdown(build, design_markdown),
+            settings.native_query_timeout,
+            cwd=build.repo_root,
+            fresh_session=True,
+        )
+    except ValueError as error:
+        on_log(f"generate_execution_with_native_error: {error}")
+        return execution_task_local(task_dir, task_meta, settings, on_log=on_log)
+
+    on_log(f"execution_prompt_ok: {len(execution_raw)} bytes")
+    execution_ai, ok = extract_execution_outputs(execution_raw)
+    if not ok:
+        on_log("parse_execution_output_error: missing required marker sections")
+        return execution_task_local(task_dir, task_meta, settings, on_log=on_log)
+    validate_execution_outputs(build, execution_ai)
+
+    ai_files = parse_ai_candidate_files(raw=execution_ai.candidate_files, build=build)
+    if ai_files:
+        build.finding.candidate_files = ai_files
+        build.finding.candidate_dirs = summarize_dirs(ai_files)
+        build.assessment = score_complexity(build.sections, build.finding)
+        on_log(f"candidate_files_override: {len(ai_files)}")
+        on_log(f"complexity_after_ai: {build.assessment.level} ({build.assessment.total})")
+
+    on_log(f"execution_verify_start: timeout={settings.native_query_timeout}")
+    try:
+        execution_verify_raw = client.run_prompt_only(
+            build_execution_verify_prompt(build, execution_ai),
+            settings.native_query_timeout,
+            cwd=build.repo_root,
+            fresh_session=True,
+        )
+        execution_verify_payload = parse_plan_verify_output(execution_verify_raw)
+        on_log(f"execution_verify_ok: {len(execution_verify_raw)} bytes")
+        if not bool(execution_verify_payload.get("ok")):
+            issues = execution_verify_payload.get("issues")
+            issue_text = "; ".join(str(item) for item in issues[:3]) if isinstance(issues, list) else "unknown"
+            on_log(f"execution_verify_failed: {issue_text}")
+            return execution_task_local(task_dir, task_meta, settings, on_log=on_log)
+        on_log("execution_verify_passed: true")
+    except ValueError as error:
+        on_log(f"execution_verify_error: {error}")
+        return execution_task_local(task_dir, task_meta, settings, on_log=on_log)
+
+    ai_sections = PlanAISections(execution=execution_ai)
+    plan = build_plan(build, ai=ai_sections)
+    on_log(f"status: {STATUS_PLANNED}")
+    existing_verify = read_json_file(task_dir / "plan-verify.json")
+    verify_payload: dict[str, object] = {}
+    if isinstance(existing_verify.get("design"), dict):
+        verify_payload["design"] = existing_verify["design"]
+    verify_payload["execution"] = execution_verify_payload
+    result = PlanEngineResult(
+        status=STATUS_PLANNED,
+        design_markdown="",
+        plan_markdown=plan,
+        intermediate_artifacts=build_execution_intermediate_artifacts(build, ai=ai_sections),
+    )
+    result.intermediate_artifacts["plan-verify.json"] = verify_payload
+    return result
 
 
 def plan_task_local(
@@ -306,6 +544,27 @@ def build_plan_intermediate_artifacts(build: PlanBuild, ai: PlanAISections | Non
         artifacts["plan-knowledge-brief.md"] = build.knowledge_brief_markdown
     if any([build.llm_scope.summary, build.llm_scope.boundaries, build.llm_scope.priorities, build.llm_scope.risk_focus, build.llm_scope.validation_focus]):
         artifacts["plan-scope.json"] = build.llm_scope.to_payload()
+    artifacts["plan-execution.json"] = asdict(build_execution_sections(build, ai=ai))
+    return artifacts
+
+
+def build_design_intermediate_artifacts(build: PlanBuild) -> dict[str, str | dict[str, object]]:
+    artifacts: dict[str, str | dict[str, object]] = {}
+    candidates = build.knowledge_selection_payload.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        artifacts["plan-knowledge-selection.json"] = build.knowledge_selection_payload
+    if build.knowledge_brief_markdown.strip():
+        artifacts["plan-knowledge-brief.md"] = build.knowledge_brief_markdown
+    return artifacts
+
+
+def build_execution_intermediate_artifacts(build: PlanBuild, ai: PlanAISections | None) -> dict[str, str | dict[str, object]]:
+    artifacts: dict[str, str | dict[str, object]] = {}
+    candidates = build.knowledge_selection_payload.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        artifacts["plan-knowledge-selection.json"] = build.knowledge_selection_payload
+    if build.knowledge_brief_markdown.strip():
+        artifacts["plan-knowledge-brief.md"] = build.knowledge_brief_markdown
     artifacts["plan-execution.json"] = asdict(build_execution_sections(build, ai=ai))
     return artifacts
 

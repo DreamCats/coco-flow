@@ -3,11 +3,25 @@ from __future__ import annotations
 from datetime import datetime
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
 from coco_flow.config import Settings
+from coco_flow.engines.design.models import DesignPreparedInput
+from coco_flow.engines.design.research import build_design_research_payload
+from coco_flow.engines.plan_models import (
+    ComplexityAssessment,
+    ContextSnapshot,
+    DesignResearchSignals,
+    GlossaryEntry,
+    RefinedSections,
+    RepoResearch,
+    RepoScope,
+    ResearchFinding,
+)
 from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
+from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import plan_task
 
 
@@ -35,6 +49,202 @@ def make_settings(root: Path, plan_executor: str = "local") -> Settings:
 
 
 class PlanTaskPipelineTest(unittest.TestCase):
+    def test_native_design_research_uses_run_agent_for_multiple_candidate_repos(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), plan_executor="native")
+            task_dir = Path(tmp) / "task"
+            repo_a = Path(tmp) / "repo_a"
+            repo_b = Path(tmp) / "repo_b"
+            task_dir.mkdir(parents=True)
+            repo_a.mkdir(parents=True)
+            repo_b.mkdir(parents=True)
+
+            prepared = DesignPreparedInput(
+                task_dir=task_dir,
+                task_id="task-design-research",
+                title="竞拍讲解卡状态提示调整",
+                refined_markdown="# PRD Refined\n\n- 支持讲解卡状态提示。\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[
+                    RepoScope(repo_id="repo_a", repo_path=str(repo_a)),
+                    RepoScope(repo_id="repo_b", repo_path=str(repo_b)),
+                ],
+                repo_researches=[
+                    RepoResearch(
+                        repo_id="repo_a",
+                        repo_path=str(repo_a),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[GlossaryEntry(business="竞拍讲解卡", identifier="ExplainCardHandler", module="app/explain_card")],
+                            unmatched_terms=[],
+                            candidate_files=["app/explain_card/render_handler.go"],
+                            candidate_dirs=["app/explain_card"],
+                            notes=["命中讲解卡入口"],
+                        ),
+                    ),
+                    RepoResearch(
+                        repo_id="repo_b",
+                        repo_path=str(repo_b),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[GlossaryEntry(business="状态提示", identifier="RenderExplainCard", module="service/card_render")],
+                            unmatched_terms=[],
+                            candidate_files=["service/card_render/render_service.go"],
+                            candidate_dirs=["service/card_render"],
+                            notes=["命中状态提示渲染服务"],
+                        ),
+                    ),
+                ],
+                repo_ids={"repo_a", "repo_b"},
+                repo_root=str(repo_a),
+                sections=RefinedSections(
+                    change_scope=["支持讲解卡状态提示"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=2, level="low", conclusion="低复杂度"),
+            )
+
+            def run_agent_stub(*args, **kwargs):
+                prompt = str(args[0] if args else kwargs.get("prompt") or "")
+                matched = re.search(r"(?m)^- file: (.+)$", prompt)
+                self.assertIsNotNone(matched)
+                template_path = Path(str(matched.group(1)).strip())
+                repo_id = "repo_a" if "repo_id: repo_a" in prompt else "repo_b"
+                template_path.write_text(
+                    json.dumps(
+                        {
+                            "repo_id": repo_id,
+                            "repo_path": str(repo_a if repo_id == "repo_a" else repo_b),
+                            "decision": "in_scope_candidate",
+                            "role_hint": "primary" if repo_id == "repo_a" else "supporting",
+                            "serves_change_points": [1],
+                            "summary": f"{repo_id} 需要进入 Design。",
+                            "matched_terms": ["竞拍讲解卡" if repo_id == "repo_a" else "状态提示"],
+                            "candidate_dirs": ["app/explain_card" if repo_id == "repo_a" else "service/card_render"],
+                            "candidate_files": ["app/explain_card/render_handler.go" if repo_id == "repo_a" else "service/card_render/render_service.go"],
+                            "dependencies": [],
+                            "parallelizable_with": ["repo_b" if repo_id == "repo_a" else "repo_a"],
+                            "evidence": [f"{repo_id} evidence"],
+                            "notes": [f"{repo_id} note"],
+                            "confidence": "high",
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                return "done"
+
+            from unittest.mock import patch
+
+            with patch("coco_flow.engines.design.research.CocoACPClient.run_agent", side_effect=run_agent_stub) as run_agent_mock:
+                payload = build_design_research_payload(prepared, settings, "", lambda _message: None)
+
+            self.assertEqual(payload["mode"], "llm_parallel")
+            self.assertEqual(payload["prefilter"]["parallel"], True)
+            self.assertEqual(payload["prefilter"]["candidate_repo_ids"], ["repo_a", "repo_b"])
+            self.assertEqual(run_agent_mock.call_count, 2)
+            self.assertCountEqual([call.kwargs["cwd"] for call in run_agent_mock.call_args_list], [str(repo_a), str(repo_b)])
+            self.assertTrue(all(item["exploration_mode"] == "llm" for item in payload["repos"]))
+
+    def test_design_writes_design_markdown_and_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            repo_root = Path(tmp) / "repo"
+            (repo_root / ".git").mkdir(parents=True)
+            (repo_root / "app" / "explain_card").mkdir(parents=True)
+            (repo_root / "app" / "explain_card" / "render_handler.go").write_text(
+                "package explain_card\n\nfunc ExplainCardHandler() {}\n",
+                encoding="utf-8",
+            )
+            context_dir = repo_root / ".livecoding" / "context"
+            context_dir.mkdir(parents=True, exist_ok=True)
+            (context_dir / "glossary.md").write_text(
+                "| 业务术语 | 代码标识 | 说明 | 模块 |\n"
+                "| --- | --- | --- | --- |\n"
+                "| 竞拍讲解卡 | ExplainCardHandler | 竞拍讲解卡入口 | app/explain_card |\n",
+                encoding="utf-8",
+            )
+
+            timestamp = datetime.now().astimezone()
+            task_id = "task-design-native"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = timestamp.isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "竞拍讲解卡状态提示调整",
+                        "status": "refined",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "竞拍讲解卡状态提示调整",
+                        "repo_count": 1,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(
+                json.dumps({"repos": [{"id": "demo_repo", "path": str(repo_root), "status": "refined"}]}, ensure_ascii=False, indent=2)
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "prd-refined.md").write_text(
+                "# PRD Refined\n\n"
+                "## 需求概述\n\n"
+                "- 竞拍讲解卡需要支持主播侧状态提示。\n\n"
+                "## 功能点\n\n"
+                "- 支持竞拍讲解卡展示主播侧状态提示。\n\n"
+                "## 边界条件\n\n"
+                "- 非竞拍态不展示。\n\n"
+                "## 交互与展示\n\n"
+                "- 保持已有讲解卡样式。\n\n"
+                "## 验收标准\n\n"
+                "- 主播侧状态提示可正确展示。\n\n"
+                "## 业务规则\n\n"
+                "- 非竞拍态保持不展示。\n\n"
+                "## 待确认问题\n\n"
+                "- 是否需要兼容老版本样式。\n",
+                encoding="utf-8",
+            )
+
+            status = design_task(task_id, settings=settings)
+
+            self.assertEqual(status, "designed")
+            self.assertEqual(json.loads((task_dir / "task.json").read_text(encoding="utf-8"))["status"], "designed")
+            self.assertFalse((task_dir / "plan.md").exists())
+            repo_binding = json.loads((task_dir / "design-repo-binding.json").read_text(encoding="utf-8"))
+            self.assertTrue(repo_binding["repo_bindings"])
+            self.assertEqual(repo_binding["repo_bindings"][0]["repo_id"], "demo_repo")
+            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
+            self.assertIn("prefilter", research)
+            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["demo_repo"])
+            self.assertTrue(research["repos"][0]["selected_for_exploration"])
+            sections = json.loads((task_dir / "design-sections.json").read_text(encoding="utf-8"))
+            self.assertTrue(sections["system_change_points"])
+            verify = json.loads((task_dir / "design-verify.json").read_text(encoding="utf-8"))
+            self.assertEqual(verify["ok"], True)
+            design = (task_dir / "design.md").read_text(encoding="utf-8")
+            self.assertIn("## 系统改造点", design)
+            self.assertIn("## 方案设计", design)
+            self.assertIn("竞拍讲解卡需要支持主播侧状态提示", design)
+            self.assertTrue((task_dir / "design-result.json").exists())
+
     def test_local_plan_writes_knowledge_selection_and_brief(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
@@ -156,8 +366,10 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            design_status = design_task(task_id, settings=settings)
             status = plan_task(task_id, settings=settings)
 
+            self.assertEqual(design_status, "designed")
             self.assertEqual(status, "planned")
             selection = json.loads((task_dir / "plan-knowledge-selection.json").read_text(encoding="utf-8"))
             self.assertEqual(selection["selected_ids"], ["flow-auction-card-plan"])
@@ -282,6 +494,18 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 "- 是否需要兼容老版本样式。\n",
                 encoding="utf-8",
             )
+            (task_dir / "design.md").write_text(
+                "# Design\n\n"
+                "## 系统改造点\n\n"
+                "- 收敛讲解卡状态提示改造范围。\n\n"
+                "## 方案设计\n\n"
+                "### 总体方案\n\n"
+                "- 优先收敛讲解卡状态提示边界。\n",
+                encoding="utf-8",
+            )
+            task_meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+            task_meta["status"] = "designed"
+            (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
             from unittest.mock import patch
 
@@ -338,27 +562,15 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 status = plan_task(task_id, settings=settings)
 
             self.assertEqual(status, "planned")
-            scope = json.loads((task_dir / "plan-scope.json").read_text(encoding="utf-8"))
-            self.assertEqual(scope["summary"], "优先收敛讲解卡状态提示边界")
             execution = json.loads((task_dir / "plan-execution.json").read_text(encoding="utf-8"))
             self.assertTrue(execution["tasks"])
             self.assertEqual(run_prompt_only_mock.call_args_list[0].kwargs.get("fresh_session"), True)
-            self.assertEqual(run_readonly_agent_mock.call_args.kwargs.get("fresh_session"), True)
-            self.assertEqual(run_prompt_only_mock.call_args_list[1].kwargs.get("fresh_session"), True)
-            self.assertEqual(run_prompt_only_mock.call_args_list[2].kwargs.get("fresh_session"), True)
-            self.assertEqual(run_prompt_only_mock.call_args_list[3].kwargs.get("fresh_session"), True)
-            verify = json.loads((task_dir / "plan-verify.json").read_text(encoding="utf-8"))
-            self.assertEqual(verify["design"]["ok"], True)
-            self.assertEqual(verify["execution"]["ok"], True)
             design = (task_dir / "design.md").read_text(encoding="utf-8")
             plan = (task_dir / "plan.md").read_text(encoding="utf-8")
             self.assertIn("## 系统改造点", design)
-            self.assertIn("## 方案设计", design)
-            self.assertIn("仓库 demo_repo 主要承接", design)
             self.assertIn("收敛讲解卡状态提示改造范围", design)
-            self.assertIn("优先收敛讲解卡状态提示边界", design)
             self.assertIn("## 执行顺序", plan)
-            self.assertIn("优先围绕现有讲解卡入口文件收敛改动", plan)
+            self.assertIn("## 实施策略", plan)
             self.assertIn("受影响 package 编译通过", plan)
 
 

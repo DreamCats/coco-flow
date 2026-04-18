@@ -7,6 +7,8 @@ export type TaskStatus =
   | 'input_failed'
   | 'refining'
   | 'refined'
+  | 'designing'
+  | 'designed'
   | 'planning'
   | 'planned'
   | 'coding'
@@ -23,6 +25,7 @@ export type TaskArtifactName =
   | 'prd-refined.md'
   | 'refine.notes.md'
   | 'refine.log'
+  | 'design.log'
   | 'design.md'
   | 'plan.md'
   | 'plan.log'
@@ -57,7 +60,7 @@ export type RepoResult = {
 
 export type TaskTimelineItem = {
   label: string
-  state: 'done' | 'current' | 'pending'
+  state: 'done' | 'current' | 'pending' | 'blocked' | 'failed'
   detail: string
 }
 
@@ -253,6 +256,17 @@ export async function startRefine(taskId: string) {
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { detail?: string; error?: string } | null
     throw new Error(body?.detail || body?.error || '启动 refine 失败')
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
+}
+
+export async function startDesign(taskId: string) {
+  const response = await fetch(`/api/tasks/${taskId}/design`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: string; error?: string } | null
+    throw new Error(body?.detail || body?.error || '启动 design 失败')
   }
   return response.json() as Promise<{ task_id: string; status: string }>
 }

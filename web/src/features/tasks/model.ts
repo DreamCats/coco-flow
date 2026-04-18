@@ -1,7 +1,7 @@
-import type { RepoResult, TaskRecord, TaskStatus } from '../../api'
+import type { RepoResult, TaskRecord, TaskStatus, TaskTimelineItem } from '../../api'
 
 export type TaskStageID = 'input' | 'refine' | 'design' | 'plan' | 'code' | 'archive'
-export type TaskStageStatus = 'todo' | 'active' | 'done' | 'blocked'
+export type TaskStageStatus = TaskTimelineItem['state']
 
 export type TaskStage = {
   id: TaskStageID
@@ -13,57 +13,91 @@ export type TaskStage = {
 export const stageOrder: TaskStageID[] = ['input', 'refine', 'design', 'plan', 'code', 'archive']
 
 export function buildTaskStages(task: TaskRecord): TaskStage[] {
+  const fallbackStages = buildFallbackTaskStages(task)
+  const timelineByStage = new Map<TaskStageID, TaskTimelineItem>()
+  for (const item of task.timeline) {
+    const stageID = mapTimelineLabelToStageID(item.label)
+    if (stageID) {
+      timelineByStage.set(stageID, item)
+    }
+  }
+
+  return stageOrder.map((stageID) => {
+    const fallback = fallbackStages.find((stage) => stage.id === stageID)!
+    const timelineItem = timelineByStage.get(stageID)
+    return {
+      ...fallback,
+      status: timelineItem?.state ?? fallback.status,
+      summary: timelineItem?.detail?.trim() || fallback.summary,
+    }
+  })
+}
+
+export function getTaskStage(task: TaskRecord, stageID: TaskStageID): TaskStage {
+  return buildTaskStages(task).find((stage) => stage.id === stageID) ?? buildFallbackTaskStages(task).find((stage) => stage.id === stageID) ?? {
+    id: stageID,
+    label: stageID[0]!.toUpperCase() + stageID.slice(1),
+    status: 'pending',
+    summary: '',
+  }
+}
+
+function buildFallbackTaskStages(task: TaskRecord): TaskStage[] {
   const inputReady = isInputReady(task)
-  const inputBlocked = task.status === 'input_processing' || task.status === 'input_failed'
   const hasRefined = hasArtifact(task.artifacts['prd-refined.md']) && !isPendingRefineTask(task)
   const hasDesign = hasArtifact(task.artifacts['design.md'])
   const hasPlan = hasArtifact(task.artifacts['plan.md'])
   const hasRepoBinding = task.repos.length > 0
-  const hasCodeOutput = hasCodeActivity(task)
 
   return [
     {
       id: 'input',
       label: 'Input',
-      status: inputBlocked ? 'active' : inputReady ? 'done' : 'active',
+      status: task.status === 'input_failed' ? 'failed' : task.status === 'input_processing' ? 'current' : inputReady ? 'done' : 'current',
       summary: task.status === 'input_processing' ? '正在解析飞书文档并生成标准输入稿。' : task.status === 'input_failed' ? '输入处理失败，请检查链接、权限或手动补充正文。' : '收集 PRD 原文、飞书文档链接和研发补充说明。',
     },
     {
       id: 'refine',
       label: 'Refine',
-      status: !inputReady ? 'todo' : hasRefined ? (hasDesign || hasPlan || hasCodeOutput ? 'done' : 'active') : 'active',
+      status: !inputReady ? 'pending' : task.status === 'refining' ? 'current' : hasRefined ? 'done' : 'current',
       summary: task.status === 'refining' ? '正在提炼核心诉求、风险、讨论点和边界。' : '提炼核心诉求、风险、讨论点和边界。',
     },
     {
       id: 'design',
       label: 'Design',
-      status: !hasRefined ? 'todo' : !hasRepoBinding ? 'blocked' : hasDesign ? 'done' : task.status === 'planning' ? 'active' : 'active',
+      status: !hasRefined ? 'pending' : !hasRepoBinding ? 'blocked' : hasDesign ? 'done' : task.status === 'designing' ? 'current' : 'current',
       summary: hasRepoBinding ? '绑定仓库后补齐代码调研和方案设计。' : '进入设计前需要先绑定仓库。',
     },
     {
       id: 'plan',
       label: 'Plan',
-      status: !hasRefined ? 'todo' : !hasRepoBinding ? 'blocked' : hasPlan ? (hasCodeOutput ? 'done' : 'active') : task.status === 'planning' ? 'active' : 'todo',
+      status: !hasRefined || !hasDesign ? 'pending' : !hasRepoBinding ? 'blocked' : hasPlan ? 'done' : task.status === 'planning' ? 'current' : 'current',
       summary: '形成执行拆解、依赖顺序和验证方案。',
     },
     {
       id: 'code',
       label: 'Code',
-      status: !hasPlan ? 'todo' : !hasRepoBinding ? 'blocked' : resolveCodeStageStatus(task),
+      status: !hasPlan ? 'pending' : !hasRepoBinding ? 'blocked' : resolveCodeStageStatus(task),
       summary: '按仓推进实现与验证。',
     },
     {
       id: 'archive',
       label: 'Archive',
-      status: task.status === 'archived' ? 'done' : task.status === 'coded' ? 'active' : 'todo',
+      status: task.status === 'archived' ? 'done' : task.status === 'coded' ? 'current' : 'pending',
       summary: '沉淀结果、验证结论与后续事项。',
     },
   ]
 }
 
 export function defaultStageForTask(task: TaskRecord): TaskStageID {
-  const active = buildTaskStages(task).find((stage) => stage.status === 'active')
-  return active?.id ?? 'input'
+  const stages = buildTaskStages(task)
+  return (
+    stages.find((stage) => stage.status === 'current')?.id ??
+    stages.find((stage) => stage.status === 'failed')?.id ??
+    stages.find((stage) => stage.status === 'pending')?.id ??
+    stages.find((stage) => stage.status === 'blocked')?.id ??
+    'input'
+  )
 }
 
 export function hasArtifact(content?: string) {
@@ -78,19 +112,21 @@ export function isPendingRefineTask(task: TaskRecord) {
 }
 
 export function isInputReady(task: TaskRecord) {
-  return new Set(['input_ready', 'refining', 'refined', 'planning', 'planned', 'coding', 'partially_coded', 'coded', 'archived', 'failed']).has(task.status)
+  return new Set(['input_ready', 'refining', 'refined', 'designing', 'designed', 'planning', 'planned', 'coding', 'partially_coded', 'coded', 'archived', 'failed']).has(task.status)
 }
 
 export function stageStatusLabel(status: TaskStageStatus) {
   switch (status) {
     case 'done':
       return 'done'
-    case 'active':
-      return 'active'
+    case 'current':
+      return 'current'
     case 'blocked':
       return 'blocked'
+    case 'failed':
+      return 'failed'
     default:
-      return 'todo'
+      return 'pending'
   }
 }
 
@@ -98,10 +134,12 @@ export function stageTone(status: TaskStageStatus) {
   switch (status) {
     case 'done':
       return 'border-[#b8dfcf] bg-[#e3f6ee] text-[#1f6d53] dark:border-[#395d51] dark:bg-[#183229] dark:text-[#8cdabf]'
-    case 'active':
+    case 'current':
       return 'border-[#f0c38b] bg-[#fff1dd] text-[#9a5f16] dark:border-[#6f5330] dark:bg-[#3a2a18] dark:text-[#f1c98c]'
     case 'blocked':
       return 'border-[#efbbb6] bg-[#ffe7e4] text-[#9f3d34] dark:border-[#75423f] dark:bg-[#3a1f1d] dark:text-[#f5b6b0]'
+    case 'failed':
+      return 'border-[#e59696] bg-[#ffe3e3] text-[#a12b2b] dark:border-[#7d3c3c] dark:bg-[#3a1b1b] dark:text-[#ffb3b3]'
     default:
       return 'border-[#d7d2c8] bg-[#f2efe9] text-[#655d52] dark:border-[#4a4640] dark:bg-[#26231f] dark:text-[#d9d2c6]'
   }
@@ -121,6 +159,10 @@ export function taskStatusLabel(status: TaskStatus) {
       return '提炼中'
     case 'refined':
       return '待设计'
+    case 'designing':
+      return '设计中'
+    case 'designed':
+      return '待计划'
     case 'planning':
       return '设计/计划生成中'
     case 'planned':
@@ -181,16 +223,37 @@ export function preferredCodeRepo(task: TaskRecord): RepoResult | null {
   return task.repos.find(repoReadyForCode) ?? task.repos[0] ?? null
 }
 
-function hasCodeActivity(task: TaskRecord) {
-  return task.status === 'coding' || task.status === 'partially_coded' || task.status === 'coded' || task.status === 'archived' || task.status === 'failed'
-}
-
 function resolveCodeStageStatus(task: TaskRecord): TaskStageStatus {
   if (task.status === 'coded' || task.status === 'archived') {
     return 'done'
   }
-  if (task.status === 'coding' || task.status === 'partially_coded' || task.status === 'failed') {
-    return 'active'
+  if (task.status === 'failed') {
+    return 'failed'
   }
-  return 'todo'
+  if (task.status === 'coding' || task.status === 'partially_coded') {
+    return 'current'
+  }
+  if (task.status === 'planned') {
+    return 'current'
+  }
+  return 'pending'
+}
+
+function mapTimelineLabelToStageID(label: string): TaskStageID | null {
+  switch (label.trim().toLowerCase()) {
+    case 'input':
+      return 'input'
+    case 'refine':
+      return 'refine'
+    case 'design':
+      return 'design'
+    case 'plan':
+      return 'plan'
+    case 'code':
+      return 'code'
+    case 'archive':
+      return 'archive'
+    default:
+      return null
+  }
 }

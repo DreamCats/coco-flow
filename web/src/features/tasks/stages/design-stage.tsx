@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { ArtifactPanel, NotePanel, SectionCard, TabButton } from '../ui'
 
 export function DesignStage({ task }: { task: TaskRecord }) {
-  const [tab, setTab] = useState<'artifact' | 'notes'>('artifact')
+  const [tab, setTab] = useState<'artifact' | 'notes' | 'log'>('artifact')
   const notes = task.repos.length > 0 ? `已绑定仓库：${task.repos.map((repo) => repo.displayName).join('、')}` : '当前还没有绑定仓库。后续会补一版正式的仓库绑定服务。'
 
   return (
@@ -15,9 +15,18 @@ export function DesignStage({ task }: { task: TaskRecord }) {
         <TabButton active={tab === 'notes'} onClick={() => setTab('notes')}>
           补充说明
         </TabButton>
+        <TabButton active={tab === 'log'} onClick={() => setTab('log')}>
+          过程日志
+        </TabButton>
       </div>
       <div className="mt-4">
-        {tab === 'artifact' ? <ArtifactPanel content={task.artifacts['design.md'] || ''} title="design.md" /> : <NotePanel content={notes} />}
+        {tab === 'artifact' ? (
+          <ArtifactPanel content={task.artifacts['design.md'] || ''} title="design.md" />
+        ) : tab === 'log' ? (
+          <NotePanel content={task.artifacts['design.log'] || task.nextAction || '当前没有 design 过程日志。'} renderAs="plain" />
+        ) : (
+          <NotePanel content={notes} />
+        )}
       </div>
     </SectionCard>
   )

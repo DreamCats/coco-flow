@@ -27,6 +27,12 @@ TRACKED_ARTIFACTS = [
     "refine-knowledge-read.md",
     "refine-verify.json",
     "refine-result.json",
+    "design-research.json",
+    "design-knowledge-brief.md",
+    "design-repo-binding.json",
+    "design-sections.json",
+    "design-verify.json",
+    "design-result.json",
     "plan-knowledge-selection.json",
     "plan-knowledge-brief.md",
     "plan-scope.json",
@@ -35,6 +41,7 @@ TRACKED_ARTIFACTS = [
     "design.md",
     "plan.md",
     "refine.log",
+    "design.log",
     "plan.log",
     "code-result.json",
     "code.log",
@@ -207,10 +214,18 @@ def build_next_action(
 
     if not has_refined:
         return f"coco-flow prd refine --task {task_id}"
+    if status == "designing":
+        return "design 正在执行，请稍候刷新任务详情。"
+    if status == "designed" and not has_plan:
+        return f"coco-flow prd plan --task {task_id}"
     if status == "planning":
         return "plan 正在执行，请稍候刷新任务详情。"
-    if status == "failed" and (not has_design or not has_plan):
+    if status == "failed" and not has_design:
+        return f"coco-flow prd design --task {task_id}"
+    if status == "failed" and not has_plan:
         return f"coco-flow prd plan --task {task_id}"
+    if not has_design:
+        return f"coco-flow prd design --task {task_id}"
     if not has_design or not has_plan:
         return f"coco-flow prd plan --task {task_id}"
     if status == "coding":
@@ -266,23 +281,30 @@ def summarize_blocked_repos(repos: list[RepoBinding]) -> str:
 
 
 def build_timeline(status: str, task_dir: Path) -> list[TimelineItem]:
-    input_state, refine_state, plan_state, code_state, archive_state = (
+    input_state, refine_state, design_state, plan_state, code_state, archive_state = (
+        "pending",
         "pending",
         "pending",
         "pending",
         "pending",
         "pending",
     )
-    input_detail, refine_detail, plan_detail, code_detail, archive_detail = (
+    input_detail, refine_detail, design_detail, plan_detail, code_detail, archive_detail = (
         "等待 Input",
-        "等待 refine",
-        "等待 plan",
-        "等待 code",
-        "等待 archive",
+        "等待 Refine",
+        "等待 Design",
+        "等待 Plan",
+        "等待 Code",
+        "等待 Archive",
     )
+    has_design = (task_dir / "design.md").exists()
+    has_plan = (task_dir / "plan.md").exists()
+    repos = parse_repos(read_json_file(task_dir / "repos.json"), task_dir)
+    blocked = summarize_blocked_repos(repos)
+    next_repo = suggest_next_repo(repos)
 
     if status == "initialized":
-        input_state, refine_state = "current", "pending"
+        input_state = "current"
         input_detail = "已创建 task，等待整理输入内容"
         refine_detail = "等待 Input 就绪"
     elif status == "input_processing":
@@ -302,37 +324,60 @@ def build_timeline(status: str, task_dir: Path) -> list[TimelineItem]:
         input_detail = "已完成输入整理"
         refine_detail = "正在提炼核心诉求、风险、讨论点和边界"
     elif status == "refined":
-        input_state, refine_state, plan_state = "done", "done", "current"
+        input_state, refine_state, design_state = "done", "done", "current"
         input_detail = "已完成输入整理"
         refine_detail = "已生成 refined PRD"
-        plan_detail = "等待生成 design.md 与 plan.md"
+        design_detail = "等待生成 design.md 与正式仓库绑定"
+        plan_detail = "等待 Design 完成后生成执行计划"
+    elif status == "designing":
+        input_state, refine_state, design_state = "done", "done", "current"
+        input_detail = "已完成输入整理"
+        refine_detail = "已生成 refined PRD"
+        design_detail = "正在调研代码并生成 design.md"
+        plan_detail = "等待 Design 产物就绪"
+    elif status == "designed":
+        input_state, refine_state, design_state, plan_state = "done", "done", "done", "current"
+        input_detail = "已完成输入整理"
+        refine_detail = "已生成 refined PRD"
+        design_detail = "已生成 design.md"
+        plan_detail = "等待生成 plan.md"
     elif status == "planning":
-        input_state, refine_state, plan_state = "done", "done", "current"
+        input_state, refine_state = "done", "done"
         input_detail = "已完成输入整理"
         refine_detail = "已生成 refined PRD"
-        plan_detail = "正在调研代码并生成 design.md / plan.md"
+        if has_design:
+            design_state, plan_state = "done", "current"
+            design_detail = "已生成 design.md"
+            plan_detail = "正在生成 plan.md、任务拆分和执行顺序"
+        else:
+            design_state, plan_state = "current", "pending"
+            design_detail = "正在调研代码并生成 design.md"
+            plan_detail = "等待 Design 产物就绪"
     elif status == "planned":
-        input_state, refine_state, plan_state, code_state = "done", "done", "done", "current"
+        input_state, refine_state, design_state, plan_state = "done", "done", "done", "done"
         input_detail = "已完成输入整理"
         refine_detail = "已生成 refined PRD"
-        plan_detail = "已完成 plan"
-        blocked = summarize_blocked_repos(parse_repos(read_json_file(task_dir / "repos.json"), task_dir))
-        if blocked and not suggest_next_repo(parse_repos(read_json_file(task_dir / "repos.json"), task_dir)):
+        design_detail = "已生成 design.md"
+        plan_detail = "已生成 plan.md"
+        if blocked and not next_repo:
+            code_state = "blocked"
             code_detail = f"当前 code 受依赖阻塞：{blocked}"
         else:
+            code_state = "current"
             code_detail = "可进入 code 阶段"
     elif status in {"coding", "partially_coded"}:
-        input_state, refine_state, plan_state, code_state = "done", "done", "done", "current"
+        input_state, refine_state, design_state, plan_state, code_state = "done", "done", "done", "done", "current"
         input_detail = "已完成输入整理"
         refine_detail = "已生成 refined PRD"
-        plan_detail = "已完成 plan"
-        blocked = summarize_blocked_repos(parse_repos(read_json_file(task_dir / "repos.json"), task_dir))
+        design_detail = "已生成 design.md"
+        plan_detail = "已生成 plan.md"
         if blocked:
             code_detail = f"至少一个 repo 正在执行 code；另有 repo 受依赖阻塞：{blocked}"
         else:
             code_detail = "至少一个 repo 正在执行 code"
     elif status == "coded":
-        input_state, refine_state, plan_state, code_state, archive_state = (
+        input_state, refine_state, design_state, plan_state, code_state, archive_state = (
+            "done",
             "done",
             "done",
             "done",
@@ -341,11 +386,13 @@ def build_timeline(status: str, task_dir: Path) -> list[TimelineItem]:
         )
         input_detail = "已完成输入整理"
         refine_detail = "已生成 refined PRD"
-        plan_detail = "已完成 plan"
+        design_detail = "已生成 design.md"
+        plan_detail = "已生成 plan.md"
         code_detail = "所有关联 repo 已完成 code"
         archive_detail = "可归档收尾"
     elif status == "archived":
-        input_state, refine_state, plan_state, code_state, archive_state = (
+        input_state, refine_state, design_state, plan_state, code_state, archive_state = (
+            "done",
             "done",
             "done",
             "done",
@@ -354,31 +401,37 @@ def build_timeline(status: str, task_dir: Path) -> list[TimelineItem]:
         )
         input_detail = "已完成输入整理"
         refine_detail = "已生成 refined PRD"
-        plan_detail = "已完成 plan"
+        design_detail = "已生成 design.md"
+        plan_detail = "已生成 plan.md"
         code_detail = "已完成 code"
         archive_detail = "已归档"
     elif status == "failed":
-        input_state = "done"
+        input_state, refine_state = "done", "done"
         input_detail = "已完成输入整理"
-        has_design = (task_dir / "design.md").exists()
-        has_plan = (task_dir / "plan.md").exists()
-        if not has_design or not has_plan:
-            refine_state, plan_state = "done", "current"
-            refine_detail = "已生成 refined PRD"
-            plan_detail = "plan 执行失败，请查看 plan.log"
+        refine_detail = "已生成 refined PRD"
+        if not has_design:
+            design_state = "failed"
+            design_detail = "Design 执行失败，请查看 plan.log"
+            plan_detail = "等待 Design 修复后再生成 plan.md"
+        elif not has_plan:
+            design_state, plan_state = "done", "failed"
+            design_detail = "已生成 design.md"
+            plan_detail = "Plan 执行失败，请查看 plan.log"
         else:
-            refine_state, plan_state, code_state = "done", "done", "current"
-            refine_detail = "已生成 refined PRD"
-            plan_detail = "已完成 plan"
-            blocked = summarize_blocked_repos(parse_repos(read_json_file(task_dir / "repos.json"), task_dir))
+            design_state, plan_state = "done", "done"
+            design_detail = "已生成 design.md"
+            plan_detail = "已生成 plan.md"
             if blocked:
+                code_state = "blocked"
                 code_detail = f"存在失败或阻塞的 repo，当前阻塞：{blocked}"
             else:
+                code_state = "failed"
                 code_detail = "存在失败的 repo，需继续处理"
 
     return [
         TimelineItem(label="Input", state=input_state, detail=input_detail),
         TimelineItem(label="Refine", state=refine_state, detail=refine_detail),
+        TimelineItem(label="Design", state=design_state, detail=design_detail),
         TimelineItem(label="Plan", state=plan_state, detail=plan_detail),
         TimelineItem(label="Code", state=code_state, detail=code_detail),
         TimelineItem(label="Archive", state=archive_state, detail=archive_detail),
@@ -390,6 +443,8 @@ def missing_artifact_placeholder(name: str) -> str:
         return "当前没有可用的 input.log。可能任务尚未进入 Input 处理，或日志写入失败。"
     if name == "refine.log":
         return "当前没有可用的 refine.log。可能任务尚未启动 refine，或日志写入失败。"
+    if name == "design.log":
+        return "当前没有可用的 design.log。可能任务尚未启动 design，或日志写入失败。"
     if name == "plan.log":
         return "当前没有可用的 plan.log。可能任务尚未启动 plan，或日志写入失败。"
     if name in {"diff.json", "diff.patch"}:
@@ -402,6 +457,8 @@ def empty_artifact_placeholder(name: str) -> str:
         return "input.log 当前为空。"
     if name == "refine.log":
         return "refine.log 当前为空。"
+    if name == "design.log":
+        return "design.log 当前为空。"
     if name == "plan.log":
         return "plan.log 当前为空。"
     if name in {"diff.json", "diff.patch"}:

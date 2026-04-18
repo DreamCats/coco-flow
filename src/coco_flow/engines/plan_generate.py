@@ -248,6 +248,54 @@ qa_inputs:
 """
 
 
+def build_execution_prompt_from_design_markdown(build: PlanBuild, design_markdown: str) -> str:
+    repo_section = "\n".join(build.repo_lines) if build.repo_lines else "- current-repo"
+    candidate_files = render_list_block(build.finding.candidate_files, default="  - 无")
+    candidate_dirs = render_list_block(build.finding.candidate_dirs, default="  - 无")
+    local_notes = render_list_block(build.finding.notes, default="  - 无")
+    return f"""你是一名资深研发计划助手。基于 refined PRD、已有 design 文档、本地调研结果和候选文件，输出面向执行的 plan 内容。
+
+要求：
+1. 只能基于提供的信息工作，不要编造新模块或新文件。
+2. 重点服务 plan.md，不要重写设计背景。
+3. 输出必须严格使用下面的标记格式：
+{EXECUTION_SECTION_MARKERS["execution_strategy"]}
+- ...
+{EXECUTION_SECTION_MARKERS["candidate_files"]}
+- path/to/file1.go
+- path/to/file2.go
+{EXECUTION_SECTION_MARKERS["steps"]}
+- ...
+{EXECUTION_SECTION_MARKERS["blockers_and_risks"]}
+- ...
+{EXECUTION_SECTION_MARKERS["validation_plan"]}
+- ...
+4. 不要输出其它前言或解释。
+
+## PRD Refined
+{build.sections.raw or build.refined_markdown}
+
+## 任务关联仓库
+{repo_section}
+
+## Existing Design
+{design_markdown.strip() or "- 当前没有可用的 design.md。"}
+
+## Candidate Files Baseline
+{candidate_files}
+
+## Candidate Dirs Baseline
+{candidate_dirs}
+
+## Local Notes
+{local_notes}
+
+## Complexity
+- level: {build.assessment.level}
+- total: {build.assessment.total}
+"""
+
+
 def extract_execution_outputs(raw: str) -> tuple[ExecutionAISections, bool]:
     payload, ok = extract_marked_sections(raw, EXECUTION_SECTION_MARKERS)
     if not ok:

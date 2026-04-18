@@ -1,6 +1,8 @@
 export type TaskStatus =
   | 'initialized'
   | 'refined'
+  | 'designing'
+  | 'designed'
   | 'planning'
   | 'planned'
   | 'coding'
@@ -22,7 +24,7 @@ export type TaskArtifactName =
 
 export type TaskTimelineItem = {
   label: string
-  state: 'done' | 'current' | 'pending'
+  state: 'done' | 'current' | 'pending' | 'blocked' | 'failed'
   detail: string
 }
 
