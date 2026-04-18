@@ -14,12 +14,14 @@ def build_code_execute_prompt(
     return f"""你正在一个代码仓库的隔离 worktree 中执行实现任务。
 
 任务要求：
-1. 读取 `.coco-flow/tasks/{task_id}/prd-refined.md`、`design.md`、`plan.md`、`plan-work-items.json`、`plan-execution-graph.json`、`plan-validation.json`、`plan-result.json`。
-2. 只在当前 worktree 内修改与本次 repo batch 相关的代码，不要修改 `.coco-flow/` 和 `.livecoding/`。
-3. 如果当前 repo batch 是 verify_only，则不要改代码，只总结验证结论。
-4. 优先做最小范围实现和最小范围验证。
-5. 如果不需要改动，请明确说明 `no_change`。
-6. 最后必须输出如下结构，且不要省略字段：
+1. 优先读取 `.coco-flow/tasks/{task_id}/code-batch.json` 和 `.coco-flow/tasks/{task_id}/code-batch.md`。
+2. 只有在确有必要时，才参考 `.coco-flow/tasks/{task_id}/prd-refined.md`、`design.md`、`plan.md`。
+3. 只实现 `code-batch` 中列出的 work items，不要实现其他 repo 或其他 batch 的任务，不要顺手扩改无关功能。
+4. 只在当前 worktree 内修改与本次 repo batch 相关的代码，不要修改 `.coco-flow/` 和 `.livecoding/`。
+5. 如果当前 repo batch 是 verify_only，则不要改代码，只总结验证结论。
+6. 优先做最小范围实现和最小范围验证。
+7. 如果不需要改动，请明确说明 `no_change`。
+8. 最后必须输出如下结构，且不要省略字段：
 
 === CODE RESULT ===
 status: success|no_change|failed

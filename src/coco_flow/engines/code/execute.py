@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import hashlib
+import json
 import shutil
 import subprocess
 
@@ -30,6 +31,12 @@ from .models import (
     MAX_CODE_ATTEMPTS,
 )
 from .verify import verify_repo_changes
+
+CODE_SHARED_CONTEXT_FILES = (
+    "prd-refined.md",
+    "design.md",
+    "plan.md",
+)
 
 
 def execute_repo_batch(
@@ -131,7 +138,7 @@ def _execute_local_apply_batch(prepared: CodePreparedInput, batch: CodeRepoBatch
     branch = build_branch_name(prepared.task_id, batch.repo_id)
     worktree = build_worktree_path(batch.repo_path, prepared.task_id)
     ensure_worktree(batch.repo_path, worktree, branch)
-    sync_native_workspace(prepared.task_dir, Path(batch.repo_path), Path(worktree), prepared.task_id)
+    sync_native_workspace(prepared, batch, Path(batch.repo_path), Path(worktree))
     report = {
         "status": "failed",
         "task_id": prepared.task_id,
@@ -176,7 +183,7 @@ def _execute_native_apply_batch(prepared: CodePreparedInput, batch: CodeRepoBatc
     branch = build_branch_name(prepared.task_id, batch.repo_id)
     worktree = build_worktree_path(batch.repo_path, prepared.task_id)
     ensure_worktree(batch.repo_path, worktree, branch)
-    sync_native_workspace(prepared.task_dir, Path(batch.repo_path), Path(worktree), prepared.task_id)
+    sync_native_workspace(prepared, batch, Path(batch.repo_path), Path(worktree))
 
     client = CocoACPClient(
         settings.coco_bin,
@@ -521,12 +528,31 @@ def run_git(repo_root: str, args: list[str]) -> None:
         raise ValueError(result.stderr.strip() or result.stdout.strip() or "git command failed")
 
 
-def sync_native_workspace(task_dir: Path, repo_root: Path, worktree_root: Path, task_id: str) -> None:
+def sync_native_workspace(prepared: CodePreparedInput, batch: CodeRepoBatch, repo_root: Path, worktree_root: Path) -> None:
+    task_dir = prepared.task_dir
+    task_id = prepared.task_id
     task_target = worktree_root / ".coco-flow" / "tasks" / task_id
-    sync_local_tree(task_dir, task_target, replace=True)
+    if task_target.exists():
+        shutil.rmtree(task_target)
+    task_target.mkdir(parents=True, exist_ok=True)
+    for name in CODE_SHARED_CONTEXT_FILES:
+        copy_file_if_exists(task_dir / name, task_target / name)
+    bundle_payload = build_code_batch_bundle(prepared, batch)
+    (task_target / "code-batch.json").write_text(
+        json.dumps(bundle_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (task_target / "code-batch.md").write_text(render_code_batch_markdown(bundle_payload), encoding="utf-8")
     context_source = repo_root / ".livecoding" / "context"
     if context_source.exists():
         sync_local_tree(context_source, worktree_root / ".livecoding" / "context", replace=True)
+
+
+def copy_file_if_exists(source: Path, target: Path) -> None:
+    if not source.exists():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
 
 
 def sync_local_tree(source: Path, target: Path, replace: bool) -> None:
@@ -538,6 +564,147 @@ def sync_local_tree(source: Path, target: Path, replace: bool) -> None:
         shutil.rmtree(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, target, dirs_exist_ok=not replace)
+
+
+def build_code_batch_bundle(prepared: CodePreparedInput, batch: CodeRepoBatch) -> dict[str, object]:
+    binding = _binding_for_repo(prepared.design_repo_binding_payload, batch.repo_id)
+    work_items = _work_items_for_batch(prepared.plan_work_items_payload, batch.work_item_ids)
+    validations = _validations_for_batch(prepared.plan_validation_payload, batch.work_item_ids, batch.repo_id)
+    return {
+        "task_id": prepared.task_id,
+        "title": prepared.title,
+        "repo_id": batch.repo_id,
+        "repo_path": batch.repo_path,
+        "batch_id": batch.id,
+        "execution_mode": batch.execution_mode,
+        "scope_tier": batch.scope_tier,
+        "summary": batch.summary,
+        "work_item_ids": batch.work_item_ids,
+        "depends_on_batch_ids": batch.depends_on_batch_ids,
+        "change_scope": batch.change_scope,
+        "verify_rules": batch.verify_rules,
+        "done_definition": batch.done_definition,
+        "shared_context_files": [name for name in CODE_SHARED_CONTEXT_FILES if (prepared.task_dir / name).exists()],
+        "repo_binding": {
+            "reason": str(binding.get("reason") or "").strip(),
+            "candidate_files": _string_list(binding.get("candidate_files")),
+            "change_summary": _string_list(binding.get("change_summary")),
+            "boundaries": _string_list(binding.get("boundaries")),
+        },
+        "work_items": work_items,
+        "validations": validations,
+        "global_validation_focus": _string_list(prepared.plan_validation_payload.get("global_validation_focus")),
+    }
+
+
+def render_code_batch_markdown(bundle: dict[str, object]) -> str:
+    work_items = bundle.get("work_items")
+    validations = bundle.get("validations")
+    binding = bundle.get("repo_binding") if isinstance(bundle.get("repo_binding"), dict) else {}
+    lines = [
+        "# Code Batch",
+        "",
+        f"- task_id: {bundle.get('task_id') or ''}",
+        f"- repo_id: {bundle.get('repo_id') or ''}",
+        f"- batch_id: {bundle.get('batch_id') or ''}",
+        f"- execution_mode: {bundle.get('execution_mode') or ''}",
+        f"- scope_tier: {bundle.get('scope_tier') or ''}",
+        "",
+        "## Rules",
+        "",
+        "- 只实现本文件列出的 work items，不要实现其他 repo 或其他 batch 的任务。",
+        "- 只在当前 worktree 内修改与当前 repo batch 相关的代码。",
+        "- 如需参考全局背景，只读 shared_context_files 中列出的文件。",
+        "",
+        "## Repo Decision",
+        "",
+        str(binding.get("reason") or "当前没有额外的 repo decision 说明。"),
+        "",
+        "## Work Items",
+        "",
+    ]
+    if isinstance(work_items, list) and work_items:
+        for item in work_items:
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"### {item.get('id') or ''} {item.get('title') or ''}".strip())
+            lines.append("")
+            lines.append(f"- goal: {item.get('goal') or ''}")
+            lines.append(f"- change_scope: {', '.join(_string_list(item.get('change_scope')) ) or '-'}")
+            lines.append(f"- done_definition: {', '.join(_string_list(item.get('done_definition')) ) or '-'}")
+            lines.append(f"- verification_steps: {', '.join(_string_list(item.get('verification_steps')) ) or '-'}")
+            lines.append("")
+    else:
+        lines.append("- 当前没有结构化 work items。")
+        lines.append("")
+    lines.extend(["## Validation", ""])
+    if isinstance(validations, list) and validations:
+        for item in validations:
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"- {item.get('task_id') or ''}: {', '.join(_render_validation_reasons(item)) or '未提供'}")
+    else:
+        lines.append("- 当前没有结构化验证条目。")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _binding_for_repo(payload: dict[str, object], repo_id: str) -> dict[str, object]:
+    raw = payload.get("repo_bindings")
+    if not isinstance(raw, list):
+        return {}
+    for item in raw:
+        if isinstance(item, dict) and str(item.get("repo_id") or "").strip() == repo_id:
+            return item
+    return {}
+
+
+def _work_items_for_batch(payload: dict[str, object], work_item_ids: list[str]) -> list[dict[str, object]]:
+    raw = payload.get("work_items")
+    if not isinstance(raw, list):
+        return []
+    allowed = set(work_item_ids)
+    return [item for item in raw if isinstance(item, dict) and str(item.get("id") or "") in allowed]
+
+
+def _validations_for_batch(payload: dict[str, object], work_item_ids: list[str], repo_id: str) -> list[dict[str, object]]:
+    raw = payload.get("task_validations")
+    if not isinstance(raw, list):
+        return []
+    allowed = set(work_item_ids)
+    result: list[dict[str, object]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        current_task_id = str(item.get("task_id") or "").strip()
+        current_repo_id = str(item.get("repo_id") or "").strip()
+        if current_task_id and current_task_id in allowed:
+            result.append(item)
+            continue
+        if not current_task_id and current_repo_id == repo_id:
+            result.append(item)
+    return result
+
+
+def _render_validation_reasons(item: dict[str, object]) -> list[str]:
+    raw = item.get("checks")
+    if not isinstance(raw, list):
+        return []
+    result: list[str] = []
+    for check in raw:
+        if not isinstance(check, dict):
+            continue
+        parts = [str(check.get("kind") or "").strip(), str(check.get("target") or "").strip(), str(check.get("reason") or "").strip()]
+        text = " / ".join(part for part in parts if part)
+        if text:
+            result.append(text)
+    return result
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def sanitize_repo_name(repo_id: str) -> str:

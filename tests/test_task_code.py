@@ -94,7 +94,7 @@ class CodeV2DispatchTest(unittest.TestCase):
         self.assertEqual([batch.execution_mode for batch in batches], ["apply", "verify_only"])
         self.assertEqual(payload["batches"][0]["work_item_ids"], ["W1"])
 
-    def test_execute_prompt_references_plan_v2_inputs_not_legacy_plan_execution(self) -> None:
+    def test_execute_prompt_references_code_batch_bundle_not_full_plan_payloads(self) -> None:
         prepared = CodePreparedInput(
             task_dir=Path("/tmp/task"),
             task_id="task-2",
@@ -148,10 +148,15 @@ class CodeV2DispatchTest(unittest.TestCase):
             dependency_brief="- 当前 batch 无 batch 级前置依赖。",
         )
 
-        self.assertIn("plan-work-items.json", prompt)
-        self.assertIn("plan-execution-graph.json", prompt)
-        self.assertIn("plan-validation.json", prompt)
-        self.assertIn("plan-result.json", prompt)
+        self.assertIn("code-batch.json", prompt)
+        self.assertIn("code-batch.md", prompt)
+        self.assertIn("prd-refined.md", prompt)
+        self.assertIn("design.md", prompt)
+        self.assertIn("plan.md", prompt)
+        self.assertNotIn("plan-work-items.json", prompt)
+        self.assertNotIn("plan-execution-graph.json", prompt)
+        self.assertNotIn("plan-validation.json", prompt)
+        self.assertNotIn("plan-result.json", prompt)
         self.assertNotIn("plan-execution.json", prompt)
 
 
@@ -265,6 +270,9 @@ class CodeV2PipelineIntegrationTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "plan-result.json").write_text('{"status":"planned"}\n', encoding="utf-8")
+            (task_dir / "prd-refined.md").write_text("# refined\n", encoding="utf-8")
+            (task_dir / "design.md").write_text("# design\n", encoding="utf-8")
+            (task_dir / "plan.md").write_text("# plan\n", encoding="utf-8")
 
             start_status = start_coding_task(task_id, settings=settings)
             self.assertEqual(start_status, "coding")
@@ -301,6 +309,15 @@ class CodeV2PipelineIntegrationTest(unittest.TestCase):
             self.assertTrue(repo_result["commit"])
             self.assertEqual(repo_result["files_written"], ["two_sum.py"])
             self.assertTrue((task_dir / "code-verify" / "demo.json").exists())
+            worktree_root = Path(repo_result["worktree"])
+            batch_bundle = worktree_root / ".coco-flow" / "tasks" / task_id / "code-batch.json"
+            batch_markdown = worktree_root / ".coco-flow" / "tasks" / task_id / "code-batch.md"
+            self.assertTrue(batch_bundle.exists())
+            self.assertTrue(batch_markdown.exists())
+            self.assertFalse((worktree_root / ".coco-flow" / "tasks" / task_id / "plan-work-items.json").exists())
+            batch_payload = json.loads(batch_bundle.read_text(encoding="utf-8"))
+            self.assertEqual(batch_payload["repo_id"], "demo")
+            self.assertEqual(batch_payload["work_item_ids"], ["W1"])
 
     def _init_git_repo(self, repo_root: Path) -> None:
         repo_root.mkdir(parents=True, exist_ok=True)

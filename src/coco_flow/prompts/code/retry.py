@@ -16,12 +16,14 @@ def build_code_retry_prompt(
     return f"""刚才的实现未通过最小验证，请继续在当前 worktree 中直接修复，不要重置已有改动。
 
 任务要求：
-1. 继续围绕 `.coco-flow/tasks/{task_id}/prd-refined.md`、`design.md`、`plan.md`、`plan-work-items.json`、`plan-execution-graph.json`、`plan-validation.json`、`plan-result.json` 修复问题。
-2. 仅修改当前 worktree 内与本次 repo batch 相关的代码，不要改 `.coco-flow/` 和 `.livecoding/`。
-3. 优先修复下面这些已经变更过的文件：
+1. 优先继续围绕 `.coco-flow/tasks/{task_id}/code-batch.json` 和 `.coco-flow/tasks/{task_id}/code-batch.md` 修复问题。
+2. 只有在确有必要时，才参考 `.coco-flow/tasks/{task_id}/prd-refined.md`、`design.md`、`plan.md`。
+3. 只修复 `code-batch` 中列出的 work items，不要实现其他 repo 或其他 batch 的任务。
+4. 仅修改当前 worktree 内与本次 repo batch 相关的代码，不要改 `.coco-flow/` 和 `.livecoding/`。
+5. 优先修复下面这些已经变更过的文件：
 {changed_file_brief}
-4. 修复后请再次做最小范围验证。
-5. 最后仍然必须输出：
+6. 修复后请再次做最小范围验证。
+7. 最后仍然必须输出：
 
 === CODE RESULT ===
 status: success|no_change|failed
