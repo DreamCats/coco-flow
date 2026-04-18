@@ -1,13 +1,65 @@
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
+import tempfile
 
-from .models import DesignPreparedInput
+from coco_flow.clients import CocoACPClient
+from coco_flow.config import Settings
+from coco_flow.prompts.design import build_design_change_points_agent_prompt, build_design_change_points_template_json
+
+from .models import DesignPreparedInput, EXECUTOR_NATIVE
 
 _ASCII_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
 
 
-def build_design_change_points_payload(prepared: DesignPreparedInput) -> dict[str, object]:
+def build_design_change_points_payload(
+    prepared: DesignPreparedInput,
+    settings: Settings,
+    knowledge_brief_markdown: str,
+    on_log,
+) -> dict[str, object]:
+    fallback = build_local_design_change_points_payload(prepared)
+    if settings.plan_executor.strip().lower() != EXECUTOR_NATIVE:
+        return fallback
+
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    template_path = _write_change_points_template(prepared.task_dir)
+    try:
+        client.run_agent(
+            build_design_change_points_agent_prompt(
+                title=prepared.title,
+                refined_markdown=prepared.refined_markdown,
+                knowledge_brief_markdown=knowledge_brief_markdown,
+                seed_change_points=[item["title"] for item in fallback["change_points"] if isinstance(item, dict) and str(item.get("title") or "").strip()],
+                template_path=str(template_path),
+            ),
+            settings.native_query_timeout,
+            cwd=str(prepared.task_dir),
+            fresh_session=True,
+        )
+        raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
+        if "__FILL__" in raw:
+            raise ValueError("design_change_points_template_unfilled")
+        payload = json.loads(raw)
+        normalized = _normalize_native_change_points_payload(payload, prepared)
+        if not normalized["change_points"]:
+            raise ValueError("design_change_points_empty")
+        return normalized
+    except Exception as error:
+        on_log(f"design_change_points_fallback: {error}")
+        return fallback
+    finally:
+        if template_path.exists():
+            template_path.unlink()
+
+
+def build_local_design_change_points_payload(prepared: DesignPreparedInput) -> dict[str, object]:
     candidates = [item.strip() for item in prepared.sections.change_scope if item.strip()]
     if not candidates:
         candidates = [prepared.title.strip() or "Primary design change"]
@@ -161,3 +213,59 @@ def _shares_signal(left: str, right: str) -> bool:
     left_tokens = set(_tokenize(left))
     right_tokens = set(_tokenize(right))
     return bool(left_tokens & right_tokens)
+
+
+def _write_change_points_template(task_dir: Path) -> Path:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=task_dir,
+        prefix=".design-change-points-",
+        suffix=".json",
+        delete=False,
+    ) as handle:
+        handle.write(build_design_change_points_template_json())
+        handle.flush()
+        return Path(handle.name)
+
+
+def _normalize_native_change_points_payload(payload: object, prepared: DesignPreparedInput) -> dict[str, object]:
+    if not isinstance(payload, dict):
+        raise ValueError("design_change_points_output_not_object")
+    raw_items = payload.get("change_points")
+    if not isinstance(raw_items, list):
+        raise ValueError("design_change_points_output_missing_list")
+    change_points: list[dict[str, object]] = []
+    for index, item in enumerate(raw_items, start=1):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        constraints = [str(value).strip() for value in item.get("constraints", []) if str(value).strip()][:3]
+        acceptance = [str(value).strip() for value in item.get("acceptance", []) if str(value).strip()][:3]
+        summary = str(item.get("summary") or title).strip() or title
+        change_points.append(
+            {
+                "id": index,
+                "title": title,
+                "summary": summary,
+                "constraints": constraints,
+                "acceptance": acceptance,
+            }
+        )
+    if not change_points:
+        fallback_title = prepared.title.strip() or "Primary design change"
+        change_points = [
+            {
+                "id": 1,
+                "title": fallback_title,
+                "summary": fallback_title,
+                "constraints": [],
+                "acceptance": [],
+            }
+        ]
+    return {
+        "mode": "llm",
+        "change_points": change_points[:8],
+    }

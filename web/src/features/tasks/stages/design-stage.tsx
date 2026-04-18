@@ -123,7 +123,7 @@ export function DesignStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
           {tab === 'artifact' ? (
             <ArtifactPanel content={currentDesign} title="design.md" />
           ) : tab === 'log' ? (
-            <NotePanel content={task.artifacts['design.log'] || task.nextAction || '当前没有 design 过程日志。'} renderAs="plain" />
+            <ArtifactPanel content={task.artifacts['design.log'] || task.nextAction || '当前没有 design 过程日志。'} renderAs="plain" title="design.log" />
           ) : (
             <NotePanel content={notes} />
           )}

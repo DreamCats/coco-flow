@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from coco_flow.config import Settings
+from coco_flow.engines.design.assignment import build_design_change_points_payload
 from coco_flow.engines.design.models import DesignPreparedInput
 from coco_flow.engines.design.generate import build_design_sections_payload
 from coco_flow.engines.design.research import build_design_research_payload
@@ -50,6 +51,69 @@ def make_settings(root: Path, plan_executor: str = "local") -> Settings:
 
 
 class PlanTaskPipelineTest(unittest.TestCase):
+    def test_native_design_change_points_can_merge_duplicate_scope_items(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), plan_executor="native")
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-change-points",
+                title="two sum",
+                refined_markdown="# PRD Refined\n\n## 功能点\n- 添加 two sum 算法\n- 添加两数之和 golang 文件\n- 仅处理 two sum\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[],
+                repo_researches=[],
+                repo_ids=set(),
+                repo_root=None,
+                sections=RefinedSections(
+                    change_scope=["添加 two sum 算法", "添加两数之和 golang 文件", "仅处理 two sum"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+            )
+
+            def run_agent_stub(*args, **kwargs):
+                prompt = str(args[0] if args else kwargs.get("prompt") or "")
+                matched = re.search(r"(?m)^- file: (.+)$", prompt)
+                self.assertIsNotNone(matched)
+                template_path = Path(str(matched.group(1)).strip())
+                template_path.write_text(
+                    json.dumps(
+                        {
+                            "change_points": [
+                                {
+                                    "title": "添加 two sum 算法文件",
+                                    "summary": "新增一个 two sum / 两数之和的 Go 算法文件，不扩展到其他算法题。",
+                                    "constraints": ["仅处理 two sum"],
+                                    "acceptance": [],
+                                }
+                            ]
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                return "done"
+
+            from unittest.mock import patch
+
+            with patch("coco_flow.engines.design.assignment.CocoACPClient.run_agent", side_effect=run_agent_stub):
+                payload = build_design_change_points_payload(prepared, settings, "", lambda _message: None)
+
+            self.assertEqual(payload["mode"], "llm")
+            self.assertEqual(len(payload["change_points"]), 1)
+            self.assertEqual(payload["change_points"][0]["title"], "添加 two sum 算法文件")
+
     def test_design_sections_do_not_invent_repo_dependencies_without_depends_on(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))

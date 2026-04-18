@@ -25,7 +25,7 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
     on_log(f"design_knowledge_ok: used={'true' if bool(knowledge_brief_markdown.strip()) else 'false'}")
 
     on_log("design_change_points_start: true")
-    change_points_payload = build_design_change_points_payload(prepared)
+    change_points_payload = build_design_change_points_payload(prepared, settings, knowledge_brief_markdown, on_log)
     on_log(f"design_change_points_ok: count={len(change_points_payload.get('change_points', []))}")
 
     on_log("design_repo_assignment_start: true")

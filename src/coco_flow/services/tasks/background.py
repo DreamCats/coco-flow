@@ -129,7 +129,6 @@ def _run_background_design(task_id: str, settings: Settings) -> None:
             settings=settings,
             on_log=lambda line: _append_named_log_line(task_dir, "design.log", line),
         )
-        _append_named_log_line(task_dir, "design.log", f"status: {status}")
     except Exception as error:
         _append_named_log_line(task_dir, "design.log", f"error: {error}")
         mark_task_failed(task_id, settings=settings)
