@@ -656,6 +656,85 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(by_repo["live_shopapi"]["scope_tier"], "validate_only")
             self.assertEqual(by_repo["live_common"]["scope_tier"], "reference_only")
 
+    def test_local_repo_binding_marks_single_repo_choice_as_tiebreak_when_alternatives_are_comparable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            demo = Path(tmp) / "demo"
+            test_repo = Path(tmp) / "test"
+            demo.mkdir()
+            test_repo.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-binding-selection-basis",
+                title="two sum",
+                refined_markdown="# PRD Refined\n\n- 添加 two sum 算法\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[
+                    RepoScope(repo_id="demo", repo_path=str(demo)),
+                    RepoScope(repo_id="test", repo_path=str(test_repo)),
+                ],
+                repo_researches=[
+                    RepoResearch(
+                        repo_id="demo",
+                        repo_path=str(demo),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[],
+                            unmatched_terms=[],
+                            candidate_files=["main.go"],
+                            candidate_dirs=["."],
+                            notes=["已有冒泡排序"],
+                        ),
+                    ),
+                    RepoResearch(
+                        repo_id="test",
+                        repo_path=str(test_repo),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[],
+                            unmatched_terms=[],
+                            candidate_files=["quick_sort.go"],
+                            candidate_dirs=["."],
+                            notes=["已有快排实现"],
+                        ),
+                    ),
+                ],
+                repo_ids={"demo", "test"},
+                repo_root=str(demo),
+                sections=RefinedSections(
+                    change_scope=["添加 two sum 算法文件"],
+                    non_goals=["不扩展到其他算法题"],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+                responsibility_matrix_payload={
+                    "repos": [
+                        {"repo_id": "demo", "recommended_scope_tier": "must_change", "reasoning": "demo 可直接落 two sum 实现"},
+                        {"repo_id": "test", "recommended_scope_tier": "validate_only", "reasoning": "test 也可承接实现，但本轮默认不作为起始仓"},
+                    ]
+                },
+                research_payload={
+                    "repos": [
+                        {"repo_id": "demo", "prefilter_score": 2, "candidate_files": ["main.go"], "summary": "demo 适合添加 two sum"},
+                        {"repo_id": "test", "prefilter_score": 2, "candidate_files": ["quick_sort.go"], "summary": "test 也适合添加 two sum"},
+                    ]
+                },
+            )
+
+            binding = build_local_repo_binding(prepared).to_payload()
+
+            self.assertEqual(binding["closure_mode"], "single_repo")
+            self.assertEqual(binding["selection_basis"], "heuristic_tiebreak")
+            self.assertIn("demo", binding["selection_note"])
+            self.assertIn("test", binding["selection_note"])
+
     def test_native_design_research_uses_run_agent_for_multiple_candidate_repos(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), plan_executor="native")

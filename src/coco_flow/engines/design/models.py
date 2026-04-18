@@ -95,6 +95,9 @@ class DesignRepoBinding:
     repo_bindings: list[DesignRepoBindingEntry]
     missing_repos: list[str]
     decision_summary: str
+    closure_mode: str
+    selection_basis: str
+    selection_note: str
     mode: str
 
     def to_payload(self) -> dict[str, object]:
@@ -102,6 +105,9 @@ class DesignRepoBinding:
             "repo_bindings": [entry.to_payload() for entry in self.repo_bindings],
             "missing_repos": self.missing_repos,
             "decision_summary": self.decision_summary,
+            "closure_mode": self.closure_mode,
+            "selection_basis": self.selection_basis,
+            "selection_note": self.selection_note,
             "mode": self.mode,
         }
 

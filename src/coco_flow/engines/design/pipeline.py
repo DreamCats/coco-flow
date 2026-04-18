@@ -77,7 +77,14 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
         and str(item.get("decision") or "") == "in_scope"
         and str(item.get("scope_tier") or "") == "must_change"
     )
-    on_log(f"design_repo_binding_ok: mode={repo_binding.mode}, in_scope={in_scope_count}, must_change={must_change_count}")
+    on_log(
+        "design_repo_binding_ok: "
+        f"mode={repo_binding.mode}, "
+        f"in_scope={in_scope_count}, "
+        f"must_change={must_change_count}, "
+        f"closure_mode={repo_binding.closure_mode}, "
+        f"selection_basis={repo_binding.selection_basis}"
+    )
 
     on_log("design_sections_start: true")
     sections_payload = build_design_sections_payload(prepared, repo_binding_payload, knowledge_brief_markdown)

@@ -33,6 +33,7 @@ def build_design_verify_agent_prompt(
             "如果存在 validate_only repo，必须检查它是否被单独写进“联动验证仓库”，并解释为什么不作为主改造仓。",
             "如果 must_change repo 已给出 candidate_files 或 repo_decisions，必须检查 design.md 是否写出实现落点或候选文件。",
             "如果 design.md 只是重复 refined 需求，没有体现 repo_decisions 里的仓库现状和判定理由，必须判失败。",
+            "如果 selection_basis=heuristic_tiebreak，必须检查 design.md 是否明确区分“单仓可闭合”和“默认选择哪个仓作为起始实现仓”。",
             "如果校验通过，ok=true，issues 使用空数组。",
             "完成后只需简短回复已完成。",
         ],

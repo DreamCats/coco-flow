@@ -57,6 +57,8 @@ def build_design_generate_agent_prompt(
             "scope_tier=validate_only 的仓库必须写进“联动验证仓库”，并解释为什么不作为主改造仓。",
             "scope_tier=reference_only 的仓库只保留必要背景，不要展开成本次改造项。",
             "每个 must_change 仓库都必须写清：为什么选它、仓库现状、建议落点或候选文件。",
+            "必须区分 closure_mode 和 selection_basis：single_repo 只表示单仓可闭合，不等于已经证明为什么必须选该仓。",
+            "如果 selection_basis=heuristic_tiebreak，文档里必须明确写出“这是默认起始实现仓选择”，不能把它写成唯一正确仓库。",
             "优先消费 Design Sections 里的 repo_decisions；不要只复述 PRD Refined。",
             "内容要更像人写的设计文档，但不能偏离结构化结果。",
             "完成后只需简短回复已完成。",

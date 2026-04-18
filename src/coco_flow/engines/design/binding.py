@@ -76,7 +76,16 @@ def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding
     if reference_only:
         summary_parts.append("参考链路仓库：" + "、".join(reference_only))
     summary = "；".join(summary_parts) if summary_parts else "当前未识别到明确 in_scope repo。"
-    return DesignRepoBinding(repo_bindings=bindings, missing_repos=[], decision_summary=summary, mode="local")
+    decision_meta = _derive_binding_decision_meta(prepared, bindings)
+    return DesignRepoBinding(
+        repo_bindings=bindings,
+        missing_repos=[],
+        decision_summary=summary,
+        closure_mode=decision_meta["closure_mode"],
+        selection_basis=decision_meta["selection_basis"],
+        selection_note=decision_meta["selection_note"],
+        mode="local",
+    )
 
 
 def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, knowledge_brief_markdown: str, on_log) -> DesignRepoBinding:
@@ -155,6 +164,9 @@ def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, knowle
             repo_bindings=entries,
             missing_repos=[str(value) for value in payload.get("missing_repos", []) if str(value).strip()],
             decision_summary=str(payload.get("decision_summary") or fallback.decision_summary),
+            closure_mode=str(payload.get("closure_mode") or fallback.closure_mode or "unresolved"),
+            selection_basis=str(payload.get("selection_basis") or fallback.selection_basis or "unresolved"),
+            selection_note=str(payload.get("selection_note") or fallback.selection_note or ""),
             mode="llm",
         )
     except Exception as error:
@@ -306,3 +318,65 @@ def _merge_matrix_priors(
         current.reason = str(matrix_entry.get("reasoning") or current.reason or "")
         merged[repo_id] = current
     return sorted(merged.values(), key=lambda item: (-_priority_from_scope_tier(item.scope_tier), item.repo_id))
+
+
+def _derive_binding_decision_meta(
+    prepared: DesignPreparedInput,
+    bindings: list[DesignRepoBindingEntry],
+) -> dict[str, str]:
+    in_scope = [entry for entry in bindings if entry.decision == "in_scope"]
+    must_change = [entry for entry in in_scope if entry.scope_tier == "must_change"]
+    co_change = [entry for entry in in_scope if entry.scope_tier == "co_change"]
+    if len(in_scope) <= 1:
+        return {
+            "closure_mode": "single_repo",
+            "selection_basis": "strong_signal",
+            "selection_note": "当前仅识别到一个 in_scope 仓库，单仓即可闭合实现。",
+        }
+    if co_change or len(must_change) > 1:
+        repos = "、".join(entry.repo_id for entry in must_change + co_change)
+        return {
+            "closure_mode": "multi_repo",
+            "selection_basis": "strong_signal",
+            "selection_note": f"当前需求需要多仓协同改造才能闭合，涉及：{repos}。",
+        }
+    if len(must_change) != 1:
+        return {
+            "closure_mode": "unresolved",
+            "selection_basis": "unresolved",
+            "selection_note": "当前尚未收敛出唯一主改仓，需要人工补充 repo adjudication 依据。",
+        }
+
+    chosen = must_change[0]
+    research_items = prepared.research_payload.get("repos") if isinstance(prepared.research_payload, dict) else []
+    research_by_repo = {
+        str(item.get("repo_id") or ""): item
+        for item in (research_items if isinstance(research_items, list) else [])
+        if isinstance(item, dict) and str(item.get("repo_id") or "").strip()
+    }
+    chosen_research = research_by_repo.get(chosen.repo_id, {})
+    chosen_score = int(chosen_research.get("prefilter_score") or 0)
+    chosen_candidates = chosen.candidate_files or [str(value) for value in chosen_research.get("candidate_files", []) if str(value).strip()]
+    ambiguous_alts: list[str] = []
+    for entry in in_scope:
+        if entry.repo_id == chosen.repo_id:
+            continue
+        alt_research = research_by_repo.get(entry.repo_id, {})
+        alt_score = int(alt_research.get("prefilter_score") or 0)
+        alt_candidates = entry.candidate_files or [str(value) for value in alt_research.get("candidate_files", []) if str(value).strip()]
+        if not chosen_candidates or not alt_candidates:
+            continue
+        if alt_score >= max(chosen_score - 1, 0):
+            ambiguous_alts.append(entry.repo_id)
+    if ambiguous_alts:
+        alt_text = "、".join(ambiguous_alts)
+        return {
+            "closure_mode": "single_repo",
+            "selection_basis": "heuristic_tiebreak",
+            "selection_note": f"{chosen.repo_id} 与 {alt_text} 都具备单仓闭合条件；当前默认选择 {chosen.repo_id} 作为起始实现仓，该选择属于启发式 tie-break，不代表其它仓无法承接实现。",
+        }
+    return {
+        "closure_mode": "single_repo",
+        "selection_basis": "strong_signal",
+        "selection_note": f"{chosen.repo_id} 的落点信号最强，单仓即可闭合实现。",
+    }

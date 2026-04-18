@@ -35,6 +35,9 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
     validate_repos: list[dict[str, object]] = []
     reference_repos: list[dict[str, object]] = []
     repo_decisions: list[dict[str, object]] = []
+    closure_mode = str(repo_binding_payload.get("closure_mode") or "unresolved")
+    selection_basis = str(repo_binding_payload.get("selection_basis") or "unresolved")
+    selection_note = str(repo_binding_payload.get("selection_note") or "").strip()
     for item in binding_items:
         if not isinstance(item, dict):
             continue
@@ -45,7 +48,15 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
         research_entry = research_by_repo_id.get(repo_id, {})
         if repo_id:
             in_scope_repo_ids.append(repo_id)
-        repo_decisions.append(_build_repo_decision_note(item, research_entry))
+        repo_decisions.append(
+            _build_repo_decision_note(
+                item,
+                research_entry,
+                closure_mode=closure_mode,
+                selection_basis=selection_basis,
+                selection_note=selection_note,
+            )
+        )
         if scope_tier in {"must_change", "co_change"}:
             if repo_id:
                 must_change_repo_ids.append(repo_id)
@@ -97,9 +108,14 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
             solution_overview += " 其它仓库仅作为联动验证对象，不默认纳入主改造面。"
     else:
         solution_overview = f"优先围绕 {repo_binding_payload.get('decision_summary') or prepared.title} 收敛设计边界。"
+    if selection_note:
+        solution_overview += " " + selection_note
     return {
         "system_change_points": prepared.sections.change_scope[:6] or [prepared.title],
         "solution_overview": solution_overview,
+        "closure_mode": closure_mode,
+        "selection_basis": selection_basis,
+        "selection_note": selection_note,
         "system_changes": system_changes,
         "system_dependencies": system_dependencies,
         "repo_decisions": repo_decisions,
@@ -373,6 +389,8 @@ def collect_design_contract_issues(
 ) -> list[str]:
     normalized = design_markdown.lower()
     issues: list[str] = []
+    closure_mode = str(repo_binding_payload.get("closure_mode") or sections_payload.get("closure_mode") or "")
+    selection_basis = str(repo_binding_payload.get("selection_basis") or sections_payload.get("selection_basis") or "")
     raw_bindings = repo_binding_payload.get("repo_bindings")
     binding_items = raw_bindings if isinstance(raw_bindings, list) else []
     repo_decisions = {
@@ -397,6 +415,11 @@ def collect_design_contract_issues(
             validate_repo_ids.append(repo_id)
     if validate_repo_ids and "联动验证仓库" not in design_markdown:
         issues.append("存在 validate_only 仓库，但 design.md 未单独展开联动验证仓库")
+    if closure_mode == "single_repo" and selection_basis == "heuristic_tiebreak":
+        if "默认选择" not in design_markdown and "默认起始实现仓" not in design_markdown:
+            issues.append("selection_basis=heuristic_tiebreak，但 design.md 未说明当前只是默认选择起始实现仓")
+        if "单仓" not in design_markdown and "单仓闭合" not in design_markdown:
+            issues.append("selection_basis=heuristic_tiebreak，但 design.md 未说明当前判断只是单仓可闭合")
     for repo_id, note in repo_decisions.items():
         if repo_id.lower() not in normalized:
             continue
@@ -408,7 +431,14 @@ def collect_design_contract_issues(
     return issues
 
 
-def _build_repo_decision_note(binding_item: dict[str, object], research_entry: dict[str, object]) -> dict[str, object]:
+def _build_repo_decision_note(
+    binding_item: dict[str, object],
+    research_entry: dict[str, object],
+    *,
+    closure_mode: str,
+    selection_basis: str,
+    selection_note: str,
+) -> dict[str, object]:
     repo_id = str(binding_item.get("repo_id") or "")
     scope_tier = str(binding_item.get("scope_tier") or "")
     reason = str(binding_item.get("reason") or "").strip()
@@ -447,6 +477,8 @@ def _build_repo_decision_note(binding_item: dict[str, object], research_entry: d
         summary_parts.append(f"仓库现状：{repo_summary}")
     elif responsibility:
         summary_parts.append(f"仓库职责：{responsibility}")
+    if closure_mode == "single_repo" and selection_basis == "heuristic_tiebreak" and selection_note:
+        summary_parts.append(f"仓库选择说明：{selection_note}")
     return {
         "repo_id": repo_id,
         "system_name": str(binding_item.get("system_name") or repo_id),
