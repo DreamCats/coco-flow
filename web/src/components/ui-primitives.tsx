@@ -58,7 +58,7 @@ export function TopNavItem({
 }: {
   title: string
   description: string
-  to: '/tasks' | '/workspace' | '/knowledge' | '/workflow-preview'
+  to: '/tasks' | '/workspace' | '/knowledge'
   isActive: boolean
 }) {
   return (
