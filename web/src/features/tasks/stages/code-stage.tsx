@@ -1,6 +1,7 @@
 import type { RepoResult, TaskRecord } from '../../../api'
 import { getTaskArtifact } from '../../../api'
 import { useEffect, useMemo, useState } from 'react'
+import { DiffPanel } from '../../../components/diff-panel'
 import { ArtifactPanel, NotePanel, SectionCard, TabButton, TaskStatusBadge } from '../ui'
 import { executableCodeRepos, preferredCodeRepo, repoReadyForCode } from '../model'
 
@@ -272,7 +273,6 @@ function ResultTabsPanel({
   busy: boolean
   onTabChange: (tab: ResultTab) => void
 }) {
-  const diffContent = repo?.diffSummary?.patch || '当前没有可用的 diff patch。'
   const verifySummary = buildVerifySummary(repo)
   const resultSummary = buildResultSummary(repo, resultContent)
 
@@ -307,7 +307,13 @@ function ResultTabsPanel({
       <div className="mt-4">
         {tab === 'result' ? <ArtifactPanel content={resultSummary} renderAs="plain" title="repo result" /> : null}
         {tab === 'verify' ? <ArtifactPanel content={verifySummary} renderAs="plain" title="verification summary" /> : null}
-        {tab === 'diff' ? <ArtifactPanel content={diffContent} renderAs="plain" title="diff.patch" /> : null}
+        {tab === 'diff' ? (
+          repo ? (
+            <DiffPanel onSelectRepo={() => {}} repos={[repo]} selectedRepo={repo.id} />
+          ) : (
+            <ArtifactPanel content="当前没有可用的 diff patch。" renderAs="plain" title="diff.patch" />
+          )
+        ) : null}
         {tab === 'log' ? <ArtifactPanel content={logContent || task.artifacts['code.log'] || '当前没有 code 日志。'} renderAs="plain" title="code.log" /> : null}
       </div>
     </div>

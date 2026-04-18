@@ -13,6 +13,7 @@ export function DiffPanel({
   onSelectRepo: (repoId: string) => void
 }) {
   const reposWithDiff = repos.filter((repo) => repo.diffSummary)
+  const showRepoSelector = reposWithDiff.length > 1
   const deferredSelectedRepo = useDeferredValue(selectedRepo)
   const activeRepo = reposWithDiff.find((repo) => repo.id === deferredSelectedRepo) ?? reposWithDiff[0]
   const parsedPatch = useMemo(() => parsePatch(activeRepo?.diffSummary?.patch ?? ''), [activeRepo?.diffSummary?.patch])
@@ -49,7 +50,7 @@ export function DiffPanel({
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">变更对比</div>
           <h4 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-stone-950 dark:text-stone-50">提交差异回看</h4>
         </div>
-        <div className="text-xs text-stone-500 dark:text-stone-400">按仓库查看本次提交的 patch</div>
+        <div className="text-xs text-stone-500 dark:text-stone-400">{showRepoSelector ? '按仓库查看本次提交的 patch' : '查看当前仓库的 patch 细节'}</div>
       </div>
 
       {reposWithDiff.length === 0 ? (
@@ -58,22 +59,24 @@ export function DiffPanel({
         </div>
       ) : (
         <>
-          <div className="mb-4 flex flex-wrap gap-2">
-            {reposWithDiff.map((repo) => (
-              <button
-                className={`rounded-full border px-3 py-2 text-sm font-medium transition ${
-                  activeRepo?.id === repo.id
-                    ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
-                    : 'border-[#e8e6dc] bg-[#f5f4ed] text-[#5e5d59] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
-                }`}
-                key={repo.id}
-                onClick={() => onSelectRepo(repo.id)}
-                type="button"
-              >
-                {repo.id}
-              </button>
-            ))}
-          </div>
+          {showRepoSelector ? (
+            <div className="mb-4 flex flex-wrap gap-2">
+              {reposWithDiff.map((repo) => (
+                <button
+                  className={`rounded-full border px-3 py-2 text-sm font-medium transition ${
+                    activeRepo?.id === repo.id
+                      ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
+                      : 'border-[#e8e6dc] bg-[#f5f4ed] text-[#5e5d59] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
+                  }`}
+                  key={repo.id}
+                  onClick={() => onSelectRepo(repo.id)}
+                  type="button"
+                >
+                  {repo.id}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           {activeRepo?.diffSummary ? (
             <div className="space-y-4">
