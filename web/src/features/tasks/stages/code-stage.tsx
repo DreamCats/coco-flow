@@ -94,10 +94,14 @@ export function CodeStage({
       <div className="space-y-5">
         <CodeProgressPanel hiddenReferenceRepoCount={hiddenReferenceRepoCount} task={task} />
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
-          <RepoQueuePanel repos={orderedRepos} selectedRepoID={selectedRepo?.id ?? ''} onSelectRepo={setSelectedRepoID} />
+        {orderedRepos.length > 1 ? (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+            <RepoQueuePanel repos={orderedRepos} selectedRepoID={selectedRepo?.id ?? ''} onSelectRepo={setSelectedRepoID} />
+            <ExecutionDetailPanel busyAction={busyAction} onStartCode={onStartCode} repo={selectedRepo} />
+          </div>
+        ) : (
           <ExecutionDetailPanel busyAction={busyAction} onStartCode={onStartCode} repo={selectedRepo} />
-        </div>
+        )}
 
         <ResultTabsPanel
           busy={repoLoading}
@@ -116,6 +120,7 @@ export function CodeStage({
 
 function CodeProgressPanel({ task, hiddenReferenceRepoCount }: { task: TaskRecord; hiddenReferenceRepoCount: number }) {
   const progress = task.codeProgress
+  const visibleSteps = progress.steps.filter((step) => step.key === 'dispatch' || step.key === 'queue' || step.key === 'execute')
   const activeTone =
     task.status === 'coding'
       ? 'bg-[#4fa06d]'
@@ -147,16 +152,8 @@ function CodeProgressPanel({ task, hiddenReferenceRepoCount }: { task: TaskRecor
         <div className={`h-full rounded-full transition-all duration-300 ${activeTone}`} style={{ width: `${progress.progressPercent}%` }} />
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <StatPill label="ready" value={progress.counts.ready} />
-        <StatPill label="running" value={progress.counts.running} />
-        {progress.counts.blocked > 0 ? <StatPill label="blocked" value={progress.counts.blocked} /> : null}
-        <StatPill label="failed" value={progress.counts.failed} />
-        <StatPill label="done" value={progress.counts.done} />
-      </div>
-
-      <div className="mt-4 grid gap-2 md:grid-cols-5">
-        {progress.steps.map((step) => (
+      <div className="mt-4 grid gap-2 md:grid-cols-3">
+        {visibleSteps.map((step) => (
           <div
             className={`rounded-[14px] border px-3 py-2 text-xs ${
               step.state === 'done'
@@ -389,15 +386,6 @@ function DetailList({ title, items, empty }: { title: string; items: string[]; e
           empty
         )}
       </div>
-    </div>
-  )
-}
-
-function StatPill({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-[14px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-2 text-xs text-[#5e5d59] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
-      <div className="uppercase tracking-[0.35em]">{label}</div>
-      <div className="mt-1 text-base text-[#141413] dark:text-[#faf9f5]">{value}</div>
     </div>
   )
 }
