@@ -292,7 +292,12 @@ def _explore_repo_with_agent(
     payload = json.loads(raw)
     if not isinstance(payload, dict):
         raise ValueError("design_repo_research_output_not_object")
-    parsed = _normalize_agent_entry(payload, local_entry, repo_scope.repo_path)
+    parsed = _normalize_agent_entry(
+        payload,
+        local_entry,
+        repo_scope.repo_path,
+        expected_repo_id=repo_id,
+    )
     if not parsed["candidate_dirs"] and not parsed["candidate_files"] and not parsed["matched_terms"]:
         raise ValueError("design_repo_research_output_missing_signals")
     parsed["selected_for_exploration"] = True
@@ -301,7 +306,13 @@ def _explore_repo_with_agent(
     return parsed
 
 
-def _normalize_agent_entry(payload: dict[str, object], local_entry: dict[str, object], repo_path: str) -> dict[str, object]:
+def _normalize_agent_entry(
+    payload: dict[str, object],
+    local_entry: dict[str, object],
+    repo_path: str,
+    *,
+    expected_repo_id: str = "",
+) -> dict[str, object]:
     def _string_list(key: str, fallback_key: str | None = None, limit: int = 8) -> list[str]:
         values = payload.get(key)
         if not isinstance(values, list):
@@ -311,12 +322,16 @@ def _normalize_agent_entry(payload: dict[str, object], local_entry: dict[str, ob
         result = [str(value).strip() for value in values if str(value).strip()]
         return result[:limit]
 
-    repo_id = str(payload.get("repo_id") or local_entry.get("repo_id") or "").strip()
+    payload_repo_id = str(payload.get("repo_id") or "").strip()
+    repo_id = expected_repo_id.strip() or str(local_entry.get("repo_id") or "").strip() or payload_repo_id
     if not repo_id:
         raise ValueError("design_repo_research_repo_id_missing")
+    notes = _string_list("notes", limit=6)
+    if payload_repo_id and payload_repo_id != repo_id:
+        notes.append(f"normalized repo_id from {payload_repo_id} to {repo_id}")
     return {
         "repo_id": repo_id,
-        "repo_path": str(payload.get("repo_path") or repo_path or local_entry.get("repo_path") or "").strip(),
+        "repo_path": str(repo_path or local_entry.get("repo_path") or payload.get("repo_path") or "").strip(),
         "prefilter_score": int(local_entry.get("prefilter_score") or 0),
         "prefilter_reasons": [str(value) for value in local_entry.get("prefilter_reasons", []) if str(value).strip()],
         "selected_for_exploration": True,
@@ -358,7 +373,7 @@ def _normalize_agent_entry(payload: dict[str, object], local_entry: dict[str, ob
         "dependencies": _string_list("dependencies", limit=6),
         "parallelizable_with": _string_list("parallelizable_with", limit=6),
         "evidence": _string_list("evidence", limit=6),
-        "notes": _string_list("notes", limit=6),
+        "notes": notes[:6],
         "confidence": str(payload.get("confidence") or local_entry.get("confidence") or "medium").strip() or "medium",
     }
 

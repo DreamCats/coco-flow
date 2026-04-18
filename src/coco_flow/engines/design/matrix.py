@@ -23,6 +23,9 @@ def build_design_responsibility_matrix_payload(
     on_log,
 ) -> dict[str, object]:
     fallback = build_local_design_responsibility_matrix_payload(prepared)
+    if prepared.is_single_bound_repo:
+        fallback["mode"] = "single_bound_fast_path"
+        return fallback
     if settings.plan_executor.strip().lower() != EXECUTOR_NATIVE:
         return fallback
 

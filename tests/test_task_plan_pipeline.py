@@ -9,11 +9,18 @@ import tempfile
 import unittest
 
 from coco_flow.config import Settings
-from coco_flow.engines.design.assignment import build_design_change_points_payload
-from coco_flow.engines.design.binding import build_local_repo_binding
+from coco_flow.engines.design.assignment import build_design_change_points_payload, build_design_repo_assignment_payload
+from coco_flow.engines.design.binding import build_local_repo_binding, build_repo_binding
 from coco_flow.engines.design.models import DesignPreparedInput
-from coco_flow.engines.design.matrix import build_local_design_responsibility_matrix_payload
-from coco_flow.engines.design.generate import build_design_sections_payload, generate_local_design_markdown
+from coco_flow.engines.design.matrix import (
+    build_design_responsibility_matrix_payload,
+    build_local_design_responsibility_matrix_payload,
+)
+from coco_flow.engines.design.generate import (
+    build_design_sections_payload,
+    generate_design_markdown,
+    generate_local_design_markdown,
+)
 from coco_flow.engines.design.research import build_design_research_payload
 from coco_flow.engines.plan_models import (
     ComplexityAssessment,
@@ -316,6 +323,195 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(by_repo["content_live_bff_lib"]["recommended_scope_tier"], "validate_only")
             self.assertEqual(by_repo["live_common"]["recommended_scope_tier"], "reference_only")
 
+    def test_single_bound_repo_assignment_uses_fast_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "live_pack"
+            repo_root.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-single-bound-assignment",
+                title="统一成功态",
+                refined_markdown="# PRD Refined\n\n- 统一成功态\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
+                repo_researches=[
+                    RepoResearch(
+                        repo_id="live_pack",
+                        repo_path=str(repo_root),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(matched_terms=[], unmatched_terms=[], candidate_files=[], candidate_dirs=[], notes=[]),
+                    )
+                ],
+                repo_ids={"live_pack"},
+                repo_root=str(repo_root),
+                sections=RefinedSections(
+                    change_scope=["统一成功态", "讲解卡展示 success 态"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+                repo_discovery_payload={"mode": "bound", "bound_repo_count": 1, "inferred_repo_count": 0},
+            )
+
+            payload = build_design_repo_assignment_payload(
+                prepared,
+                {
+                    "change_points": [
+                        {"id": 1, "title": "统一成功态"},
+                        {"id": 2, "title": "讲解卡展示 success 态"},
+                    ]
+                },
+            )
+
+            self.assertEqual(payload["mode"], "single_bound_fast_path")
+            self.assertEqual(payload["repo_briefs"][0]["repo_id"], "live_pack")
+            self.assertEqual(payload["repo_briefs"][0]["primary_change_points"], [1, 2])
+
+    def test_single_bound_repo_matrix_and_binding_use_fast_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), plan_executor="native")
+            repo_root = Path(tmp) / "live_pack"
+            repo_root.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-single-bound-binding",
+                title="统一成功态",
+                refined_markdown="# PRD Refined\n\n- 统一成功态\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
+                repo_researches=[
+                    RepoResearch(
+                        repo_id="live_pack",
+                        repo_path=str(repo_root),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[GlossaryEntry(business="AuctionStatus_Success", identifier="AuctionStatusSuccess", module="loaders")],
+                            unmatched_terms=[],
+                            candidate_files=["entities/loaders/auction_loaders/auction_status_loader.go"],
+                            candidate_dirs=["entities/loaders/auction_loaders"],
+                            notes=[],
+                        ),
+                    )
+                ],
+                repo_ids={"live_pack"},
+                repo_root=str(repo_root),
+                sections=RefinedSections(
+                    change_scope=["统一成功态"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+                repo_discovery_payload={"mode": "bound", "bound_repo_count": 1, "inferred_repo_count": 0},
+                change_points_payload={"change_points": [{"id": 1, "title": "统一成功态"}]},
+                research_payload={
+                    "repos": [
+                        {
+                            "repo_id": "live_pack",
+                            "summary": "负责状态收敛",
+                            "candidate_dirs": ["entities/loaders/auction_loaders"],
+                            "candidate_files": ["entities/loaders/auction_loaders/auction_status_loader.go"],
+                            "matched_terms": ["AuctionStatus_Success"],
+                            "notes": [],
+                            "evidence": [],
+                        }
+                    ]
+                },
+            )
+
+            matrix = build_design_responsibility_matrix_payload(prepared, settings, "", lambda _message: None)
+            prepared.responsibility_matrix_payload = matrix
+            binding = build_repo_binding(prepared, settings, "", lambda _message: None)
+
+            self.assertEqual(matrix["mode"], "single_bound_fast_path")
+            self.assertEqual(binding.mode, "single_bound_fast_path")
+            self.assertEqual(binding.repo_bindings[0].scope_tier, "must_change")
+
+    def test_single_bound_repo_native_generate_skips_verify(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), plan_executor="native")
+            repo_root = Path(tmp) / "live_pack"
+            repo_root.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-single-bound-generate",
+                title="统一成功态",
+                refined_markdown="# PRD Refined\n\n- 统一成功态\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
+                repo_researches=[],
+                repo_ids={"live_pack"},
+                repo_root=str(repo_root),
+                sections=RefinedSections(
+                    change_scope=["统一成功态"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+                repo_discovery_payload={"mode": "bound", "bound_repo_count": 1, "inferred_repo_count": 0},
+            )
+            repo_binding_payload = {
+                "repo_bindings": [
+                    {
+                        "repo_id": "live_pack",
+                        "decision": "in_scope",
+                        "scope_tier": "must_change",
+                        "system_name": "Live Pack",
+                        "serves_change_points": [1],
+                        "responsibility": "核心状态收敛",
+                        "change_summary": ["改成功态逻辑"],
+                        "candidate_files": ["entities/loaders/auction_loaders/auction_status_loader.go"],
+                        "depends_on": [],
+                    }
+                ],
+                "decision_summary": "must_change=live_pack",
+            }
+            sections_payload = build_design_sections_payload(prepared, repo_binding_payload, "")
+            artifacts: dict[str, object] = {}
+
+            def run_agent_stub(*args, **kwargs):
+                prompt = str(args[0] if args else kwargs.get("prompt") or "")
+                matched = re.search(r"(?m)^- file: (.+)$", prompt)
+                self.assertIsNotNone(matched)
+                template_path = Path(str(matched.group(1)).strip())
+                template_path.write_text(
+                    "# Design\n\n## 系统改造点\n\n- 统一成功态\n\n## 方案设计\n\n### 总体方案\n\n- 只修改 live_pack。\n",
+                    encoding="utf-8",
+                )
+                return "done"
+
+            from unittest.mock import patch
+
+            with patch("coco_flow.engines.design.generate.CocoACPClient.run_agent", side_effect=run_agent_stub) as mocked:
+                markdown = generate_design_markdown(prepared, repo_binding_payload, sections_payload, "", settings, artifacts, lambda _message: None)
+
+            self.assertIn("# Design", markdown)
+            self.assertEqual(mocked.call_count, 1)
+            self.assertEqual(artifacts["design-verify.json"]["reason"], "single bound repo fast path")
+
     def test_local_repo_binding_classifies_scope_tiers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             live_pack = Path(tmp) / "live_pack"
@@ -522,6 +718,100 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(run_agent_mock.call_count, 2)
             self.assertCountEqual([call.kwargs["cwd"] for call in run_agent_mock.call_args_list], [str(repo_a), str(repo_b)])
             self.assertTrue(all(item["exploration_mode"] == "llm" for item in payload["repos"]))
+
+    def test_native_design_research_normalizes_agent_repo_id_to_expected_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), plan_executor="native")
+            repo_root = Path(tmp) / "live_pack"
+            repo_root.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-research-normalize-repo-id",
+                title="统一成功态",
+                refined_markdown="# PRD Refined\n\n- 统一成功态\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
+                repo_researches=[
+                    RepoResearch(
+                        repo_id="live_pack",
+                        repo_path=str(repo_root),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[],
+                            unmatched_terms=[],
+                            candidate_files=["entities/loaders/auction_loaders/auction_status_loader.go"],
+                            candidate_dirs=["entities/loaders/auction_loaders"],
+                            notes=["命中竞拍状态加载器"],
+                        ),
+                    )
+                ],
+                repo_ids={"live_pack"},
+                repo_root=str(repo_root),
+                sections=RefinedSections(
+                    change_scope=["统一成功态"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+                change_points_payload={"change_points": [{"id": 1, "title": "统一成功态"}]},
+                repo_assignment_payload={
+                    "repo_briefs": [
+                        {
+                            "repo_id": "live_pack",
+                            "primary_change_points": [1],
+                            "secondary_change_points": [],
+                        }
+                    ]
+                },
+            )
+
+            def run_agent_stub(*args, **kwargs):
+                prompt = str(args[0] if args else kwargs.get("prompt") or "")
+                matched = re.search(r"(?m)^- file: (.+)$", prompt)
+                self.assertIsNotNone(matched)
+                template_path = Path(str(matched.group(1)).strip())
+                template_path.write_text(
+                    json.dumps(
+                        {
+                            "repo_id": "ttec/live_pack",
+                            "repo_path": str(repo_root),
+                            "decision": "in_scope_candidate",
+                            "role_hint": "primary",
+                            "serves_change_points": [1],
+                            "summary": "live_pack 负责成功态收敛。",
+                            "matched_terms": ["AuctionStatus_Success"],
+                            "candidate_dirs": ["entities/loaders/auction_loaders"],
+                            "candidate_files": ["entities/loaders/auction_loaders/auction_status_loader.go"],
+                            "dependencies": [],
+                            "parallelizable_with": [],
+                            "evidence": ["AuctionStatus_Success 已存在"],
+                            "notes": ["regular auction"],
+                            "confidence": "high",
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                return "done"
+
+            from unittest.mock import patch
+
+            with patch("coco_flow.engines.design.research.CocoACPClient.run_agent", side_effect=run_agent_stub):
+                payload = build_design_research_payload(prepared, settings, "", lambda _message: None)
+
+            self.assertEqual(payload["repos"][0]["repo_id"], "live_pack")
+            self.assertEqual(payload["repos"][0]["repo_path"], str(repo_root))
+            self.assertIn("normalized repo_id from ttec/live_pack to live_pack", payload["repos"][0]["notes"])
 
     def test_design_writes_design_markdown_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

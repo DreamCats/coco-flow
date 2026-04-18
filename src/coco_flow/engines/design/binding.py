@@ -84,6 +84,9 @@ def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding
 
 def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, knowledge_brief_markdown: str, on_log) -> DesignRepoBinding:
     fallback = build_local_repo_binding(prepared)
+    if prepared.is_single_bound_repo:
+        fallback.mode = "single_bound_fast_path"
+        return fallback
     if settings.plan_executor.strip().lower() != EXECUTOR_NATIVE:
         return fallback
     client = CocoACPClient(

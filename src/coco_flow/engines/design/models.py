@@ -39,6 +39,18 @@ class DesignPreparedInput:
     responsibility_matrix_payload: dict[str, object] = field(default_factory=dict)
     research_payload: dict[str, object] = field(default_factory=dict)
 
+    @property
+    def repo_discovery_mode(self) -> str:
+        return str(self.repo_discovery_payload.get("mode") or "none")
+
+    @property
+    def is_bound_repo_discovery(self) -> bool:
+        return self.repo_discovery_mode == "bound"
+
+    @property
+    def is_single_bound_repo(self) -> bool:
+        return self.is_bound_repo_discovery and len(self.repo_scopes) == 1
+
 
 @dataclass
 class DesignRepoBindingEntry:

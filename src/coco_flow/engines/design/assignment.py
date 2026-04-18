@@ -97,6 +97,37 @@ def build_design_repo_assignment_payload(
     repos = prepared.repo_researches
     source = "attached_repos" if prepared.repo_scopes else "discovered_repos"
 
+    if prepared.is_single_bound_repo and repos:
+        repo = repos[0]
+        change_point_ids = [int(item.get("id") or index + 1) for index, item in enumerate(change_points)] or [1]
+        return {
+            "mode": "single_bound_fast_path",
+            "source": source,
+            "assignments": [
+                {
+                    "change_point_id": change_point_id,
+                    "change_point_title": str(change_point.get("title") or prepared.title).strip(),
+                    "primary_candidate": repo.repo_id,
+                    "secondary_candidates": [],
+                    "confidence": "high",
+                    "reason": "单仓且用户已绑定 repo，所有 change points 直接归属该仓库。",
+                }
+                for change_point_id, change_point in (
+                    (int(item.get("id") or index + 1), item)
+                    for index, item in enumerate(change_points)
+                )
+            ],
+            "repo_briefs": [
+                {
+                    "repo_id": repo.repo_id,
+                    "repo_path": repo.repo_path,
+                    "primary_change_points": change_point_ids,
+                    "secondary_change_points": [],
+                    "reason": "Single bound repo fast path: all change points are assigned to the only bound repo.",
+                }
+            ],
+        }
+
     repo_briefs: list[dict[str, object]] = []
     by_repo: dict[str, dict[str, object]] = {}
     for repo in repos:

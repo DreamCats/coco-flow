@@ -282,6 +282,10 @@ def generate_native_design_markdown(
     if not content:
         raise ValueError("native_design_agent_did_not_write_valid_template")
 
+    if prepared.is_single_bound_repo:
+        artifacts["design-verify.json"] = {"ok": True, "issues": [], "reason": "single bound repo fast path"}
+        return content
+
     verify_template_path = _write_verify_template(prepared.task_dir)
     try:
         client.run_agent(
