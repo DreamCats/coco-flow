@@ -2,7 +2,7 @@ import type { RepoResult, TaskRecord } from '../../../api'
 import { getTaskArtifact } from '../../../api'
 import { useEffect, useMemo, useState } from 'react'
 import { ArtifactPanel, NotePanel, SectionCard, TabButton, TaskStatusBadge } from '../ui'
-import { executableCodeRepoCount, executableCodeRepos, preferredCodeRepo, repoReadyForCode } from '../model'
+import { executableCodeRepos, preferredCodeRepo, repoReadyForCode } from '../model'
 
 type ResultTab = 'result' | 'verify' | 'diff' | 'log'
 
@@ -28,7 +28,6 @@ export function CodeStage({
       }),
     [task],
   )
-  const hiddenReferenceRepoCount = Math.max(task.repos.length - executableCodeRepoCount(task), 0)
   const [selectedRepoID, setSelectedRepoID] = useState(preferredCodeRepo(task)?.id ?? orderedRepos[0]?.id ?? '')
   const [resultTab, setResultTab] = useState<ResultTab>('result')
   const [repoResult, setRepoResult] = useState('')
@@ -94,8 +93,6 @@ export function CodeStage({
   return (
     <SectionCard title="阶段详情">
       <div className="space-y-5">
-        <CodeProgressPanel hiddenReferenceRepoCount={hiddenReferenceRepoCount} task={task} />
-
         {orderedRepos.length > 1 ? (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
             <RepoQueuePanel repos={orderedRepos} selectedRepoID={selectedRepo?.id ?? ''} onSelectRepo={setSelectedRepoID} />
@@ -117,60 +114,6 @@ export function CodeStage({
         />
       </div>
     </SectionCard>
-  )
-}
-
-function CodeProgressPanel({ task, hiddenReferenceRepoCount }: { task: TaskRecord; hiddenReferenceRepoCount: number }) {
-  const progress = task.codeProgress
-  const visibleSteps = progress.steps.filter((step) => step.key === 'dispatch' || step.key === 'queue' || step.key === 'execute')
-  const activeTone =
-    task.status === 'coding'
-      ? 'bg-[#4fa06d]'
-      : task.status === 'coded'
-        ? 'bg-[#2c8c58]'
-        : task.status === 'failed'
-          ? 'bg-[#c96442]'
-          : 'bg-[#cdbda6] dark:bg-[#4a4640]'
-
-  return (
-    <div className="rounded-[18px] border border-[#ece6da] bg-[#fffdf9] px-4 py-4 dark:border-[#383632] dark:bg-[#151412]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.2em] text-[#87867f] dark:text-[#b0aea5]">Code Progress</div>
-          <div className="mt-2 text-sm text-[#5e5d59] dark:text-[#b0aea5]">{progress.activeLabel || progress.summary}</div>
-          <div className="mt-2 text-sm leading-6 text-[#141413] dark:text-[#faf9f5]">{progress.summary}</div>
-          {hiddenReferenceRepoCount > 0 ? (
-            <div className="mt-3 inline-flex max-w-full items-center rounded-full border border-dashed border-[#d8d3c8] bg-[#f5f4ed] px-3 py-1 text-xs text-[#8a7a67] dark:border-[#3a3937] dark:bg-[#232220] dark:text-[#8f8a82]">
-              另有 {hiddenReferenceRepoCount} 个 `reference_only` 仓库仅作参考，不进入执行队列。
-            </div>
-          ) : null}
-        </div>
-        <div className="rounded-full border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-1 text-xs text-[#5e5d59] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
-          {progress.progressPercent}%
-        </div>
-      </div>
-
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#efeae0] dark:bg-[#232220]">
-        <div className={`h-full rounded-full transition-all duration-300 ${activeTone}`} style={{ width: `${progress.progressPercent}%` }} />
-      </div>
-
-      <div className="mt-4 grid gap-2 md:grid-cols-3">
-        {visibleSteps.map((step) => (
-          <div
-            className={`rounded-[14px] border px-3 py-2 text-xs ${
-              step.state === 'done'
-                ? 'border-[#b8dfcf] bg-[#e3f6ee] text-[#1f6d53] dark:border-[#395d51] dark:bg-[#183229] dark:text-[#8cdabf]'
-                : step.state === 'current'
-                  ? 'border-[#f0c38b] bg-[#fff1dd] text-[#9a5f16] dark:border-[#6f5330] dark:bg-[#3a2a18] dark:text-[#f1c98c]'
-                  : 'border-[#e8e6dc] bg-[#f5f4ed] text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#8f8a82]'
-            }`}
-            key={step.key}
-          >
-            {step.label}
-          </div>
-        ))}
-      </div>
-    </div>
   )
 }
 

@@ -835,7 +835,13 @@ function normalizeTypedCodeProgress(raw: unknown): TaskRecord['codeProgress'] | 
     return null
   }
   const counts = asRecord(current.counts)
-  const steps = Array.isArray(current.steps)
+  const summary = asRecord(current.summary)
+  const batchEntries = Array.isArray(current.repo_batches)
+    ? current.repo_batches.map((item) => asRecord(item))
+    : Array.isArray(current.batches)
+      ? current.batches.map((item) => asRecord(item))
+      : []
+  const explicitSteps = Array.isArray(current.steps)
     ? current.steps.map((item, index) => {
         const step = asRecord(item)
         return {
@@ -845,28 +851,168 @@ function normalizeTypedCodeProgress(raw: unknown): TaskRecord['codeProgress'] | 
         }
       })
     : []
+  const derivedCounts = {
+    ready:
+      asNumber(counts.ready) ||
+      batchEntries.filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'ready').length,
+    running:
+      asNumber(counts.running) ||
+      asNumber(summary.running_batches ?? summary.batch_running) ||
+      batchEntries.filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'running').length,
+    blocked:
+      asNumber(counts.blocked) ||
+      asNumber(summary.blocked_batches ?? summary.batch_blocked) ||
+      batchEntries.filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'blocked').length,
+    failed:
+      asNumber(counts.failed) ||
+      asNumber(summary.failed_batches ?? summary.batch_failed) ||
+      batchEntries.filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'failed').length,
+    done:
+      asNumber(counts.done) ||
+      asNumber(summary.completed_batches ?? summary.batch_completed) ||
+      batchEntries.filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'done').length,
+    reference: asNumber(counts.reference),
+  }
+  const activeBatchId = asString(current.current_batch_id) || asString(current.currentBatchId)
+  const activeBatch = activeBatchId ? batchEntries.find((entry) => asString(entry.id) === activeBatchId) : null
+  const activeReadyBatch = batchEntries.find((entry) => normalizeBatchStatus(asString(entry.status)) === 'ready')
+  const activeRunningBatch = batchEntries.find((entry) => normalizeBatchStatus(asString(entry.status)) === 'running')
+  const activeDoneBatch = batchEntries.find((entry) => normalizeBatchStatus(asString(entry.status)) === 'done')
+  const activeFailedBatch = batchEntries.find((entry) => normalizeBatchStatus(asString(entry.status)) === 'failed')
+  const activeBatchEntry = activeBatch ?? activeRunningBatch ?? activeReadyBatch ?? activeFailedBatch ?? activeDoneBatch ?? null
+  const derivedRepoExecutionOrder = batchEntries
+    .map((entry) => asString(entry.repo_id) || asString(entry.repoId))
+    .filter(Boolean)
+  const derivedRunnableRepoIds = batchEntries
+    .filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'ready')
+    .map((entry) => asString(entry.repo_id) || asString(entry.repoId))
+    .filter(Boolean)
+  const derivedBlockedRepoIds = batchEntries
+    .filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'blocked')
+    .map((entry) => asString(entry.repo_id) || asString(entry.repoId))
+    .filter(Boolean)
+  const derivedFailedRepoIds = batchEntries
+    .filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'failed')
+    .map((entry) => asString(entry.repo_id) || asString(entry.repoId))
+    .filter(Boolean)
+  const derivedCompletedRepoIds = batchEntries
+    .filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'done')
+    .map((entry) => asString(entry.repo_id) || asString(entry.repoId))
+    .filter(Boolean)
+  const totalBatches = asNumber(summary.total_batches ?? summary.batch_total) || batchEntries.length
+  const completedBatches = derivedCounts.done
+  const completedUnits = completedBatches + derivedCounts.failed
+  const derivedProgressPercent =
+    totalBatches <= 0
+      ? 0
+      : Math.min(
+          100,
+          Math.max(
+            derivedCounts.running > 0 ? 8 : 0,
+            Math.round(((completedUnits + derivedCounts.running * 0.5) / Math.max(totalBatches, 1)) * 100),
+          ),
+        )
+  const derivedSummary =
+    derivedCounts.running > 0
+      ? `当前正在推进 ${batchEntries
+          .filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'running')
+          .map((entry) => asString(entry.repo_id) || asString(entry.repoId))
+          .filter(Boolean)
+          .join('、')}。`
+      : derivedCounts.ready > 0
+        ? `当前可执行 ${batchEntries
+            .filter((entry) => normalizeBatchStatus(asString(entry.status)) === 'ready')
+            .map((entry) => asString(entry.repo_id) || asString(entry.repoId))
+            .filter(Boolean)
+            .join('、')}。`
+        : derivedCounts.failed > 0
+          ? `当前有 ${derivedCounts.failed} 个仓执行失败，建议先看结果再决定是否重试。`
+          : derivedCounts.blocked > 0
+            ? `当前有 ${derivedCounts.blocked} 个仓受依赖阻塞。`
+            : derivedCounts.done > 0 && derivedCounts.running === 0 && derivedCounts.ready === 0
+              ? '所有可执行仓已完成，实现结果已收敛。'
+              : '当前还没有开始执行。'
+  const steps = explicitSteps.length > 0 ? explicitSteps : buildCodeStepsFromCounts(derivedCounts)
+  const activeRepoId = asString(current.activeRepoId) || asString(current.active_repo_id) || asString(activeBatchEntry?.repo_id) || asString(activeBatchEntry?.repoId)
+  const activeQueueState = activeBatchEntry ? normalizeBatchStatus(asString(activeBatchEntry.status)) : 'waiting'
   return {
     available: true,
     source: 'typed',
-    summary: asString(current.summary) || 'Code Progress 已生成。',
-    activeLabel: asString(current.activeLabel) || asString(current.active_label) || '执行中',
-    progressPercent: asNumber(current.progressPercent ?? current.progress_percent),
-    activeRepoId: asString(current.activeRepoId) || asString(current.active_repo_id),
-    repoExecutionOrder: normalizeStringList(current.repoExecutionOrder ?? current.repo_execution_order),
-    runnableRepoIds: normalizeStringList(current.runnableRepoIds ?? current.runnable_repo_ids),
-    blockedRepoIds: normalizeStringList(current.blockedRepoIds ?? current.blocked_repo_ids),
-    failedRepoIds: normalizeStringList(current.failedRepoIds ?? current.failed_repo_ids),
-    completedRepoIds: normalizeStringList(current.completedRepoIds ?? current.completed_repo_ids),
+    summary: asString(current.summary) || derivedSummary,
+    activeLabel:
+      asString(current.activeLabel) ||
+      asString(current.active_label) ||
+      (activeRepoId ? `${activeRepoId} · ${labelForQueueState(activeQueueState)}` : '等待开始实现'),
+    progressPercent: asNumber(current.progressPercent ?? current.progress_percent) || derivedProgressPercent,
+    activeRepoId,
+    repoExecutionOrder: normalizeStringList(current.repoExecutionOrder ?? current.repo_execution_order).length > 0
+      ? normalizeStringList(current.repoExecutionOrder ?? current.repo_execution_order)
+      : derivedRepoExecutionOrder,
+    runnableRepoIds: normalizeStringList(current.runnableRepoIds ?? current.runnable_repo_ids).length > 0
+      ? normalizeStringList(current.runnableRepoIds ?? current.runnable_repo_ids)
+      : derivedRunnableRepoIds,
+    blockedRepoIds: normalizeStringList(current.blockedRepoIds ?? current.blocked_repo_ids).length > 0
+      ? normalizeStringList(current.blockedRepoIds ?? current.blocked_repo_ids)
+      : derivedBlockedRepoIds,
+    failedRepoIds: normalizeStringList(current.failedRepoIds ?? current.failed_repo_ids).length > 0
+      ? normalizeStringList(current.failedRepoIds ?? current.failed_repo_ids)
+      : derivedFailedRepoIds,
+    completedRepoIds: normalizeStringList(current.completedRepoIds ?? current.completed_repo_ids).length > 0
+      ? normalizeStringList(current.completedRepoIds ?? current.completed_repo_ids)
+      : derivedCompletedRepoIds,
     referenceRepoIds: normalizeStringList(current.referenceRepoIds ?? current.reference_repo_ids),
     counts: {
-      ready: asNumber(counts.ready),
-      running: asNumber(counts.running),
-      blocked: asNumber(counts.blocked),
-      failed: asNumber(counts.failed),
-      done: asNumber(counts.done),
-      reference: asNumber(counts.reference),
+      ready: derivedCounts.ready,
+      running: derivedCounts.running,
+      blocked: derivedCounts.blocked,
+      failed: derivedCounts.failed,
+      done: derivedCounts.done,
+      reference: derivedCounts.reference,
     },
     steps,
+  }
+}
+
+function buildCodeStepsFromCounts(counts: {
+  ready: number
+  running: number
+  blocked: number
+  failed: number
+  done: number
+  reference: number
+}) {
+  const executableCount = counts.ready + counts.running + counts.blocked + counts.failed + counts.done
+  const dispatchDone = executableCount > 0 || counts.reference > 0
+  const queueDone = counts.ready > 0 || counts.running > 0 || counts.done > 0 || counts.failed > 0
+  const executionDone = counts.running === 0 && (counts.done > 0 || counts.failed > 0)
+  const currentKey = !dispatchDone ? 'dispatch' : !queueDone ? 'queue' : executionDone ? '' : counts.running > 0 ? 'execute' : 'queue'
+  return [
+    { key: 'dispatch', label: '任务分发', state: normalizeDerivedStepState('dispatch', dispatchDone, currentKey) },
+    { key: 'queue', label: '队列就绪', state: normalizeDerivedStepState('queue', queueDone, currentKey) },
+    { key: 'execute', label: '执行实现', state: normalizeDerivedStepState('execute', executionDone, currentKey) },
+  ] satisfies TaskRecord['codeProgress']['steps']
+}
+
+function normalizeBatchStatus(value: string): CodeRepoQueueState {
+  switch (value) {
+    case 'ready':
+      return 'ready'
+    case 'running':
+    case 'coding':
+    case 'in_progress':
+      return 'running'
+    case 'blocked':
+    case 'waiting_on_dependency':
+      return 'blocked'
+    case 'failed':
+    case 'verify_failed':
+      return 'failed'
+    case 'completed':
+    case 'done':
+    case 'coded':
+      return 'done'
+    default:
+      return 'waiting'
   }
 }
 
