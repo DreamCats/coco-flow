@@ -90,6 +90,10 @@ export function TaskDetailPage() {
           onStartCode: detail.startCodeAction,
           onArchive: detail.archiveAction,
         }}
+        onTaskUpdated={async () => {
+          await detail.refresh()
+          await reload()
+        }}
         stage={activeStage}
         task={detail.task}
       />

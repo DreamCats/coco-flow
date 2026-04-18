@@ -114,7 +114,9 @@ function TaskListItemCard({ task, onDelete }: { task: TaskListItem; onDelete: ()
       <Link className="block" params={{ taskId: task.id }} resetScroll={false} to="/tasks/$taskId">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[15px] font-semibold leading-5 tracking-[-0.03em]">{task.title}</div>
+            <div className="line-clamp-2 text-[15px] font-semibold leading-5 tracking-[-0.03em]" title={task.title}>
+              {task.title}
+            </div>
             <div className={`mt-1 text-[11px] font-mono ${active ? 'text-[#87867f] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>{task.id}</div>
           </div>
           <div className="flex flex-col items-end gap-2">

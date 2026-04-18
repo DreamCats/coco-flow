@@ -21,12 +21,14 @@ export function TaskStageDetailPanel({
   busyAction,
   actionError,
   handlers,
+  onTaskUpdated,
 }: {
   task: TaskRecord | null
   stage: TaskStage | null
   busyAction: string
   actionError: string
   handlers: ActionHandlers
+  onTaskUpdated: () => Promise<void> | void
 }) {
   if (!task || !stage) {
     return <EmptyPanel>请选择一个任务。</EmptyPanel>
@@ -55,7 +57,7 @@ export function TaskStageDetailPanel({
       {actionError ? <div className="mt-4 text-sm text-[#b53333]">{actionError}</div> : null}
 
       <div className="mt-5">
-        {stage.id === 'input' ? <InputStage task={task} /> : null}
+        {stage.id === 'input' ? <InputStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'refine' ? <RefineStage task={task} /> : null}
         {stage.id === 'design' ? <DesignStage task={task} /> : null}
         {stage.id === 'plan' ? <PlanStage task={task} /> : null}

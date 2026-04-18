@@ -17,3 +17,24 @@ export function extractSourceSections(artifactContent: string) {
     supplement: supplement?.trim() ?? '',
   }
 }
+
+export function replaceSourceSections(
+  artifactContent: string,
+  next: {
+    source: string
+    supplement: string
+  },
+) {
+  const [header, originalBody] = artifactContent.split('\n---\n', 2)
+  const normalizedSource = next.source.trim()
+  const normalizedSupplement = next.supplement.trim()
+  const bodyLines = [normalizedSource]
+  if (normalizedSupplement) {
+    bodyLines.push('', supplementHeading, '', normalizedSupplement)
+  }
+  const nextBody = bodyLines.join('\n').trim()
+  if (!originalBody) {
+    return `${nextBody}\n`
+  }
+  return `${header.trimEnd()}\n\n---\n\n${nextBody}\n`
+}
