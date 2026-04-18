@@ -117,6 +117,9 @@ def generate_native_refine(
     refined = extract_refined_content(raw)
     if not refined:
         on_log(f"generate_template_preview: {_preview_text(raw)}")
+        missing_section = _find_unfilled_template_section(raw)
+        if missing_section:
+            raise ValueError(f"native_refine_agent_left_placeholder_in_section: {missing_section}")
         raise ValueError("native_refine_agent_did_not_write_valid_template")
     on_log(f"generate_agent_ok: {len(raw)} bytes")
 
@@ -330,6 +333,17 @@ def _looks_like_unfilled_template(content: str) -> bool:
         "\n- [建议补充] 待补充",
     )
     return any(marker in content for marker in placeholders)
+
+
+def _find_unfilled_template_section(content: str) -> str:
+    if not content.strip():
+        return ""
+    sections = _split_markdown_sections(content)
+    for section in _REQUIRED_SECTIONS:
+        body = sections.get(section, "")
+        if "待补充" in body:
+            return section
+    return ""
 
 
 def _payload_has_fill_marker(value: object) -> bool:

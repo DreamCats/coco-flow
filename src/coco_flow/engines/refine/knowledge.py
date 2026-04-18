@@ -181,10 +181,18 @@ def _native_select(
             if template_path.exists():
                 template_path.unlink()
     selected_ids = _ordered_unique(selected_ids)[:4]
+    guarded_ids, guard_rejections = _guard_selected_ids(selected_ids, cards, scored_cards, prepared, intent)
+    if guard_rejections:
+        on_log(f"knowledge_guard_rejected_ids: {', '.join(guard_rejections)}")
+    selected_ids = guarded_ids
     if not selected_ids:
-        selection = _rule_select(cards, scored_cards)
-        selection.mode = "native_fallback_rule"
-        return selection
+        return RefineKnowledgeSelection(
+            selected_ids=[],
+            rejected_ids=[card.id for card in cards],
+            reason="; ".join(_ordered_unique(reasons)) or "llm_shortlist_empty",
+            candidates=[{"score": score, **card.to_payload()} for score, card in scored_cards],
+            mode="llm_empty",
+        )
     rejected_ids = [card.id for card in cards if card.id not in set(selected_ids)]
     return RefineKnowledgeSelection(
         selected_ids=selected_ids,
@@ -348,6 +356,53 @@ def _card_score_lookup(scored_cards: list[tuple[int, KnowledgeCard]], card_id: s
         if card.id == card_id:
             return score
     return 0
+
+
+def _guard_selected_ids(
+    selected_ids: list[str],
+    cards: list[KnowledgeCard],
+    scored_cards: list[tuple[int, KnowledgeCard]],
+    prepared: RefinePreparedInput,
+    intent: RefineIntent,
+) -> tuple[list[str], list[str]]:
+    if not selected_ids:
+        return [], []
+    query_terms = _selection_query_terms(prepared, intent)
+    kept: list[str] = []
+    rejected: list[str] = []
+    card_by_id = {card.id: card for card in cards}
+    for card_id in selected_ids:
+        card = card_by_id.get(card_id)
+        if card is None:
+            continue
+        score = _card_score_lookup(scored_cards, card_id)
+        if score >= 3 and _card_has_term_overlap(card, query_terms):
+            kept.append(card_id)
+            continue
+        rejected.append(card_id)
+    return kept, rejected
+
+
+def _selection_query_terms(prepared: RefinePreparedInput, intent: RefineIntent) -> list[str]:
+    terms = [
+        prepared.title,
+        intent.goal,
+        *intent.terms,
+        *intent.change_points,
+        *intent.boundary_seed,
+    ]
+    normalized: list[str] = []
+    for term in terms:
+        current = str(term).strip().lower()
+        if len(current) < 2:
+            continue
+        normalized.append(current)
+    return _ordered_unique(normalized)
+
+
+def _card_has_term_overlap(card: KnowledgeCard, query_terms: list[str]) -> bool:
+    haystack = " ".join([card.title, card.desc, card.domain_name]).lower()
+    return any(term in haystack for term in query_terms if term and term not in {"需求", "功能", "问题"})
 
 
 def _ordered_unique(items: list[str]) -> list[str]:

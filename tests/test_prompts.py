@@ -83,8 +83,10 @@ class PromptSystemTest(unittest.TestCase):
         )
         self.assertIn("需要编辑的模板文件", rendered)
         self.assertIn("/tmp/prd-refined.template.md", rendered)
+        self.assertIn("最终文件里不能保留“待补充”或任何占位符", rendered)
         self.assertIn("改动范围必须显式覆盖输入里已经明确写出的正向范围限定", rendered)
         self.assertIn("风险提示必须是“实施这次改动后可能出现的潜在问题”", rendered)
+        self.assertIn("当前未识别到明确高风险项，建议人工复核", rendered)
 
     def test_refine_knowledge_read_prompt_contains_file_cards(self) -> None:
         rendered = build_refine_knowledge_read_agent_prompt(

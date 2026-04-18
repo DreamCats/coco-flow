@@ -199,6 +199,96 @@ class RefineTaskTest(unittest.TestCase):
             self.assertEqual(selection["mode"], "llm")
             self.assertEqual(selection["selected_ids"], ["auction-flow"])
 
+    def test_native_refine_shortlist_guard_rejects_low_relevance_knowledge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), refine_executor="native")
+            now = datetime.now().astimezone()
+            write_knowledge_document(
+                settings.knowledge_root / "flows" / "auction-flow.md",
+                KnowledgeDocument(
+                    id="auction-flow",
+                    kind="flow",
+                    status="approved",
+                    title="竞拍讲解卡主链路",
+                    desc="归纳竞拍讲解卡主链路和风险。",
+                    domainId="auction_pop_card",
+                    domainName="竞拍讲解卡",
+                    engines=["refine"],
+                    repos=[],
+                    priority="high",
+                    confidence="high",
+                    updatedAt=now.strftime("%Y-%m-%d %H:%M"),
+                    owner="tester",
+                    body="## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n",
+                    evidence=empty_evidence(),
+                ),
+            )
+            task_dir = build_task(
+                settings=settings,
+                task_id="task-low-relevance",
+                title="两数之和 leetcode golang",
+                source_markdown=(
+                    "# PRD Source\n\n"
+                    "- title: 两数之和 leetcode golang\n"
+                    "- source_type: text\n\n"
+                    "---\n\n"
+                    "给仓库添加两数之和的leetcode算法实现。\n"
+                ),
+            )
+
+            def run_agent_stub(*args, **kwargs):
+                cwd = Path(kwargs["cwd"])
+                if list(cwd.glob(".refine-intent-*.json")):
+                    next(cwd.glob(".refine-intent-*.json")).write_text(
+                        json.dumps(
+                            {
+                                "goal": "给仓库添加两数之和的leetcode算法实现",
+                                "change_points": ["新增两数之和算法实现"],
+                                "terms": ["两数之和", "leetcode", "golang"],
+                                "risks_seed": [],
+                                "discussion_seed": [],
+                                "boundary_seed": [],
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        encoding="utf-8",
+                    )
+                elif list(cwd.glob(".refine-shortlist-*.json")):
+                    next(cwd.glob(".refine-shortlist-*.json")).write_text(
+                        json.dumps(
+                            {"selected_ids": ["auction-flow"], "rejected_ids": [], "reason": "只有这一篇候选"},
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        encoding="utf-8",
+                    )
+                elif list(cwd.glob(".refine-template-*.md")):
+                    next(cwd.glob(".refine-template-*.md")).write_text(
+                        "# PRD Refined\n\n## 核心诉求\n- 给仓库添加两数之和的leetcode算法实现\n\n## 改动范围\n- 新增两数之和算法实现\n\n## 风险提示\n- 当前未识别到明确高风险项，建议人工复核。\n\n## 讨论点\n- [建议补充] 当前输入信息仍偏少，建议补充业务口径和确认结论。\n\n## 边界与非目标\n- 仅围绕当前输入明确提到的需求范围推进，不默认扩展到相邻能力。\n",
+                        encoding="utf-8",
+                    )
+                elif list(cwd.glob(".refine-verify-*.json")):
+                    next(cwd.glob(".refine-verify-*.json")).write_text(
+                        json.dumps(
+                            {"ok": True, "issues": [], "missing_sections": [], "reason": "结构完整"},
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        encoding="utf-8",
+                    )
+                return "done"
+
+            with patch("coco_flow.clients.CocoACPClient.run_agent", side_effect=run_agent_stub) as run_agent_mock:
+                status = refine_task("task-low-relevance", settings=settings)
+
+            self.assertEqual(status, "refined")
+            self.assertEqual(run_agent_mock.call_count, 4)
+            selection = json.loads((task_dir / "refine-knowledge-selection.json").read_text(encoding="utf-8"))
+            self.assertEqual(selection["mode"], "llm_empty")
+            self.assertEqual(selection["selected_ids"], [])
+            self.assertFalse((task_dir / "refine-knowledge-read.md").exists())
+
     def test_native_refine_falls_back_when_verify_rejects_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), refine_executor="native")
