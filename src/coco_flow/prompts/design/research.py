@@ -11,7 +11,6 @@ def build_design_repo_research_template_json() -> str:
         '  "repo_id": "__FILL__",\n'
         '  "repo_path": "__FILL__",\n'
         '  "decision": "__FILL__",\n'
-        '  "role_hint": "__FILL__",\n'
         '  "serves_change_points": [1],\n'
         '  "primary_change_points": [1],\n'
         '  "secondary_change_points": [],\n'
@@ -51,7 +50,6 @@ def build_design_repo_research_agent_prompt(
             "可以自由使用搜索、读取、命令等工具，但不要改业务代码。",
             "candidate_dirs 和 candidate_files 必须使用当前仓库内的相对路径。",
             "decision 只使用 in_scope_candidate / out_of_scope / uncertain。",
-            "role_hint 只使用 primary / supporting / reference。",
             "如果没有明确证据，不要臆造依赖关系；parallelizable_with 只写有明确可并行依据的 repo id。",
             "完成后只需简短回复已完成。",
         ],

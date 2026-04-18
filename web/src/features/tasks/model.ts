@@ -78,7 +78,7 @@ function buildFallbackTaskStages(task: TaskRecord): TaskStage[] {
       id: 'code',
       label: 'Code',
       status: !hasPlan ? 'pending' : !hasRepoBinding ? 'blocked' : resolveCodeStageStatus(task),
-      summary: '按仓推进实现与验证。',
+      summary: task.codeProgress.available ? task.codeProgress.summary : '按仓推进实现与验证。',
     },
     {
       id: 'archive',
@@ -216,11 +216,47 @@ function measureCharWidth(char: string) {
 }
 
 export function repoReadyForCode(repo: RepoResult) {
-  return repo.status === 'planned' || repo.status === 'failed'
+  if (repo.executionMode === 'reference_only') {
+    return false
+  }
+  return repo.queueState === 'ready' || repo.queueState === 'failed'
+}
+
+export function executableCodeRepos(task: TaskRecord): RepoResult[] {
+  const repos = task.repos.filter((repo) => repo.executionMode !== 'reference_only')
+  return repos.length > 0 ? repos : task.repos
+}
+
+export function executableCodeRepoCount(task: TaskRecord): number {
+  return task.repos.filter((repo) => repo.executionMode !== 'reference_only').length
 }
 
 export function preferredCodeRepo(task: TaskRecord): RepoResult | null {
-  return task.repos.find(repoReadyForCode) ?? task.repos[0] ?? null
+  const repos = executableCodeRepos(task)
+  const activeRepo = task.codeProgress.activeRepoId ? repos.find((repo) => repo.id === task.codeProgress.activeRepoId) : null
+  if (activeRepo && activeRepo.executionMode !== 'reference_only') {
+    return activeRepo
+  }
+  return (
+    repos.find((repo) => repo.queueState === 'running') ??
+    repos.find(repoReadyForCode) ??
+    repos.find((repo) => repo.executionMode !== 'reference_only') ??
+    repos[0] ??
+    null
+  )
+}
+
+export function codeActionLabelForRepo(repo: RepoResult | null) {
+  if (!repo) {
+    return '等待仓库'
+  }
+  if (repo.executionMode === 'reference_only') {
+    return '仅参考'
+  }
+  if (repo.executionMode === 'verify_only') {
+    return repo.status === 'failed' ? '重新验证' : '执行验证'
+  }
+  return repo.status === 'failed' ? '重试实现' : '开始实现'
 }
 
 function resolveCodeStageStatus(task: TaskRecord): TaskStageStatus {

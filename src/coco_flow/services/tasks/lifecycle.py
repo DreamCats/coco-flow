@@ -98,12 +98,16 @@ def archive_task(task_id: str, settings: Settings | None = None, repo_id: str = 
 def refresh_task_level_code_artifacts(task_dir: Path) -> None:
     code_results_dir = task_dir / "code-results"
     if not code_results_dir.is_dir():
+        remove_file(task_dir / "code-dispatch.json")
+        remove_file(task_dir / "code-progress.json")
         remove_file(task_dir / "code-result.json")
         remove_file(task_dir / "code.log")
         return
 
     result_paths = sorted(code_results_dir.glob("*.json"))
     if not result_paths:
+        remove_file(task_dir / "code-dispatch.json")
+        remove_file(task_dir / "code-progress.json")
         remove_file(task_dir / "code-result.json")
         remove_file(task_dir / "code.log")
         return

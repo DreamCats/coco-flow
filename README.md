@@ -16,6 +16,7 @@ Current technical stance:
 - [`docs/refine-v2-design.md`](docs/refine-v2-design.md): current Refine design based on Input artifacts, knowledge selection, and multi-step prompting
 - [`docs/design-v2-design.md`](docs/design-v2-design.md): proposed Design-stage split with formal input/output contracts, repo binding semantics, and template-based artifacts
 - [`docs/plan-engine.md`](docs/plan-engine.md): how the `plan` engine does repo research, scope extraction, generation, and verification
+- [`docs/code-v2-design.md`](docs/code-v2-design.md): Code V2 input/output contracts, repo batch execution model, and Web UI expectations
 
 ## First Version Scope
 
@@ -145,7 +146,9 @@ Behavior notes:
 - deeper rationale for `refine` lives in [`docs/refine-v2-design.md`](docs/refine-v2-design.md)
 - deeper rationale for `plan` lives in [`docs/plan-engine.md`](docs/plan-engine.md)
 - `code`: supports `native` and `local`
-- `code=native` runs through `coco acp serve`, verifies the changed scope, retries once or twice on build failures, and records commit/code-result artifacts back into the task
+- `code`: consumes `design-repo-binding.json`, `plan-work-items.json`, `plan-execution-graph.json`, `plan-validation.json`, and `plan-result.json`
+- `code`: records `code-dispatch.json`, `code-progress.json`, task-level `code-result.json`, and repo-level `code-results` / `code-logs` / `code-verify` / `diffs`
+- `code=native` runs through `coco acp serve`, executes repo batches, verifies the changed scope, retries on build failures, and records commit/code-result artifacts back into the task
 - Go verification defaults to `go build` only; `go test` is disabled by default for large repos. If you really want it, set `COCO_FLOW_ENABLE_GO_TEST_VERIFY=1`, and `coco-flow` will only run tests for affected packages that actually contain `*_test.go`
 
 ## Idle Timeout
@@ -195,7 +198,7 @@ Current endpoints:
 ```text
 src/coco_flow/
 ├── api/            # FastAPI app factory
-├── engines/        # Refine / plan reasoning engines
+├── engines/        # Input / Refine / Design / Plan / Code reasoning engines
 ├── models/         # Shared response models
 ├── services/       # Workflow wrappers, queries, and runtime helpers
 ├── cli.py          # Typer entrypoint

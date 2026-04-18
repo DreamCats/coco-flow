@@ -28,8 +28,10 @@ def design_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
         raise ValueError(f"task metadata missing: {task_id}")
 
     status = str(task_meta.get("status") or "")
-    if status not in {"refined", STATUS_DESIGNING, STATUS_DESIGNED, STATUS_FAILED}:
+    if status not in {"refined", STATUS_DESIGNING, STATUS_DESIGNED, "planned", STATUS_FAILED}:
         raise ValueError(f"task status {status} does not allow design")
+    if status == "planned":
+        _reset_plan_outputs(task_dir)
 
     logger = on_log or (lambda line: append_design_log(task_dir, line))
     owns_log_lifecycle = on_log is None
@@ -59,6 +61,7 @@ def design_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
         task_meta["status"] = result.status
         task_meta["updated_at"] = datetime.now().astimezone().isoformat()
         (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        _sync_repo_status(task_dir, result.status)
         return result.status
     except Exception as error:
         if owns_log_lifecycle:
@@ -82,13 +85,16 @@ def start_designing_task(task_id: str, settings: Settings | None = None) -> str:
         raise ValueError(f"task metadata missing: {task_id}")
 
     status = str(task_meta.get("status") or "")
-    if status not in {"refined", STATUS_DESIGNED, STATUS_FAILED}:
+    if status not in {"refined", STATUS_DESIGNED, "planned", STATUS_FAILED}:
         raise ValueError(f"task status {status} does not allow design")
 
     _reset_design_outputs(task_dir)
+    if status == "planned":
+        _reset_plan_outputs(task_dir)
     task_meta["status"] = STATUS_DESIGNING
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
     (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _sync_repo_status(task_dir, STATUS_DESIGNING)
     return STATUS_DESIGNING
 
 
@@ -119,3 +125,44 @@ def _reset_design_outputs(task_dir: Path) -> None:
     for pattern in (".design-template-*.md", ".design-research-*.json", ".design-repo-binding-*.json", ".design-verify-*.json"):
         for path in task_dir.glob(pattern):
             path.unlink()
+
+
+def _reset_plan_outputs(task_dir: Path) -> None:
+    for name in (
+        "plan.md",
+        "plan.log",
+        "plan-knowledge-selection.json",
+        "plan-knowledge-brief.md",
+        "plan-task-outline.json",
+        "plan-work-items.json",
+        "plan-execution-graph.json",
+        "plan-validation.json",
+        "plan-dependency-notes.json",
+        "plan-risk-check.json",
+        "plan-verify.json",
+        "plan-result.json",
+        "plan-scope.json",
+        "plan-execution.json",
+    ):
+        path = task_dir / name
+        if path.exists():
+            path.unlink()
+    for pattern in (".plan-template-*.md", ".plan-task-outline-*.json", ".plan-verify-*.json"):
+        for path in task_dir.glob(pattern):
+            path.unlink()
+
+
+def _sync_repo_status(task_dir: Path, status: str) -> None:
+    repos_path = task_dir / "repos.json"
+    repos_meta = read_json_file(repos_path)
+    raw_repos = repos_meta.get("repos")
+    if not isinstance(raw_repos, list):
+        return
+    changed = False
+    for item in raw_repos:
+        if not isinstance(item, dict):
+            continue
+        item["status"] = status
+        changed = True
+    if changed:
+        repos_path.write_text(json.dumps(repos_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

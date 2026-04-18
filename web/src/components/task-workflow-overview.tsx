@@ -1,4 +1,4 @@
-import type { RepoResult, TaskRecord } from '../api'
+import type { TaskRecord } from '../api'
 import { StatusBadge } from './ui-primitives'
 
 type WorkflowNodeState = 'done' | 'current' | 'pending' | 'failed' | 'blocked'
@@ -91,8 +91,8 @@ function MetaPill({ label, value }: { label: string; value: string }) {
 function buildWorkflowNodes(task: TaskRecord): WorkflowNode[] {
   const hasDesign = hasActionableArtifact(task.artifacts['design.md'])
   const hasPlan = hasActionableArtifact(task.artifacts['plan.md'])
-  const blockedRepos = listBlockedRepos(task.repos)
-  const hasReadyRepo = task.repoNext.length > 0
+  const blockedRepos = task.codeProgress.blockedRepoIds
+  const hasReadyRepo = task.codeProgress.runnableRepoIds.length > 0
   const codeState = resolveCodeState(task, hasPlan, blockedRepos.length > 0, hasReadyRepo)
   const designState = resolveDesignState(task, hasDesign)
   const planState = resolvePlanState(task, hasPlan)
@@ -259,16 +259,16 @@ function codeDetail(task: TaskRecord, blockedRepos: string[], hasReadyRepo: bool
     return `当前 code 受依赖阻塞：${blockedRepos.join(', ')}。`
   }
   if (task.status === 'coding') {
-    return '至少一个 repo 正在执行 code，日志和结果会持续更新。'
+    return task.codeProgress.summary || '至少一个 repo 正在执行 code，日志和结果会持续更新。'
   }
   if (task.status === 'partially_coded') {
-    return '已有部分 repo 完成，可继续推进剩余 repo。'
+    return task.codeProgress.summary || '已有部分 repo 完成，可继续推进剩余 repo。'
   }
   if (task.status === 'failed') {
-    return '当前存在失败 repo，建议先看 code.log / code-result.json。'
+    return task.codeProgress.summary || '当前存在失败 repo，建议先看 code.log / code-result.json。'
   }
   if (task.status === 'planned') {
-    return task.repoNext.length > 0 ? `当前可优先推进 repo：${task.repoNext.join(', ')}` : '方案已就绪，可进入 code。'
+    return task.codeProgress.runnableRepoIds.length > 0 ? `当前可优先推进 repo：${task.codeProgress.runnableRepoIds.join(', ')}` : task.codeProgress.summary || '方案已就绪，可进入 code。'
   }
   return '等待进入 code 阶段。'
 }
@@ -281,10 +281,6 @@ function archiveDetail(task: TaskRecord) {
     return '代码结果已经齐备，当前可进入归档收尾。'
   }
   return '当前尚未进入归档阶段。'
-}
-
-function listBlockedRepos(repos: RepoResult[]) {
-  return repos.filter((repo) => repo.failureType === 'blocked_by_dependency').map((repo) => repo.id)
 }
 
 function hasActionableArtifact(content?: string) {

@@ -18,6 +18,7 @@ from coco_flow.engines.design.matrix import (
 )
 from coco_flow.engines.design.generate import (
     build_design_sections_payload,
+    collect_design_contract_issues,
     generate_design_markdown,
     generate_local_design_markdown,
 )
@@ -33,7 +34,7 @@ from coco_flow.engines.plan_models import (
     ResearchFinding,
 )
 from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
-from coco_flow.services.tasks.design import design_task
+from coco_flow.services.tasks.design import design_task, start_designing_task
 from coco_flow.services.tasks.plan import plan_task
 
 
@@ -245,13 +246,57 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(payload["system_changes"][0]["system_id"], "live_pack")
             self.assertEqual(payload["validate_repos"][0]["repo_id"], "live_shopapi")
             self.assertEqual(payload["reference_repos"][0]["repo_id"], "live_common")
+            self.assertEqual(payload["repo_decisions"][0]["repo_id"], "live_pack")
+            self.assertIn("联动验证", payload["repo_decisions"][1]["decision_summary"])
 
             markdown = generate_local_design_markdown(prepared, repo_binding_payload, payload, "")
             self.assertIn("#### Live Pack", markdown)
+            self.assertIn("选择原因", markdown)
             self.assertIn("### 联动验证仓库", markdown)
             self.assertIn("live_shopapi", markdown)
             self.assertIn("### 参考链路", markdown)
             self.assertIn("live_common", markdown)
+
+    def test_design_contract_requires_multi_repo_roles_and_candidate_files(self) -> None:
+        repo_binding_payload = {
+            "repo_bindings": [
+                {
+                    "repo_id": "demo",
+                    "decision": "in_scope",
+                    "scope_tier": "must_change",
+                    "system_name": "Demo",
+                    "candidate_files": ["main.go"],
+                },
+                {
+                    "repo_id": "test",
+                    "decision": "in_scope",
+                    "scope_tier": "validate_only",
+                    "system_name": "Test",
+                },
+            ]
+        }
+        sections_payload = {
+            "repo_decisions": [
+                {
+                    "repo_id": "demo",
+                    "candidate_files": ["main.go"],
+                },
+                {
+                    "repo_id": "test",
+                    "candidate_files": ["quick_sort.go"],
+                },
+            ]
+        }
+
+        issues = collect_design_contract_issues(
+            "# Design\n\n## 方案设计\n\n### 分系统改造\n- demo 仓负责新增 two sum。\n",
+            repo_binding_payload,
+            sections_payload,
+        )
+
+        self.assertTrue(any("test" in issue for issue in issues))
+        self.assertTrue(any("联动验证仓库" in issue for issue in issues))
+        self.assertTrue(any("main.go" in issue or "实现落点" in issue for issue in issues))
 
     def test_local_responsibility_matrix_prefers_state_aggregation_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -611,6 +656,152 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(by_repo["live_shopapi"]["scope_tier"], "validate_only")
             self.assertEqual(by_repo["live_common"]["scope_tier"], "reference_only")
 
+    def test_local_repo_binding_marks_single_repo_choice_as_tiebreak_when_alternatives_are_comparable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            demo = Path(tmp) / "demo"
+            test_repo = Path(tmp) / "test"
+            demo.mkdir()
+            test_repo.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-binding-selection-basis",
+                title="two sum",
+                refined_markdown="# PRD Refined\n\n- 添加 two sum 算法\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[
+                    RepoScope(repo_id="demo", repo_path=str(demo)),
+                    RepoScope(repo_id="test", repo_path=str(test_repo)),
+                ],
+                repo_researches=[
+                    RepoResearch(
+                        repo_id="demo",
+                        repo_path=str(demo),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[],
+                            unmatched_terms=[],
+                            candidate_files=["main.go"],
+                            candidate_dirs=["."],
+                            notes=["已有冒泡排序"],
+                        ),
+                    ),
+                    RepoResearch(
+                        repo_id="test",
+                        repo_path=str(test_repo),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[],
+                            unmatched_terms=[],
+                            candidate_files=["quick_sort.go"],
+                            candidate_dirs=["."],
+                            notes=["已有快排实现"],
+                        ),
+                    ),
+                ],
+                repo_ids={"demo", "test"},
+                repo_root=str(demo),
+                sections=RefinedSections(
+                    change_scope=["添加 two sum 算法文件"],
+                    non_goals=["不扩展到其他算法题"],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+                responsibility_matrix_payload={
+                    "repos": [
+                        {"repo_id": "demo", "recommended_scope_tier": "must_change", "reasoning": "demo 可直接落 two sum 实现"},
+                        {"repo_id": "test", "recommended_scope_tier": "validate_only", "reasoning": "test 也可承接实现，但本轮默认不作为起始仓"},
+                    ]
+                },
+                research_payload={
+                    "repos": [
+                        {"repo_id": "demo", "prefilter_score": 2, "candidate_files": ["main.go"], "summary": "demo 适合添加 two sum"},
+                        {"repo_id": "test", "prefilter_score": 2, "candidate_files": ["quick_sort.go"], "summary": "test 也适合添加 two sum"},
+                    ]
+                },
+            )
+
+            binding = build_local_repo_binding(prepared).to_payload()
+
+            self.assertEqual(binding["closure_mode"], "single_repo")
+            self.assertEqual(binding["selection_basis"], "heuristic_tiebreak")
+            self.assertIn("demo", binding["selection_note"])
+            self.assertIn("test", binding["selection_note"])
+
+    def test_local_design_markdown_separates_single_repo_closure_from_repo_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-markdown-selection-note",
+                title="two sum",
+                refined_markdown="# PRD Refined\n\n- 添加 two sum 算法\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[],
+                repo_researches=[],
+                repo_ids=set(),
+                repo_root=None,
+                sections=RefinedSections(
+                    change_scope=["添加 two sum 算法文件"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+                research_payload={
+                    "repos": [
+                        {"repo_id": "demo", "summary": "已有冒泡排序", "candidate_files": ["main.go"]},
+                        {"repo_id": "test", "summary": "已有快排实现", "candidate_files": ["quick_sort.go"]},
+                    ]
+                },
+            )
+            repo_binding_payload = {
+                "repo_bindings": [
+                    {
+                        "repo_id": "demo",
+                        "decision": "in_scope",
+                        "scope_tier": "must_change",
+                        "system_name": "Demo",
+                        "responsibility": "主算法实现仓库",
+                        "change_summary": ["添加 two sum 算法文件"],
+                        "candidate_files": ["main.go"],
+                        "reason": "demo 可作为默认起始实现仓",
+                    },
+                    {
+                        "repo_id": "test",
+                        "decision": "in_scope",
+                        "scope_tier": "validate_only",
+                        "system_name": "Test",
+                        "reason": "test 也可承接实现，但当前不默认改动",
+                    },
+                ],
+                "decision_summary": "选择 demo 作为默认起始实现仓",
+                "closure_mode": "single_repo",
+                "selection_basis": "heuristic_tiebreak",
+                "selection_note": "demo 和 test 都可承接实现；当前默认选择 demo 作为起始实现仓，不代表 test 不能实现该需求。",
+            }
+
+            payload = build_design_sections_payload(prepared, repo_binding_payload, "")
+            markdown = generate_local_design_markdown(prepared, repo_binding_payload, payload, "")
+
+            self.assertIn("当前判断：需求可在单仓内闭合实现", markdown)
+            self.assertIn("仓库选择：demo 和 test 都可承接实现", markdown)
+            self.assertIn("仓库选择说明：demo 和 test 都可承接实现", markdown)
+            self.assertEqual(markdown.count("默认选择 demo 作为起始实现仓"), 2)
+
     def test_native_design_research_uses_run_agent_for_multiple_candidate_repos(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), plan_executor="native")
@@ -687,7 +878,6 @@ class PlanTaskPipelineTest(unittest.TestCase):
                             "repo_id": repo_id,
                             "repo_path": str(repo_a if repo_id == "repo_a" else repo_b),
                             "decision": "in_scope_candidate",
-                            "role_hint": "primary" if repo_id == "repo_a" else "supporting",
                             "serves_change_points": [1],
                             "summary": f"{repo_id} 需要进入 Design。",
                             "matched_terms": ["竞拍讲解卡" if repo_id == "repo_a" else "状态提示"],
@@ -784,7 +974,6 @@ class PlanTaskPipelineTest(unittest.TestCase):
                             "repo_id": "ttec/live_pack",
                             "repo_path": str(repo_root),
                             "decision": "in_scope_candidate",
-                            "role_hint": "primary",
                             "serves_change_points": [1],
                             "summary": "live_pack 负责成功态收敛。",
                             "matched_terms": ["AuctionStatus_Success"],
@@ -906,6 +1095,51 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("## 方案设计", design)
             self.assertIn("竞拍讲解卡需要支持主播侧状态提示", design)
             self.assertTrue((task_dir / "design-result.json").exists())
+
+    def test_start_designing_task_allows_planned_and_clears_plan_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            repo_root = Path(tmp) / "repo"
+            repo_root.mkdir(parents=True)
+            task_id = "task-redesign-from-planned"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = datetime.now().astimezone().isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "重新设计测试",
+                        "status": "planned",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "重新设计测试",
+                        "repo_count": 1,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(
+                json.dumps({"repos": [{"id": "demo_repo", "path": str(repo_root), "status": "planned"}]}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "design.md").write_text("# Design\n\n- old design\n", encoding="utf-8")
+            (task_dir / "plan.md").write_text("# Plan\n\n- old plan\n", encoding="utf-8")
+            (task_dir / "plan.log").write_text("old plan log\n", encoding="utf-8")
+            (task_dir / "plan-result.json").write_text('{"status":"planned"}\n', encoding="utf-8")
+
+            status = start_designing_task(task_id, settings=settings)
+
+            self.assertEqual(status, "designing")
+            self.assertEqual(json.loads((task_dir / "task.json").read_text(encoding="utf-8"))["status"], "designing")
+            self.assertEqual(json.loads((task_dir / "repos.json").read_text(encoding="utf-8"))["repos"][0]["status"], "designing")
+            self.assertFalse((task_dir / "plan.md").exists())
+            self.assertFalse((task_dir / "plan.log").exists())
+            self.assertFalse((task_dir / "plan-result.json").exists())
 
     def test_design_can_infer_repos_from_selected_knowledge_when_repos_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1479,9 +1713,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(status, "planned")
             selection = json.loads((task_dir / "plan-knowledge-selection.json").read_text(encoding="utf-8"))
             self.assertEqual(selection["selected_ids"], ["flow-auction-card-plan"])
-            execution = json.loads((task_dir / "plan-execution.json").read_text(encoding="utf-8"))
-            self.assertTrue(execution["tasks"])
-            self.assertEqual(execution["tasks"][0]["verify_rule"], ["受影响 package 编译通过。"])
+            work_items = json.loads((task_dir / "plan-work-items.json").read_text(encoding="utf-8"))
+            self.assertTrue(work_items["work_items"])
+            self.assertEqual(work_items["work_items"][0]["repo_id"], "demo_repo")
+            validation = json.loads((task_dir / "plan-validation.json").read_text(encoding="utf-8"))
+            self.assertTrue(validation["task_validations"])
             brief = (task_dir / "plan-knowledge-brief.md").read_text(encoding="utf-8")
             self.assertIn("Plan Knowledge Brief", brief)
             self.assertIn("竞拍讲解卡状态提示链路", brief)
@@ -1497,7 +1733,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("- scope_tier：must_change", design)
             self.assertIn("## 实施策略", plan)
             self.assertIn("## 任务拆分", plan)
-            self.assertIn("受影响 package 编译通过", plan)
+            self.assertIn("最小范围验证通过", plan)
 
     def test_native_plan_runs_scope_and_verify(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1611,75 +1847,139 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 "- 优先收敛讲解卡状态提示边界。\n",
                 encoding="utf-8",
             )
+            (task_dir / "design-repo-binding.json").write_text(
+                json.dumps(
+                    {
+                        "repo_bindings": [
+                            {
+                                "repo_id": "demo_repo",
+                                "repo_path": str(repo_root),
+                                "decision": "in_scope",
+                                "scope_tier": "must_change",
+                                "serves_change_points": [1],
+                                "system_name": "demo_repo",
+                                "responsibility": "demo_repo 承担主改职责。",
+                                "change_summary": ["收敛讲解卡状态提示改造范围。"],
+                                "boundaries": ["非竞拍态不展示"],
+                                "candidate_dirs": ["app/explain_card"],
+                                "candidate_files": ["demo_repo/app/explain_card/render_handler.go"],
+                                "depends_on": [],
+                                "parallelizable_with": [],
+                                "confidence": "high",
+                                "reason": "主链路入口在该 repo。",
+                            }
+                        ],
+                        "missing_repos": [],
+                        "decision_summary": "必须改动仓库：demo_repo",
+                        "mode": "local",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "design-sections.json").write_text(
+                json.dumps(
+                    {
+                        "system_change_points": ["收敛讲解卡状态提示改造范围"],
+                        "solution_overview": "先在现有讲解卡入口范围内收敛改动。",
+                        "system_changes": [],
+                        "system_dependencies": [],
+                        "critical_flows": [{"name": "主链路", "trigger": "ExplainCardHandler"}],
+                        "protocol_changes": [],
+                        "storage_config_changes": [],
+                        "experiment_changes": [],
+                        "qa_inputs": ["校验主播侧状态提示与现有样式兼容。"],
+                        "staffing_estimate": {"summary": "单仓收敛为主"},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             task_meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
             task_meta["status"] = "designed"
             (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
             from unittest.mock import patch
 
-            with patch(
-                "coco_flow.clients.CocoACPClient.run_prompt_only",
-                side_effect=[
-                    json.dumps(
-                        {
-                            "summary": "优先收敛讲解卡状态提示边界",
-                            "boundaries": ["非竞拍态不展示", "保持现有样式"],
-                            "priorities": ["先收敛入口文件范围"],
-                            "risk_focus": ["不要破坏现有讲解卡展示"],
-                            "validation_focus": ["校验主播侧状态提示与现有样式兼容"],
-                        }
-                    ),
-                    json.dumps({"ok": True, "issues": [], "reason": "design 结构完整"}),
-                    (
-                        "=== EXECUTION STRATEGY ===\n"
-                        "- 优先围绕现有讲解卡入口文件收敛改动。\n"
-                        "=== CANDIDATE FILES ===\n"
-                        "- app/explain_card/render_handler.go\n"
-                        "=== TASK STEPS ===\n"
-                        "- 在 app/explain_card/render_handler.go 中补齐竞拍态状态提示逻辑。\n"
-                        "=== BLOCKERS AND RISKS ===\n"
-                        "- 保持非竞拍态不展示。\n"
-                        "=== VALIDATION PLAN ===\n"
-                        "- 受影响 package 编译通过。\n"
-                    ),
-                    json.dumps({"ok": True, "issues": [], "reason": "execution 结构完整"}),
-                ],
-            ) as run_prompt_only_mock, patch(
-                "coco_flow.clients.CocoACPClient.run_readonly_agent",
-                return_value=(
-                    "=== SYSTEM CHANGE POINTS ===\n"
-                    "- 收敛讲解卡状态提示改造范围。\n"
-                    "=== SOLUTION OVERVIEW ===\n"
-                    "- 先在现有讲解卡入口范围内收敛改动。\n"
-                    "=== SYSTEM DEPENDENCIES ===\n"
-                    "- 先完成讲解卡入口逻辑，再确认上下游展示兼容性。\n"
-                    "=== CRITICAL FLOWS ===\n"
-                    "- 主链路从 ExplainCardHandler 进入，再下发状态提示。\n"
-                    "=== PROTOCOL CHANGES ===\n"
-                    "- 当前未发现明确协议变更，保持接口兼容。\n"
-                    "=== STORAGE CONFIG CHANGES ===\n"
-                    "- 当前未发现明确存储或配置变更。\n"
-                    "=== EXPERIMENT CHANGES ===\n"
-                    "- 当前未发现明确实验变更。\n"
-                    "=== QA INPUTS ===\n"
-                    "- 校验主播侧状态提示与现有样式兼容。\n"
-                    "=== STAFFING ESTIMATE ===\n"
-                    "- 预计以后端单仓收敛为主，前后协调成本较低。\n"
-                ),
-            ) as run_readonly_agent_mock:
+            def fake_run_agent(prompt: str, *_args, **_kwargs):
+                if ".plan-task-outline-" in prompt:
+                    path = prompt.split("- file: ", 1)[1].split("\n", 1)[0].strip()
+                    Path(path).write_text(
+                        json.dumps(
+                            {
+                                "task_units": [
+                                    {
+                                        "id": "W1",
+                                        "title": "[demo_repo] 推进「竞拍讲解卡需要支持主播侧状态提示。」执行",
+                                        "repo_id": "demo_repo",
+                                        "task_type": "implementation",
+                                        "serves_change_points": [1],
+                                        "goal": "在 demo_repo 完成状态提示相关执行任务。",
+                                        "scope_summary": ["仅覆盖主状态定义与入口适配"],
+                                        "inputs": ["design-repo-binding.json"],
+                                        "outputs": ["demo_repo 执行改动完成"],
+                                        "done_definition": ["主链路逻辑落地"],
+                                        "validation_focus": ["最小范围验证通过"],
+                                        "risk_notes": ["避免破坏现有样式"],
+                                    }
+                                ]
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    return "ok"
+                if ".plan-template-" in prompt:
+                    path = prompt.split("- file: ", 1)[1].split("\n", 1)[0].strip()
+                    Path(path).write_text(
+                        "# Plan\n\n"
+                        "## 实施策略\n"
+                        "- 先收敛 demo_repo 主改范围。\n\n"
+                        "## 任务拆分\n"
+                        "- W1 demo_repo 主执行任务。\n\n"
+                        "## 执行顺序\n"
+                        "- W1\n\n"
+                        "## 并发与协同\n"
+                        "- 当前无额外并发组。\n\n"
+                        "## 验证计划\n"
+                        "- 最小范围验证通过。\n\n"
+                        "## 阻塞项与风险\n"
+                        "- 避免破坏现有样式。\n\n"
+                        "## 交付边界\n"
+                        "- 非竞拍态不展示。\n",
+                        encoding="utf-8",
+                    )
+                    return "ok"
+                if ".plan-verify-" in prompt:
+                    path = prompt.split("- file: ", 1)[1].split("\n", 1)[0].strip()
+                    Path(path).write_text(
+                        json.dumps({"ok": True, "issues": [], "reason": "plan 结构完整"}, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    return "ok"
+                raise AssertionError(prompt)
+
+            with patch("coco_flow.clients.CocoACPClient.run_agent", side_effect=fake_run_agent) as run_agent_mock:
                 status = plan_task(task_id, settings=settings)
 
             self.assertEqual(status, "planned")
-            execution = json.loads((task_dir / "plan-execution.json").read_text(encoding="utf-8"))
-            self.assertTrue(execution["tasks"])
-            self.assertEqual(run_prompt_only_mock.call_args_list[0].kwargs.get("fresh_session"), True)
+            work_items = json.loads((task_dir / "plan-work-items.json").read_text(encoding="utf-8"))
+            self.assertTrue(work_items["work_items"])
+            self.assertEqual(run_agent_mock.call_count, 3)
+            self.assertEqual(run_agent_mock.call_args_list[0].kwargs.get("fresh_session"), True)
             design = (task_dir / "design.md").read_text(encoding="utf-8")
             plan = (task_dir / "plan.md").read_text(encoding="utf-8")
             self.assertIn("## 系统改造点", design)
             self.assertIn("收敛讲解卡状态提示改造范围", design)
             self.assertIn("## 执行顺序", plan)
             self.assertIn("## 实施策略", plan)
-            self.assertIn("受影响 package 编译通过", plan)
+            self.assertIn("最小范围验证通过", plan)
 
 
 if __name__ == "__main__":

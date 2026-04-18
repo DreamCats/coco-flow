@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { TaskRecord } from '../api'
+import { executableCodeRepoCount } from '../features/tasks/model'
 
 export function TaskPrimaryAction({
   task,
@@ -52,11 +53,12 @@ export function TaskPrimaryAction({
   onStartPlan: () => void
   onStartRemainingCode: () => void
 }) {
-  const repoCount = task.repos.length
-  const codedCount = task.repos.filter((repo) => repo.status === 'coded' || repo.status === 'archived').length
-  const failedCount = task.repos.filter((repo) => repo.status === 'failed').length
-  const runningCount = task.repos.filter((repo) => repo.status === 'coding').length
-  const blockedRepos = task.repos.filter((repo) => repo.failureType === 'blocked_by_dependency').map((repo) => repo.id)
+  const executableRepoCount = executableCodeRepoCount(task)
+  const repoCount = executableRepoCount || task.repos.length
+  const codedCount = task.codeProgress.counts.done
+  const failedCount = task.codeProgress.counts.failed
+  const runningCount = task.codeProgress.counts.running
+  const blockedRepos = task.codeProgress.blockedRepoIds
   const currentStage = currentStageLabel(task)
   const pendingRefine = isPendingRefineTask(task)
   const missingLarkCli = pendingRefine && task.sourceFetchErrorCode === 'missing_lark_cli'
@@ -156,8 +158,8 @@ export function TaskPrimaryAction({
           value={
             blockedRepos.length > 0
               ? `blocked repos: ${blockedRepos.join(', ')}`
-              : task.repoNext.length > 0
-                ? `next repo: ${task.repoNext.join(', ')}`
+              : task.codeProgress.runnableRepoIds.length > 0
+                ? `next repo: ${task.codeProgress.runnableRepoIds.join(', ')}`
                 : '当前没有显式依赖阻塞。'
           }
         />
@@ -189,7 +191,7 @@ export function TaskPrimaryAction({
             : '本次推进失败了，建议先查看 code.log 和 code-result.json，再决定重试还是回退。'}
         </NoticeBox>
       ) : null}
-      {task.repos.length > 1 && canStartRemainingCode ? (
+      {repoCount > 1 && canStartRemainingCode ? (
         <NoticeBox tone="amber">这是一条多仓任务。建议优先一键推进剩余仓库，再到下方逐个处理例外情况。</NoticeBox>
       ) : null}
       {actionError ? <NoticeBox tone="rose">{actionError}</NoticeBox> : null}
@@ -396,6 +398,7 @@ function runningHeadline(status: TaskRecord['status']) {
 }
 
 function primaryHeadline(task: TaskRecord) {
+  const executableRepoCount = executableCodeRepoCount(task)
   if (isPendingRefineTask(task)) {
     return '需要先补正文再继续'
   }
@@ -409,7 +412,11 @@ function primaryHeadline(task: TaskRecord) {
     case 'planning':
       return '方案正在生成'
     case 'planned':
-      return task.repos.length > 1 ? '方案已完成，等待批量实现' : '方案已完成，准备进入实现'
+      return executableRepoCount === 0
+        ? '当前只有参考仓'
+        : executableRepoCount > 1
+          ? '方案已完成，等待批量实现'
+          : '方案已完成，准备进入实现'
     case 'failed':
       return '这次推进中断了'
     case 'refined':
@@ -440,9 +447,9 @@ function currentStageLabel(task: TaskRecord) {
 }
 
 function primaryNarrative(task: TaskRecord) {
-  const repoCount = task.repos.length
-  const codedCount = task.repos.filter((repo) => repo.status === 'coded' || repo.status === 'archived').length
-  const failedCount = task.repos.filter((repo) => repo.status === 'failed').length
+  const repoCount = executableCodeRepoCount(task) || task.repos.length
+  const codedCount = task.codeProgress.counts.done
+  const failedCount = task.codeProgress.counts.failed
 
   if (isPendingRefineTask(task)) {
     return '当前任务已经记录了飞书文档来源，但正文尚未成功拉取。先补充 `prd.source.md`，再重新执行 refine，后续 plan/code 才能继续。'
@@ -461,13 +468,13 @@ function primaryNarrative(task: TaskRecord) {
     return '实现结果已经准备好，接下来更适合确认产物、查看 Diff，并决定是否归档。'
   }
   if (task.status === 'planned') {
-    return repoCount > 1 ? '方案已经生成完毕，现在更适合按仓库顺序推进实现。' : '方案已经生成完毕，现在可以直接开始实现。'
+    return task.codeProgress.summary || (repoCount > 1 ? '方案已经生成完毕，现在更适合按仓库顺序推进实现。' : '方案已经生成完毕，现在可以直接开始实现。')
   }
   if (task.status === 'planning') {
     return '系统正在调研代码和生成方案，完成后会自动进入下一步可执行状态。'
   }
   if (task.status === 'coding') {
-    return '后台正在生成实现并验证结果。你可以先查看日志，确认当前执行是否正常。'
+    return task.codeProgress.summary || '后台正在生成实现并验证结果。你可以先查看日志，确认当前执行是否正常。'
   }
   if (task.status === 'refined') {
     return '需求已经整理成可执行任务，下一步最值得做的是生成方案。'

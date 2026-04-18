@@ -167,18 +167,14 @@ def _run_background_plan(task_id: str, settings: Settings) -> None:
 def _run_background_code(task_id: str, settings: Settings, repo_id: str, all_repos: bool) -> None:
     task_dir = settings.task_root / task_id
     started_at = datetime.now().astimezone()
-    prefix_lines = [
-        "=== CODE START ===",
-        f"task_id: {task_id}",
-        f"task_dir: {task_dir}",
-        f"executor: {settings.code_executor}",
-    ]
+    _append_named_log_line(task_dir, "code.log", "=== CODE START ===")
+    _append_named_log_line(task_dir, "code.log", f"task_id: {task_id}")
+    _append_named_log_line(task_dir, "code.log", f"task_dir: {task_dir}")
+    _append_named_log_line(task_dir, "code.log", f"executor: {settings.code_executor}")
     if repo_id:
-        prefix_lines.append(f"repo_id: {repo_id}")
+        _append_named_log_line(task_dir, "code.log", f"repo_id: {repo_id}")
     if all_repos:
-        prefix_lines.append("all_repos: true")
-    event_lines: list[str] = []
-    suffix_lines: list[str] = []
+        _append_named_log_line(task_dir, "code.log", "all_repos: true")
 
     try:
         status = code_task(
@@ -186,19 +182,18 @@ def _run_background_code(task_id: str, settings: Settings, repo_id: str, all_rep
             settings=settings,
             repo_id=repo_id,
             all_repos=all_repos,
-            on_log=event_lines.append,
+            on_log=lambda line: _append_named_log_line(task_dir, "code.log", line),
             allow_coding_targets=True,
         )
-        suffix_lines.append(f"status: {status}")
+        _append_named_log_line(task_dir, "code.log", f"status: {status}")
     except Exception as error:
-        suffix_lines.append(f"error: {error}")
+        _append_named_log_line(task_dir, "code.log", f"error: {error}")
         _mark_task_failed(task_dir)
-        suffix_lines.append(f"status: {STATUS_FAILED}")
+        _append_named_log_line(task_dir, "code.log", f"status: {STATUS_FAILED}")
     finally:
         duration = datetime.now().astimezone() - started_at
-        suffix_lines.append(f"duration: {round(duration.total_seconds(), 3)}s")
-        suffix_lines.append("=== CODE END ===")
-        _rewrite_code_log(task_dir, prefix_lines, event_lines, suffix_lines)
+        _append_named_log_line(task_dir, "code.log", f"duration: {round(duration.total_seconds(), 3)}s")
+        _append_named_log_line(task_dir, "code.log", "=== CODE END ===")
 
 
 def _append_log_line(task_dir: Path, line: str) -> None:

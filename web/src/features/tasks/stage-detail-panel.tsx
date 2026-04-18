@@ -1,6 +1,6 @@
 import type { TaskRecord } from '../../api'
 import { ActionButton, EmptyPanel, StageStatusBadge } from './ui'
-import { getTaskStage, type TaskStage, preferredCodeRepo } from './model'
+import { codeActionLabelForRepo, getTaskStage, type TaskStage, preferredCodeRepo, repoReadyForCode } from './model'
 import { InputStage } from './stages/input-stage'
 import { RefineStage } from './stages/refine-stage'
 import { DesignStage } from './stages/design-stage'
@@ -13,6 +13,7 @@ type ActionHandlers = {
   onStartDesign: () => Promise<void> | void
   onStartPlan: () => Promise<void> | void
   onStartCode: (repoId?: string) => Promise<void> | void
+  onResetCode: (repoId?: string) => Promise<void> | void
   onArchive: (repoId?: string) => Promise<void> | void
 }
 
@@ -63,8 +64,8 @@ export function TaskStageDetailPanel({
         {stage.id === 'input' ? <InputStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'refine' ? <RefineStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'design' ? <DesignStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
-        {stage.id === 'plan' ? <PlanStage task={task} /> : null}
-        {stage.id === 'code' ? <CodeStage busyAction={busyAction} onStartCode={handlers.onStartCode} task={task} /> : null}
+        {stage.id === 'plan' ? <PlanStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
+        {stage.id === 'code' ? <CodeStage busyAction={busyAction} onResetCode={handlers.onResetCode} onStartCode={handlers.onStartCode} task={task} /> : null}
         {stage.id === 'archive' ? <ArchiveStage task={task} /> : null}
       </div>
     </div>
@@ -145,6 +146,31 @@ function buildStageActions(task: TaskRecord, stage: TaskStage, stages: TaskStage
         onClick: () => handlers.onArchive(repo?.id),
         disabled: busyAction !== '' && busyAction !== 'archive',
         tone: 'primary' as const,
+      },
+    ]
+  }
+  if (stage.id === 'code') {
+    const repo = preferredCodeRepo(task)
+    if (!repo) {
+      return [
+        {
+          label: '等待仓库',
+          onClick: undefined,
+          disabled: true,
+          tone: 'secondary' as const,
+        },
+      ]
+    }
+    return [
+      {
+        label: busyAction === 'code' || task.status === 'coding' ? '执行中...' : codeActionLabelForRepo(repo),
+        onClick: repo.executionMode === 'reference_only' ? undefined : () => handlers.onStartCode(repo.id),
+        disabled:
+          repo.executionMode === 'reference_only' ||
+          !repoReadyForCode(repo) ||
+          task.status === 'coding' ||
+          (busyAction !== '' && busyAction !== 'code'),
+        tone: repo.executionMode === 'verify_only' ? ('secondary' as const) : ('primary' as const),
       },
     ]
   }
