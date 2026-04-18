@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { archiveCode, getTask, startCode, startDesign, startPlan, startRefine, type TaskRecord } from '../../api'
+import { archiveCode, getTask, resetCode, startCode, startDesign, startPlan, startRefine, type TaskRecord } from '../../api'
 
 export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>) {
   const [task, setTask] = useState<TaskRecord | null>(null)
@@ -100,6 +100,7 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
     },
     startPlanAction: () => runAction('plan', async () => void (await startPlan(taskId))),
     startCodeAction: (repoId?: string) => runAction('code', async () => void (await startCode(taskId, repoId))),
+    resetCodeAction: (repoId?: string) => runAction('reset', async () => void (await resetCode(taskId, repoId))),
     archiveAction: (repoId?: string) => runAction('archive', async () => void (await archiveCode(taskId, repoId))),
   }
 }

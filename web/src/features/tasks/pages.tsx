@@ -91,6 +91,7 @@ export function TaskDetailPage() {
           onStartDesign: detail.startDesignAction,
           onStartPlan: detail.startPlanAction,
           onStartCode: detail.startCodeAction,
+          onResetCode: detail.resetCodeAction,
           onArchive: detail.archiveAction,
         }}
         onTaskUpdated={async () => {

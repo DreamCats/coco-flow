@@ -2,7 +2,7 @@ import type { RepoResult, TaskRecord } from '../../../api'
 import { getTaskArtifact } from '../../../api'
 import { useEffect, useMemo, useState } from 'react'
 import { ArtifactPanel, NotePanel, SectionCard, TabButton, TaskStatusBadge } from '../ui'
-import { codeActionLabelForRepo, executableCodeRepoCount, executableCodeRepos, preferredCodeRepo, repoReadyForCode } from '../model'
+import { executableCodeRepoCount, executableCodeRepos, preferredCodeRepo, repoReadyForCode } from '../model'
 
 type ResultTab = 'result' | 'verify' | 'diff' | 'log'
 
@@ -10,10 +10,12 @@ export function CodeStage({
   task,
   busyAction,
   onStartCode,
+  onResetCode,
 }: {
   task: TaskRecord
   busyAction: string
   onStartCode: (repoId?: string) => Promise<void> | void
+  onResetCode: (repoId?: string) => Promise<void> | void
 }) {
   const orderedRepos = useMemo(
     () =>
@@ -97,10 +99,10 @@ export function CodeStage({
         {orderedRepos.length > 1 ? (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
             <RepoQueuePanel repos={orderedRepos} selectedRepoID={selectedRepo?.id ?? ''} onSelectRepo={setSelectedRepoID} />
-            <ExecutionDetailPanel busyAction={busyAction} onStartCode={onStartCode} repo={selectedRepo} />
+            <ExecutionDetailPanel busyAction={busyAction} onResetCode={onResetCode} onStartCode={onStartCode} repo={selectedRepo} />
           </div>
         ) : (
-          <ExecutionDetailPanel busyAction={busyAction} onStartCode={onStartCode} repo={selectedRepo} />
+          <ExecutionDetailPanel busyAction={busyAction} onResetCode={onResetCode} onStartCode={onStartCode} repo={selectedRepo} />
         )}
 
         <ResultTabsPanel
@@ -238,18 +240,24 @@ function ExecutionDetailPanel({
   repo,
   busyAction,
   onStartCode,
+  onResetCode,
 }: {
   repo: RepoResult | null
   busyAction: string
   onStartCode: (repoId?: string) => Promise<void> | void
+  onResetCode: (repoId?: string) => Promise<void> | void
 }) {
   if (!repo) {
     return <NotePanel content="当前没有可展示的执行细节。" />
   }
 
   const canTrigger = repoReadyForCode(repo)
-  const actionLabel = codeActionLabelForRepo(repo)
-  const triggerDisabled = !canTrigger || busyAction === 'code'
+  const showStart = repo.status === 'planned' || repo.status === 'initialized' || repo.status === 'refined'
+  const showRetry = repo.status === 'failed'
+  const showRollback = repo.status === 'coded' || repo.status === 'failed'
+  const startDisabled = !canTrigger || busyAction !== ''
+  const retryDisabled = !canTrigger || busyAction !== ''
+  const rollbackDisabled = busyAction !== ''
 
   return (
     <div className="rounded-[18px] border border-[#ece6da] bg-[#fffdf9] px-4 py-4 dark:border-[#383632] dark:bg-[#151412]">
@@ -261,51 +269,43 @@ function ExecutionDetailPanel({
         <TaskStatusBadge status={mapRepoStatus(repo)} />
       </div>
 
-      <div className="mt-4 grid gap-2 md:grid-cols-2">
-        <InfoPill label="scope_tier" value={scopeTierLabel(repo.scopeTier)} />
-        <InfoPill label="mode" value={executionModeLabel(repo.executionMode)} />
-        <InfoPill label="batch" value={repo.workItems?.map((item) => item.id).join(', ') || 'n/a'} />
-        <InfoPill label="branch" value={repo.branch ?? '尚未创建'} />
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        <CompactField label="worktree" value={repo.worktree ?? '尚未创建'} />
+        <CompactField label="branch" value={repo.branch ?? '尚未创建'} />
       </div>
 
-      {repo.rationale ? (
-        <div className="mt-4 rounded-[16px] border border-[#ece6da] bg-[#fffaf2] px-4 py-3 text-sm leading-6 text-[#5e5d59] dark:border-[#383632] dark:bg-[#11100f] dark:text-[#b0aea5]">
-          <div className="text-[10px] uppercase tracking-[0.35em] text-[#87867f] dark:text-[#8f8a82]">Decision</div>
-          <div className="mt-2">{repo.rationale}</div>
-        </div>
-      ) : null}
-
-      {repo.blockedBy && repo.blockedBy.length > 0 ? (
-        <div className="mt-4 rounded-[16px] border border-[#d9c9a7] bg-[#fff7e8] px-4 py-3 text-sm leading-6 text-[#7a5b18] dark:border-[#6d5a2e] dark:bg-[#2a2419] dark:text-[#f0dfb0]">
-          当前受阻塞：{repo.blockedBy.join(', ')}
-        </div>
-      ) : null}
-
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <DetailList
-          empty="当前没有结构化 work items。"
-          items={repo.workItems?.map((item) => `${item.id} · ${item.title}`) ?? []}
-          title="Work Items"
-        />
-        <DetailList empty="当前没有 change scope。" items={repo.changeScope ?? []} title="Change Scope" />
-        <DetailList empty="当前没有 done definition。" items={repo.doneDefinition ?? []} title="Done Definition" />
-        <DetailList empty="当前没有 verification rules。" items={repo.verificationSteps ?? []} title="Verify Rules" />
+      <div className="mt-5 flex flex-wrap gap-3">
+        {showStart ? (
+          <button
+            className="rounded-[16px] border border-[#d56b45] bg-[#d56b45] px-6 py-3 text-sm text-[#faf9f5] shadow-[0_0_0_1px_rgba(213,107,69,1)] transition hover:bg-[#df7b57] disabled:cursor-not-allowed disabled:opacity-55"
+            disabled={startDisabled}
+            onClick={() => void onStartCode(repo.id)}
+            type="button"
+          >
+            {busyAction === 'code' ? '执行中...' : '开始实现'}
+          </button>
+        ) : null}
+        {showRetry ? (
+          <button
+            className="rounded-[16px] border border-[#d56b45] bg-[#d56b45] px-6 py-3 text-sm text-[#faf9f5] shadow-[0_0_0_1px_rgba(213,107,69,1)] transition hover:bg-[#df7b57] disabled:cursor-not-allowed disabled:opacity-55"
+            disabled={retryDisabled}
+            onClick={() => void onStartCode(repo.id)}
+            type="button"
+          >
+            {busyAction === 'code' ? '执行中...' : '重新实现'}
+          </button>
+        ) : null}
+        {showRollback ? (
+          <button
+            className="rounded-[16px] border border-[#d1cfc5] bg-[#faf9f5] px-6 py-3 text-sm text-[#4d4c48] transition hover:bg-[#efeae0] disabled:cursor-not-allowed disabled:opacity-55 dark:border-[#3a3937] dark:bg-[#191816] dark:text-[#f1ede4] dark:hover:bg-[#24221f]"
+            disabled={rollbackDisabled}
+            onClick={() => void onResetCode(repo.id)}
+            type="button"
+          >
+            {busyAction === 'reset' ? '回滚中...' : '回滚'}
+          </button>
+        ) : null}
       </div>
-
-      {repo.executionMode !== 'reference_only' ? (
-        <button
-          className="mt-5 rounded-[16px] border border-[#d56b45] bg-[#d56b45] px-6 py-3 text-sm text-[#faf9f5] shadow-[0_0_0_1px_rgba(213,107,69,1)] transition hover:bg-[#df7b57] disabled:cursor-not-allowed disabled:opacity-55"
-          disabled={triggerDisabled}
-          onClick={() => void onStartCode(repo.id)}
-          type="button"
-        >
-          {busyAction === 'code' && canTrigger ? '执行中...' : actionLabel}
-        </button>
-      ) : (
-        <div className="mt-5 rounded-[16px] border border-dashed border-[#d8d3c8] bg-[#fffdf9] px-4 py-3 text-sm text-[#8a7a67] dark:border-[#3a3937] dark:bg-[#151412] dark:text-[#8f8a82]">
-          这个仓库属于 reference_only，本轮不提供执行按钮。
-        </div>
-      )}
     </div>
   )
 }
@@ -371,25 +371,6 @@ function ResultTabsPanel({
   )
 }
 
-function DetailList({ title, items, empty }: { title: string; items: string[]; empty: string }) {
-  return (
-    <div className="rounded-[16px] border border-[#ece6da] bg-[#fffaf2] px-4 py-3 dark:border-[#383632] dark:bg-[#11100f]">
-      <div className="text-[10px] uppercase tracking-[0.35em] text-[#87867f] dark:text-[#8f8a82]">{title}</div>
-      <div className="mt-3 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">
-        {items.length > 0 ? (
-          <ul className="space-y-2">
-            {items.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        ) : (
-          empty
-        )}
-      </div>
-    </div>
-  )
-}
-
 function QueuePill({ label, tone }: { label: string; tone: 'ready' | 'running' | 'blocked' | 'done' | 'failed' | 'neutral' | 'reference' }) {
   const toneClass =
     tone === 'ready'
@@ -408,11 +389,11 @@ function QueuePill({ label, tone }: { label: string; tone: 'ready' | 'running' |
   return <span className={`rounded-full border px-3 py-1 ${toneClass}`}>{label}</span>
 }
 
-function InfoPill({ label, value }: { label: string; value: string }) {
+function CompactField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="inline-flex items-center gap-3 rounded-full border border-[#e2d8cb] bg-[#fffaf2] px-4 py-3 text-sm dark:border-[#3d3934] dark:bg-[#11100f]">
-      <span className="text-[#9a9185] dark:text-[#8f8a82]">{label}</span>
-      <span className="text-[#141413] dark:text-[#faf9f5]">{value}</span>
+    <div className="rounded-[16px] border border-[#e2d8cb] bg-[#fffaf2] px-4 py-4 dark:border-[#3d3934] dark:bg-[#11100f]">
+      <div className="text-[10px] uppercase tracking-[0.35em] text-[#87867f] dark:text-[#8f8a82]">{label}</div>
+      <div className="mt-2 text-sm text-[#141413] dark:text-[#faf9f5]">{value}</div>
     </div>
   )
 }

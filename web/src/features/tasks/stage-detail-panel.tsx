@@ -13,6 +13,7 @@ type ActionHandlers = {
   onStartDesign: () => Promise<void> | void
   onStartPlan: () => Promise<void> | void
   onStartCode: (repoId?: string) => Promise<void> | void
+  onResetCode: (repoId?: string) => Promise<void> | void
   onArchive: (repoId?: string) => Promise<void> | void
 }
 
@@ -64,7 +65,7 @@ export function TaskStageDetailPanel({
         {stage.id === 'refine' ? <RefineStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'design' ? <DesignStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'plan' ? <PlanStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
-        {stage.id === 'code' ? <CodeStage busyAction={busyAction} onStartCode={handlers.onStartCode} task={task} /> : null}
+        {stage.id === 'code' ? <CodeStage busyAction={busyAction} onResetCode={handlers.onResetCode} onStartCode={handlers.onStartCode} task={task} /> : null}
         {stage.id === 'archive' ? <ArchiveStage task={task} /> : null}
       </div>
     </div>
