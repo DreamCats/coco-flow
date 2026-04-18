@@ -78,7 +78,7 @@ function buildFallbackTaskStages(task: TaskRecord): TaskStage[] {
       id: 'code',
       label: 'Code',
       status: !hasPlan ? 'pending' : !hasRepoBinding ? 'blocked' : resolveCodeStageStatus(task),
-      summary: '按仓推进实现与验证。',
+      summary: task.codeProgress.available ? task.codeProgress.summary : '按仓推进实现与验证。',
     },
     {
       id: 'archive',
@@ -216,11 +216,37 @@ function measureCharWidth(char: string) {
 }
 
 export function repoReadyForCode(repo: RepoResult) {
-  return repo.status === 'planned' || repo.status === 'failed'
+  if (repo.executionMode === 'reference_only') {
+    return false
+  }
+  return repo.queueState === 'ready' || repo.queueState === 'failed'
 }
 
 export function preferredCodeRepo(task: TaskRecord): RepoResult | null {
-  return task.repos.find(repoReadyForCode) ?? task.repos[0] ?? null
+  const activeRepo = task.codeProgress.activeRepoId ? task.repos.find((repo) => repo.id === task.codeProgress.activeRepoId) : null
+  if (activeRepo && activeRepo.executionMode !== 'reference_only') {
+    return activeRepo
+  }
+  return (
+    task.repos.find((repo) => repo.queueState === 'running') ??
+    task.repos.find(repoReadyForCode) ??
+    task.repos.find((repo) => repo.executionMode !== 'reference_only') ??
+    task.repos[0] ??
+    null
+  )
+}
+
+export function codeActionLabelForRepo(repo: RepoResult | null) {
+  if (!repo) {
+    return '等待仓库'
+  }
+  if (repo.executionMode === 'reference_only') {
+    return '仅参考'
+  }
+  if (repo.executionMode === 'verify_only') {
+    return repo.status === 'failed' ? '重新验证' : '执行验证'
+  }
+  return repo.status === 'failed' ? '重试实现' : '开始实现'
 }
 
 function resolveCodeStageStatus(task: TaskRecord): TaskStageStatus {

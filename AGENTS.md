@@ -95,7 +95,7 @@ uv run python -m unittest discover -s tests -v
 关键目录：
 
 - [`src/coco_flow/api/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/api)：FastAPI app factory 与路由
-- [`src/coco_flow/engines/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines)：`refine` / `plan` 的核心推理与编排引擎
+- [`src/coco_flow/engines/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/engines)：`input` / `refine` / `design` / `plan` / `code` 的核心推理与编排引擎
 - [`src/coco_flow/services/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/services)：按 `tasks/`、`queries/`、`runtime/` 拆分 workflow 壳、查询拼装与运行时状态逻辑
 - [`src/coco_flow/clients/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/clients)：ACP client 抽象
 - [`src/coco_flow/daemon/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/daemon)：daemon client / server / protocol / paths
@@ -200,11 +200,19 @@ uv run python -m unittest discover -s tests -v
 - 单 repo task 可直接推进；多 repo task 支持：
   - `POST /api/tasks/{task_id}/code?repo=<repo_id>`
   - `POST /api/tasks/{task_id}/code-all`
-- `native code` 通过 ACP agent 模式在隔离 worktree 内执行
+- `Code V2` 正式消费：
+  - `design-repo-binding.json`
+  - `plan-work-items.json`
+  - `plan-execution-graph.json`
+  - `plan-validation.json`
+  - `plan-result.json`
+- `native code` 通过 ACP agent 模式在隔离 worktree 内执行 repo batch
 - worktree 根目录：
   - `<repo-parent>/.coco-flow-worktree/`
 - 当前已支持：
-  - repo 级 `code-result.json` / `code.log` / diff summary / diff patch
+  - task 级 `code-dispatch.json` / `code-progress.json` / `code-result.json`
+  - repo 级 `code-results/<repo>.json` / `code-logs/<repo>.log` / `code-verify/<repo>.json`
+  - repo 级 diff summary / diff patch
   - 最小验证
     - Go：默认按受影响目录执行 `go build ./dir/...`
     - Go：默认不跑 `go test`；如确实需要，可通过 `COCO_FLOW_ENABLE_GO_TEST_VERIFY=1` 显式开启，并且仅在受影响 package 存在 `*_test.go` 时才执行
@@ -232,6 +240,8 @@ uv run python -m unittest discover -s tests -v
   - `refine-result.json`
   - `plan-knowledge-selection.json`
   - `plan-knowledge-brief.md`
+  - `code-dispatch.json`
+  - `code-progress.json`
   - `plan-scope.json`
   - `plan-execution.json`
   - `plan-verify.json`

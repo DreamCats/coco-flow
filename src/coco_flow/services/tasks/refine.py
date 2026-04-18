@@ -152,13 +152,15 @@ def _reset_refine_outputs(task_dir: Path) -> None:
         "plan-scope.json",
         "plan-execution.json",
         "plan.log",
+        "code-dispatch.json",
+        "code-progress.json",
         "code-result.json",
         "code.log",
     ):
         path = task_dir / name
         if path.exists():
             path.unlink()
-    for directory in ("code-results", "code-logs", "diffs"):
+    for directory in ("code-results", "code-logs", "code-verify", "diffs"):
         path = task_dir / directory
         if path.exists():
             shutil.rmtree(path)

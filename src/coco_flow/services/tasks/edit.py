@@ -41,6 +41,13 @@ PLAN_ARTIFACTS = [
     "plan.log",
 ]
 
+CODE_ARTIFACTS = [
+    "code-dispatch.json",
+    "code-progress.json",
+    "code-result.json",
+    "code.log",
+]
+
 EDIT_RULES = {
     "prd.source.md": {
         "allowed": {STATUS_INITIALIZED, STATUS_INPUT_PROCESSING, STATUS_INPUT_READY, STATUS_INPUT_FAILED, STATUS_REFINED, STATUS_DESIGNED, STATUS_PLANNED},
@@ -67,10 +74,9 @@ EDIT_RULES = {
             "design-result.json",
             "refine.log",
             *PLAN_ARTIFACTS,
-            "code-result.json",
-            "code.log",
+            *CODE_ARTIFACTS,
         ],
-        "invalidate_dirs": ["code-results", "code-logs", "diffs"],
+        "invalidate_dirs": ["code-results", "code-logs", "code-verify", "diffs"],
     },
     "prd-refined.md": {
         "allowed": {STATUS_REFINING, STATUS_REFINED, STATUS_DESIGNING, STATUS_DESIGNED, STATUS_PLANNED},
@@ -88,10 +94,9 @@ EDIT_RULES = {
             "design-verify.json",
             "design-result.json",
             *PLAN_ARTIFACTS,
-            "code-result.json",
-            "code.log",
+            *CODE_ARTIFACTS,
         ],
-        "invalidate_dirs": ["code-results", "code-logs", "diffs"],
+        "invalidate_dirs": ["code-results", "code-logs", "code-verify", "diffs"],
     },
     "refine.notes.md": {
         "allowed": {STATUS_INPUT_READY, STATUS_REFINING, STATUS_REFINED, STATUS_DESIGNING, STATUS_DESIGNED, STATUS_PLANNED, STATUS_FAILED},

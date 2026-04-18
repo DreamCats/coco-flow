@@ -43,6 +43,29 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
         "owner": "local",
         "complexity": read_task_complexity(Path(detail.task_dir)),
         "nextAction": detail.next_action,
+        "codeDispatch": (
+            {
+                "totalBatches": detail.code_dispatch.total_batches,
+                "repoIds": detail.code_dispatch.repo_ids,
+                "batchIds": detail.code_dispatch.batch_ids,
+            }
+            if detail.code_dispatch
+            else None
+        ),
+        "codeProgress": (
+            {
+                "status": detail.code_progress.status or detail.status,
+                "totalBatches": detail.code_progress.total_batches,
+                "completedBatches": detail.code_progress.completed_batches,
+                "runningBatches": detail.code_progress.running_batches,
+                "blockedBatches": detail.code_progress.blocked_batches,
+                "failedBatches": detail.code_progress.failed_batches,
+                "totalWorkItems": detail.code_progress.total_work_items,
+                "completedWorkItems": detail.code_progress.completed_work_items,
+            }
+            if detail.code_progress
+            else None
+        ),
         "repoNext": [
             repo.repo_id
             for repo in detail.repos
@@ -56,6 +79,12 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
                 "displayName": repo.repo_id,
                 "path": repo.path,
                 "status": repo.status or "pending",
+                "scopeTier": repo.scope_tier,
+                "executionMode": repo.execution_mode,
+                "batchId": repo.batch_id,
+                "batchStatus": repo.batch_status or repo.status or "pending",
+                "workItemIds": repo.work_item_ids or [],
+                "dependsOnBatchIds": repo.depends_on_batch_ids or [],
                 "branch": repo.branch,
                 "worktree": repo.worktree,
                 "commit": repo.commit,
@@ -65,6 +94,7 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
                 "failureAction": repo.failure_action,
                 "filesWritten": repo.files_written or [],
                 "diffSummary": repo.diff_summary,
+                "verifyResult": repo.verify_result,
             }
             for repo in detail.repos
         ],

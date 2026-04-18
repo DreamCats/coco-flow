@@ -111,6 +111,8 @@ def _invalidate_downstream_outputs(task_dir: Path) -> None:
         "plan-scope.json",
         "plan-execution.json",
         "plan.log",
+        "code-dispatch.json",
+        "code-progress.json",
         "code-result.json",
         "code.log",
     ):
@@ -120,7 +122,7 @@ def _invalidate_downstream_outputs(task_dir: Path) -> None:
     for pattern in (".design-template-*.md", ".design-research-*.json", ".design-repo-binding-*.json", ".design-verify-*.json"):
         for path in task_dir.glob(pattern):
             path.unlink()
-    for directory in ("code-results", "code-logs", "diffs"):
+    for directory in ("code-results", "code-logs", "code-verify", "diffs"):
         path = task_dir / directory
         if path.exists():
             shutil.rmtree(path)

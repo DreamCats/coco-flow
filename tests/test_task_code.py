@@ -1,276 +1,328 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from coco_flow.services.tasks.code import (
-    FAILURE_BLOCKED,
-    FAILURE_AGENT,
-    FAILURE_BUILD,
-    FAILURE_GIT,
-    FAILURE_VERIFY,
-    build_native_code_prompt,
-    build_blocked_report,
-    classify_exception_failure_type,
-    classify_failure_type,
-    collect_repo_dependency_repos,
-    discover_go_test_packages,
-    find_unmet_repo_dependencies,
-    package_has_go_tests,
-    reorder_target_repos_by_plan,
-    select_retry_target_files,
-    select_verification_target_files,
-    split_ready_and_blocked_target_repos,
-    verify_go_build,
-)
+from coco_flow.config import Settings
+from coco_flow.engines.code.dispatch import build_code_runtime_state
+from coco_flow.engines.code.models import CodePreparedInput, CodeRepoBatch
+from coco_flow.prompts.code import build_code_execute_prompt
+from coco_flow.services.runtime.repo_state import read_repo_code_result
+from coco_flow.services.tasks.code import code_task, start_coding_task
 
 
-class TaskCodeVerificationTest(unittest.TestCase):
-    def test_build_native_code_prompt_includes_structured_plan_tasks(self) -> None:
-        prompt = build_native_code_prompt(
-            "task-1",
-            "demo_repo",
-            {
-                "tasks": [
+def make_settings(root: Path, *, code_executor: str = "native") -> Settings:
+    config_root = root / "config"
+    task_root = config_root / "tasks"
+    knowledge_root = config_root / "knowledge"
+    task_root.mkdir(parents=True, exist_ok=True)
+    knowledge_root.mkdir(parents=True, exist_ok=True)
+    return Settings(
+        config_root=config_root,
+        task_root=task_root,
+        knowledge_root=knowledge_root,
+        knowledge_executor="local",
+        refine_executor="local",
+        plan_executor="local",
+        code_executor=code_executor,
+        enable_go_test_verify=False,
+        coco_bin="coco",
+        native_query_timeout="90s",
+        native_code_timeout="10m",
+        acp_idle_timeout_seconds=600.0,
+        daemon_idle_timeout_seconds=3600.0,
+    )
+
+
+class CodeV2DispatchTest(unittest.TestCase):
+    def test_dispatch_uses_plan_v2_artifacts_and_skips_reference_only_repo(self) -> None:
+        prepared = CodePreparedInput(
+            task_dir=Path("/tmp/task"),
+            task_id="task-1",
+            title="demo",
+            task_meta={},
+            repos_meta={
+                "repos": [
+                    {"id": "demo", "path": "/tmp/demo", "status": "planned"},
+                    {"id": "verify", "path": "/tmp/verify", "status": "planned"},
+                    {"id": "docs", "path": "/tmp/docs", "status": "planned"},
+                ]
+            },
+            design_repo_binding_payload={
+                "repo_bindings": [
+                    {"repo_id": "demo", "decision": "in_scope", "scope_tier": "must_change", "candidate_files": ["two_sum.py"], "candidate_dirs": []},
+                    {"repo_id": "verify", "decision": "in_scope", "scope_tier": "validate_only", "candidate_files": ["README.md"], "candidate_dirs": []},
+                    {"repo_id": "docs", "decision": "in_scope", "scope_tier": "reference_only", "candidate_files": ["docs.md"], "candidate_dirs": []},
+                ]
+            },
+            plan_work_items_payload={
+                "work_items": [
                     {
-                        "id": "T1",
-                        "title": "收敛后端主链路",
-                        "target_system_or_repo": "demo_repo",
-                        "goal": "补齐主链路状态提示逻辑",
-                        "depends_on": ["T0"],
-                        "change_scope": ["service/status/service.go"],
-                        "actions": ["补齐状态提示逻辑。"],
-                        "verify_rule": ["受影响 package 编译通过。"],
+                        "id": "W1",
+                        "title": "实现 two sum",
+                        "repo_id": "demo",
+                        "goal": "实现算法",
+                        "change_scope": ["two_sum.py"],
+                        "done_definition": ["实现 two sum"],
+                        "verification_steps": ["python py_compile"],
+                        "depends_on": [],
                     }
                 ]
             },
-        )
-
-        self.assertIn("plan-execution.json", prompt)
-        self.assertIn("当前 repo 对应的结构化任务", prompt)
-        self.assertIn("T1 收敛后端主链路", prompt)
-        self.assertIn("service/status/service.go", prompt)
-        self.assertIn("当前 repo 本轮优先范围与验证规则", prompt)
-        self.assertIn("verify_rule", prompt)
-        self.assertIn("当前 repo 任务顺序与依赖", prompt)
-        self.assertIn("task_order: T1", prompt)
-        self.assertIn("T1 depends_on: T0", prompt)
-
-    def test_reorder_target_repos_by_plan_prefers_task_order(self) -> None:
-        targets = [
-            {"id": "repo-b", "status": "planned"},
-            {"id": "repo-a", "status": "planned"},
-        ]
-        reordered = reorder_target_repos_by_plan(
-            targets,
-            {
-                "tasks": [
-                    {"id": "T1", "target_system_or_repo": "repo-a"},
-                    {"id": "T2", "target_system_or_repo": "repo-b"},
-                ]
-            },
-        )
-        self.assertEqual([repo["id"] for repo in reordered], ["repo-a", "repo-b"])
-
-    def test_collect_repo_dependency_repos_reads_cross_repo_depends_on(self) -> None:
-        dependency_repos = collect_repo_dependency_repos(
-            {
-                "tasks": [
-                    {"id": "T1", "target_system_or_repo": "repo-a", "depends_on": []},
-                    {"id": "T2", "target_system_or_repo": "repo-b", "depends_on": ["T1"]},
-                ]
-            },
-            "repo-b",
-        )
-        self.assertEqual(dependency_repos, ["repo-a"])
-
-    def test_find_unmet_repo_dependencies_requires_upstream_coded(self) -> None:
-        unmet = find_unmet_repo_dependencies(
-            [
-                {"id": "repo-a", "status": "planned"},
-                {"id": "repo-b", "status": "planned"},
-            ],
-            {
-                "tasks": [
-                    {"id": "T1", "target_system_or_repo": "repo-a", "depends_on": []},
-                    {"id": "T2", "target_system_or_repo": "repo-b", "depends_on": ["T1"]},
-                ]
-            },
-            "repo-b",
-        )
-        self.assertEqual(unmet, ["repo-a"])
-
-    def test_split_ready_and_blocked_target_repos_blocks_single_repo_when_dependency_unmet(self) -> None:
-        ready, blocked = split_ready_and_blocked_target_repos(
-            [{"id": "repo-b", "status": "planned"}],
-            [
-                {"id": "repo-a", "status": "planned"},
-                {"id": "repo-b", "status": "planned"},
-            ],
-            {
-                "tasks": [
-                    {"id": "T1", "target_system_or_repo": "repo-a", "depends_on": []},
-                    {"id": "T2", "target_system_or_repo": "repo-b", "depends_on": ["T1"]},
-                ]
-            },
-            all_repos=False,
-        )
-        self.assertEqual(ready, [])
-        self.assertEqual(blocked, [("repo-b", ["repo-a"])])
-
-    def test_split_ready_and_blocked_target_repos_keeps_ready_prefix_for_all_repos(self) -> None:
-        ready, blocked = split_ready_and_blocked_target_repos(
-            [
-                {"id": "repo-a", "status": "planned"},
-                {"id": "repo-b", "status": "planned"},
-            ],
-            [
-                {"id": "repo-a", "status": "planned"},
-                {"id": "repo-b", "status": "planned"},
-            ],
-            {
-                "tasks": [
-                    {"id": "T1", "target_system_or_repo": "repo-a", "depends_on": []},
-                    {"id": "T2", "target_system_or_repo": "repo-b", "depends_on": ["T1"]},
-                ]
-            },
-            all_repos=True,
-        )
-        self.assertEqual([repo["id"] for repo in ready], ["repo-a"])
-        self.assertEqual(blocked, [("repo-b", ["repo-a"])])
-
-    def test_build_blocked_report_marks_repo_as_blocked_failure(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            report = build_blocked_report(Path(tmp), "repo-b", ["repo-a"])
-        self.assertEqual(report["status"], "planned")
-        self.assertEqual(report["failure_type"], FAILURE_BLOCKED)
-        self.assertIn("repo-a", report["failure_action"])
-
-    def test_select_verification_target_files_prefers_task_scope_overlap(self) -> None:
-        targets = select_verification_target_files(
-            ["service/status/service.go", "service/other/ignore.go"],
-            ["service/status/service.go"],
-        )
-        self.assertEqual(targets, ["service/status/service.go"])
-
-    def test_select_retry_target_files_falls_back_to_task_scope(self) -> None:
-        targets = select_retry_target_files([], ["service/status/service.go"])
-        self.assertEqual(targets, ["service/status/service.go"])
-
-    def test_classify_failure_type_prefers_build_failure(self) -> None:
-        self.assertEqual(
-            classify_failure_type("failed", "go build ./internal/service/... 失败:\nundefined symbol", True),
-            FAILURE_BUILD,
-        )
-
-    def test_classify_failure_type_detects_verify_failure(self) -> None:
-        self.assertEqual(
-            classify_failure_type("failed", "go test ./internal/service 失败:\nassert failed", True),
-            FAILURE_VERIFY,
-        )
-
-    def test_classify_failure_type_detects_agent_failure_without_changes(self) -> None:
-        self.assertEqual(
-            classify_failure_type("failed", "", False),
-            FAILURE_AGENT,
-        )
-
-    def test_classify_exception_failure_type_detects_git_error(self) -> None:
-        self.assertEqual(
-            classify_exception_failure_type(RuntimeError("git index.lock already exists")),
-            FAILURE_GIT,
-        )
-
-    def test_package_has_go_tests_detects_test_file(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            pkg = root / "internal" / "service"
-            pkg.mkdir(parents=True)
-            (pkg / "service.go").write_text("package service\n")
-            (pkg / "service_test.go").write_text("package service\n")
-
-            self.assertTrue(package_has_go_tests(str(root), "./internal/service"))
-
-    def test_discover_go_test_packages_skips_packages_without_tests(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            service = root / "internal" / "service"
-            handler = root / "internal" / "handler"
-            service.mkdir(parents=True)
-            handler.mkdir(parents=True)
-            (service / "service.go").write_text("package service\n")
-            (service / "service_test.go").write_text("package service\n")
-            (handler / "handler.go").write_text("package handler\n")
-
-            packages = discover_go_test_packages(
-                str(root),
-                [
-                    "internal/service/service.go",
-                    "internal/handler/handler.go",
+            plan_execution_graph_payload={"execution_order": ["W1"], "edges": []},
+            plan_validation_payload={
+                "global_validation_focus": ["最小 py_compile 通过"],
+                "task_validations": [
+                    {"task_id": "W1", "repo_id": "demo", "checks": [{"reason": "python py_compile"}]}
                 ],
-            )
+            },
+            plan_result_payload={"status": "planned"},
+            refined_markdown="# PRD Refined\n",
+            design_markdown="# Design\n",
+            plan_markdown="# Plan\n",
+        )
 
-            self.assertEqual(packages, ["./internal/service"])
+        runtime = build_code_runtime_state(prepared)
+        batches = runtime.batches
+        payload = runtime.dispatch_payload
 
-    def test_verify_go_build_default_does_not_run_go_test(self) -> None:
-        calls: list[list[str]] = []
+        self.assertEqual([batch.repo_id for batch in batches], ["demo", "verify"])
+        self.assertEqual([batch.execution_mode for batch in batches], ["apply", "verify_only"])
+        self.assertEqual(payload["batches"][0]["work_item_ids"], ["W1"])
 
-        def fake_run(cmd: list[str], cwd: str, capture_output: bool, text: bool, check: bool):
-            calls.append(cmd)
+    def test_execute_prompt_references_plan_v2_inputs_not_legacy_plan_execution(self) -> None:
+        prepared = CodePreparedInput(
+            task_dir=Path("/tmp/task"),
+            task_id="task-2",
+            title="demo",
+            task_meta={},
+            repos_meta={"repos": []},
+            design_repo_binding_payload={},
+            plan_work_items_payload={
+                "work_items": [
+                    {
+                        "id": "W1",
+                        "title": "实现 two sum",
+                        "repo_id": "demo",
+                        "goal": "实现算法",
+                        "change_scope": ["two_sum.py"],
+                        "done_definition": ["实现 two sum"],
+                        "verification_steps": ["python py_compile"],
+                    }
+                ]
+            },
+            plan_execution_graph_payload={},
+            plan_validation_payload={},
+            plan_result_payload={"status": "planned"},
+            refined_markdown="# PRD Refined\n",
+            design_markdown="# Design\n",
+            plan_markdown="# Plan\n",
+        )
+        batch = CodeRepoBatch(
+            id="B1",
+            repo_id="demo",
+            repo_path="/tmp/demo",
+            scope_tier="must_change",
+            execution_mode="apply",
+            work_item_ids=["W1"],
+            depends_on_batch_ids=[],
+            blocked_by_batch_ids=[],
+            change_scope=["two_sum.py"],
+            verify_rules=["python py_compile"],
+            done_definition=["实现 two sum"],
+            status="ready",
+            summary="",
+        )
 
-            class Result:
-                returncode = 0
-                stdout = ""
-                stderr = ""
+        prompt = build_code_execute_prompt(
+            task_id=prepared.task_id,
+            repo_id=batch.repo_id,
+            execution_mode=batch.execution_mode,
+            work_item_brief="- W1 实现 two sum",
+            change_scope_brief="- two_sum.py",
+            verify_brief="- python py_compile",
+            dependency_brief="- 当前 batch 无 batch 级前置依赖。",
+        )
 
-            return Result()
+        self.assertIn("plan-work-items.json", prompt)
+        self.assertIn("plan-execution-graph.json", prompt)
+        self.assertIn("plan-validation.json", prompt)
+        self.assertIn("plan-result.json", prompt)
+        self.assertNotIn("plan-execution.json", prompt)
 
+
+class CodeV2PipelineIntegrationTest(unittest.TestCase):
+    def test_code_task_writes_dispatch_progress_and_repo_result_from_plan_v2_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            pkg = root / "internal" / "service"
-            pkg.mkdir(parents=True)
-            (pkg / "service.go").write_text("package service\n")
+            settings = make_settings(root, code_executor="native")
+            repo_root = root / "repo"
+            self._init_git_repo(repo_root)
 
-            with patch("coco_flow.services.tasks.code.subprocess.run", side_effect=fake_run):
-                ok, output = verify_go_build(str(root), ["internal/service/service.go"])
-
-        self.assertTrue(ok)
-        self.assertNotIn("go test", output)
-        self.assertEqual(calls, [["go", "build", "./internal/service/..."]])
-
-    def test_verify_go_build_runs_go_test_when_explicitly_enabled(self) -> None:
-        calls: list[list[str]] = []
-
-        def fake_run(cmd: list[str], cwd: str, capture_output: bool, text: bool, check: bool):
-            calls.append(cmd)
-
-            class Result:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            return Result()
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            pkg = root / "internal" / "service"
-            pkg.mkdir(parents=True)
-            (pkg / "service.go").write_text("package service\n")
-            (pkg / "service_test.go").write_text("package service\n")
-
-            with patch("coco_flow.services.tasks.code.subprocess.run", side_effect=fake_run):
-                ok, output = verify_go_build(
-                    str(root),
-                    ["internal/service/service.go"],
-                    enable_go_test=True,
+            task_id = "task-code-v2"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = "2026-04-19T00:00:00+08:00"
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "实现 two sum",
+                        "status": "planned",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "实现 two sum",
+                        "repo_count": 1,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
                 )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(
+                json.dumps(
+                    {"repos": [{"id": "demo", "path": str(repo_root), "status": "planned"}]},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "design-repo-binding.json").write_text(
+                json.dumps(
+                    {
+                        "repo_bindings": [
+                            {
+                                "repo_id": "demo",
+                                "repo_path": str(repo_root),
+                                "decision": "in_scope",
+                                "scope_tier": "must_change",
+                                "candidate_files": ["two_sum.py"],
+                                "candidate_dirs": [],
+                                "change_summary": ["新增 two sum 算法文件"],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-work-items.json").write_text(
+                json.dumps(
+                    {
+                        "work_items": [
+                            {
+                                "id": "W1",
+                                "title": "实现 two sum",
+                                "repo_id": "demo",
+                                "goal": "新增 two sum Python 实现",
+                                "change_scope": ["two_sum.py"],
+                                "done_definition": ["实现 two sum", "最小 py_compile 通过"],
+                                "verification_steps": ["python py_compile"],
+                                "depends_on": [],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-execution-graph.json").write_text(
+                json.dumps(
+                    {"nodes": ["W1"], "edges": [], "execution_order": ["W1"], "parallel_groups": [], "critical_path": ["W1"], "coordination_points": []},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-validation.json").write_text(
+                json.dumps(
+                    {
+                        "global_validation_focus": ["two sum py_compile"],
+                        "task_validations": [
+                            {
+                                "task_id": "W1",
+                                "repo_id": "demo",
+                                "checks": [{"kind": "review", "target": "demo", "reason": "python py_compile"}],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-result.json").write_text('{"status":"planned"}\n', encoding="utf-8")
 
-        self.assertTrue(ok)
-        self.assertIn(["go", "build", "./internal/service/..."], calls)
-        self.assertIn(["go", "test", "./internal/service"], calls)
-        self.assertNotIn("go test skipped", output)
+            start_status = start_coding_task(task_id, settings=settings)
+            self.assertEqual(start_status, "coding")
+            self.assertTrue((task_dir / "code-dispatch.json").exists())
+            self.assertTrue((task_dir / "code-progress.json").exists())
+            self.assertFalse((task_dir / "plan-execution.json").exists())
+
+            def fake_run_agent(prompt: str, query_timeout: str, cwd: str, *, fresh_session: bool = False) -> str:
+                Path(cwd, "two_sum.py").write_text(
+                    "def two_sum(nums, target):\n"
+                    "    seen = {}\n"
+                    "    for index, value in enumerate(nums):\n"
+                    "        if target - value in seen:\n"
+                    "            return [seen[target - value], index]\n"
+                    "        seen[value] = index\n"
+                    "    return []\n",
+                    encoding="utf-8",
+                )
+                return "=== CODE RESULT ===\nstatus: success\nsummary: implemented two sum\nfiles:\n- two_sum.py\n"
+
+            with patch("coco_flow.clients.CocoACPClient.run_agent", side_effect=fake_run_agent):
+                status = code_task(task_id, settings=settings, allow_coding_targets=True)
+
+            self.assertEqual(status, "coded")
+            dispatch = json.loads((task_dir / "code-dispatch.json").read_text(encoding="utf-8"))
+            self.assertEqual(dispatch["batches"][0]["repo_id"], "demo")
+            self.assertEqual(dispatch["batches"][0]["execution_mode"], "apply")
+            progress = json.loads((task_dir / "code-progress.json").read_text(encoding="utf-8"))
+            self.assertEqual(progress["completed_batches"], ["B1"])
+            task_result = json.loads((task_dir / "code-result.json").read_text(encoding="utf-8"))
+            self.assertEqual(task_result["status"], "coded")
+            repo_result = read_repo_code_result(task_dir, "demo")
+            self.assertEqual(repo_result["repo_id"], "demo")
+            self.assertTrue(repo_result["commit"])
+            self.assertEqual(repo_result["files_written"], ["two_sum.py"])
+            self.assertTrue((task_dir / "code-verify" / "demo.json").exists())
+
+    def _init_git_repo(self, repo_root: Path) -> None:
+        repo_root.mkdir(parents=True, exist_ok=True)
+        (repo_root / "main.py").write_text("print('hello')\n", encoding="utf-8")
+        subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "add", "."], cwd=repo_root, check=True, capture_output=True, text=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=tester",
+                "-c",
+                "user.email=tester@example.com",
+                "commit",
+                "-m",
+                "init",
+            ],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
 
 if __name__ == "__main__":

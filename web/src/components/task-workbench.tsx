@@ -328,7 +328,7 @@ function resolveStageProfile(task: TaskRecord): {
       kind: 'code',
       title: 'Code Workbench',
       subtitle: '优先看 code 结果、日志和 Diff，而不是先翻方案文档。',
-      narrative: '这一阶段最关键的是快速判断当前 repo 结果对不对、构建有没有过、Diff 改了什么。优先看 `code-result.json`、`code.log` 和 Diff 浏览器。',
+      narrative: task.codeProgress.summary || '这一阶段最关键的是快速判断当前 repo 结果对不对、构建有没有过、Diff 改了什么。优先看 `code-result.json`、`code.log` 和 Diff 浏览器。',
       artifacts: ['code-result.json', 'code.log', 'diff.json', 'diff.patch'],
       showDiffBrowser: true,
     }
@@ -543,11 +543,21 @@ export function RepoContextPanel({
               title={
                 activeRepo.status === 'failed'
                   ? `${repoSummary} ${resultSummary} 会在这个仓库重试实现，重新生成改动并再次执行构建验证。`
-                  : `${repoSummary} ${resultSummary} 会在这个仓库创建隔离工作区，生成改动并尝试完成构建验证。`
+                  : activeRepo.executionMode === 'verify_only'
+                    ? `${repoSummary} ${resultSummary} 会在这个仓库执行验证，并记录验证结果。`
+                    : `${repoSummary} ${resultSummary} 会在这个仓库创建隔离工作区，生成改动并尝试完成构建验证。`
               }
               tone="brand"
             >
-              {codeStartingRepo === activeRepo.id ? '实现进行中...' : activeRepo.status === 'failed' ? '重试实现' : '开始实现'}
+              {codeStartingRepo === activeRepo.id
+                ? '执行中...'
+                : activeRepo.executionMode === 'verify_only'
+                  ? activeRepo.status === 'failed'
+                    ? '重新验证'
+                    : '执行验证'
+                  : activeRepo.status === 'failed'
+                    ? '重试实现'
+                    : '开始实现'}
             </RepoActionButton>
           ) : null}
           {canResetCode ? (
@@ -703,6 +713,12 @@ function buildLabel(value?: TaskRecord['repos'][number]['build']) {
 }
 
 function repoWorkbenchSummary(repo: TaskRecord['repos'][number]) {
+  if (repo.executionMode === 'reference_only') {
+    return '这个仓库当前只作为参考链路，不进入执行队列。'
+  }
+  if (repo.executionMode === 'verify_only' && repo.status === 'planned') {
+    return '这个仓库属于联动验证范围，当前更适合执行验证，而不是直接开始实现。'
+  }
   switch (repo.status) {
     case 'coding':
       return '正在后台生成实现并验证结果，适合先看日志，再决定是否继续等待。'
@@ -720,6 +736,9 @@ function repoWorkbenchSummary(repo: TaskRecord['repos'][number]) {
 }
 
 function repoLaneDetail(repo: TaskRecord['repos'][number]) {
+  if (repo.executionMode === 'reference_only') {
+    return 'reference only'
+  }
   if (repo.failureType === 'blocked_by_dependency') {
     return repo.failureAction || '等待上游依赖。'
   }
@@ -740,6 +759,12 @@ function repoLaneDetail(repo: TaskRecord['repos'][number]) {
 }
 
 function repoLaneState(repo: TaskRecord['repos'][number], repoNext: string[]): 'ready' | 'running' | 'blocked' | 'done' | 'failed' {
+  if (repo.queueState === 'reference') {
+    return 'done'
+  }
+  if (repo.queueState === 'ready' || repo.queueState === 'running' || repo.queueState === 'blocked' || repo.queueState === 'done' || repo.queueState === 'failed') {
+    return repo.queueState
+  }
   if (repo.failureType === 'blocked_by_dependency') {
     return 'blocked'
   }
@@ -806,7 +831,10 @@ function canStartCodeForRepo(repo: TaskRecord['repos'][number], hasGeneratedPlan
   if (!hasGeneratedPlan) {
     return false
   }
-  return repo.status === 'planned' || repo.status === 'failed'
+  if (repo.executionMode === 'reference_only') {
+    return false
+  }
+  return repo.queueState === 'ready' || repo.queueState === 'failed' || repo.status === 'planned' || repo.status === 'failed'
 }
 
 function canResetCodeForRepo(repo: TaskRecord['repos'][number]) {

@@ -43,6 +43,10 @@ def repo_diff_summary_path(task_dir: Path, repo_id: str) -> Path:
     return task_dir / "diffs" / f"{sanitize_repo_name(repo_id)}.json"
 
 
+def repo_code_verify_path(task_dir: Path, repo_id: str) -> Path:
+    return task_dir / "code-verify" / f"{sanitize_repo_name(repo_id)}.json"
+
+
 def read_repo_code_result(task_dir: Path, repo_id: str) -> dict[str, object]:
     return read_json_file(repo_code_result_path(task_dir, repo_id))
 
@@ -63,6 +67,10 @@ def read_repo_diff_patch(task_dir: Path, repo_id: str) -> str:
     return repo_diff_patch_path(task_dir, repo_id).read_text()
 
 
+def read_repo_code_verify(task_dir: Path, repo_id: str) -> dict[str, object]:
+    return read_json_file(repo_code_verify_path(task_dir, repo_id))
+
+
 def write_repo_code_result(task_dir: Path, repo_id: str, payload: dict[str, object]) -> None:
     path = repo_code_result_path(task_dir, repo_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,6 +81,12 @@ def write_repo_code_log(task_dir: Path, repo_id: str, content: str) -> None:
     path = repo_code_log_path(task_dir, repo_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
+
+
+def write_repo_code_verify(task_dir: Path, repo_id: str, payload: dict[str, object]) -> None:
+    path = repo_code_verify_path(task_dir, repo_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
 def write_repo_diff_artifacts(
@@ -104,6 +118,7 @@ def remove_repo_runtime_artifacts(task_dir: Path, repo_id: str, keep_results: bo
     if not keep_results:
         _remove_path(repo_code_result_path(task_dir, repo_id))
         _remove_path(repo_code_log_path(task_dir, repo_id))
+        _remove_path(repo_code_verify_path(task_dir, repo_id))
         _remove_path(repo_diff_patch_path(task_dir, repo_id))
         _remove_path(repo_diff_summary_path(task_dir, repo_id))
 

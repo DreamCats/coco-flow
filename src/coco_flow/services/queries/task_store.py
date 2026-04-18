@@ -72,6 +72,8 @@ class TaskStore:
                     return read_repo_code_log(task_dir, repo_id)
                 if name == "code-result.json":
                     return read_repo_code_result_raw(task_dir, repo_id)
+                if name == "code-verify.json":
+                    return _read_repo_verify_raw(task_dir, repo_id)
                 if name == "diff.patch":
                     return read_repo_diff_patch(task_dir, repo_id)
                 if name == "diff.json":
@@ -81,10 +83,12 @@ class TaskStore:
                     return f"repo `{repo_id}` 当前没有可用的 code.log。可能尚未执行实现，或日志尚未生成。"
                 if name == "code-result.json":
                     return f"repo `{repo_id}` 当前没有可用的 code-result.json。可能尚未执行实现。"
+                if name == "code-verify.json":
+                    return f"repo `{repo_id}` 当前没有可用的 code-verify.json。可能尚未执行验证。"
                 if name in {"diff.patch", "diff.json"}:
                     return f"repo `{repo_id}` 当前没有可用的 {name}。可能尚未生成提交差异。"
                 return f"repo `{repo_id}` 的 `{name}` 当前为空。"
-            if name in {"code.log", "code-result.json", "diff.patch", "diff.json"}:
+            if name in {"code.log", "code-result.json", "code-verify.json", "diff.patch", "diff.json"}:
                 return None
             return f"repo 级 artifact 暂不支持 {name}"
         if task_dir.is_dir():
@@ -139,3 +143,15 @@ def _optional_str(value: object) -> str | None:
 
 def _sort_key(item: TaskSummary) -> tuple[str, str]:
     return (item.updated_at or item.created_at or "", item.task_id)
+
+
+def _read_repo_verify_raw(task_dir: Path, repo_id: str) -> str:
+    return (task_dir / "code-verify" / f"{_sanitize_repo_name(repo_id)}.json").read_text()
+
+
+def _sanitize_repo_name(repo_id: str) -> str:
+    sanitized = []
+    for char in repo_id.strip():
+        sanitized.append(char.lower() if char.isalnum() else "_")
+    value = "".join(sanitized).strip("_")
+    return value or "repo"
