@@ -2,91 +2,90 @@
 
 中文说明见：[README.zh-CN.md](README.zh-CN.md)
 
-`coco-flow` is a standalone workflow product for PRD task orchestration, worktree-based code execution,
-and the local Web UI / API surface.
+`coco-flow` is a local workflow product for PRD-driven task orchestration. It combines a Typer CLI, a FastAPI service, a local Web UI, and worktree-based code execution around one task model.
 
-Current technical stance:
+## At A Glance
 
-- product name: `coco-flow`
-- stack: Python + `uv`
-- runtime shape: Typer CLI + FastAPI local service
+- Product: `coco-flow`
+- Package: `coco-flow`
+- Python: `>=3.13`
+- Stack: Python, `uv`, Typer, FastAPI, Vite/React
+- Default interaction language: Chinese
 
-## Deep Dives
+Current task flow:
 
-- [`docs/refine-v2-design.md`](docs/refine-v2-design.md): current Refine design based on Input artifacts, knowledge selection, and multi-step prompting
-- [`docs/design-v2-design.md`](docs/design-v2-design.md): proposed Design-stage split with formal input/output contracts, repo binding semantics, and template-based artifacts
-- [`docs/plan-engine.md`](docs/plan-engine.md): how the `plan` engine does repo research, scope extraction, generation, and verification
-- [`docs/code-v2-design.md`](docs/code-v2-design.md): Code V2 input/output contracts, repo batch execution model, and Web UI expectations
-
-## First Version Scope
-
-The first version focuses on a minimal but usable scaffold:
-
-- `coco-flow tasks list` to inspect task summaries
-- `coco-flow tasks roots` to inspect the active task root
-- `coco-flow prd list` to inspect PRD workflow tasks
-- `coco-flow tasks refine <task_id>` to generate `prd-refined.md` or a pending refine placeholder for incomplete Lark sources
-- `coco-flow tasks plan <task_id>` to generate `design.md` and `plan.md`
-- `coco-flow tasks code <task_id>` to run the code stage
-- `coco-flow prd refine --prd ...` / `plan --task ...` / `code --task ...` as the migration-friendly CLI
-- `coco-flow prd run -i ...` to execute `refine -> plan -> code` in one command
-- `coco-flow tasks reset <task_id>` to roll the task back to planned state
-- `coco-flow tasks archive <task_id>` to archive coded tasks
-- `coco-flow api serve` to run a local FastAPI service
-- `POST /api/tasks` to create initialized tasks from text, local files, or Lark docs in the new `coco-flow` task root
-- `POST /api/tasks` now lands the `Input` stage first: text/file inputs become `input_ready` immediately, while Lark doc links enter `input_processing` and finish asynchronously before refine
-- `POST /api/tasks/{task_id}/refine` to move initialized tasks into refined state
-- `POST /api/tasks/{task_id}/plan` to move refined tasks into planned state
-- `POST /api/tasks/{task_id}/code` to start the code stage asynchronously
-- `POST /api/tasks/{task_id}/code-all` to batch-run remaining repos asynchronously
-- `POST /api/tasks/{task_id}/reset` to roll back code-stage state
-- `POST /api/tasks/{task_id}/archive` to archive coded tasks
-- `PUT /api/tasks/{task_id}/artifact?name=...` to edit task-level Markdown artifacts
-- `GET /api/tasks/{task_id}/artifact?name=diff.patch&repo=...` / `diff.json` to inspect repo-level diff artifacts
-All task data lives under `~/.config/coco-flow/tasks` by default.
+```text
+Input -> Refine -> Design -> Plan -> Code
+```
 
 ## Quickstart
 
 ```bash
 uv sync
 uv run coco-flow --help
+```
+
+Common CLI commands:
+
+```bash
 uv run coco-flow tasks roots
 uv run coco-flow tasks list
 uv run coco-flow knowledge list
 uv run coco-flow prd list
-uv run coco-flow tasks refine <task_id>
-uv run coco-flow tasks plan <task_id>
-uv run coco-flow tasks code <task_id>
+
 uv run coco-flow prd refine --prd "需求描述"
+uv run coco-flow prd design --task <task_id>
 uv run coco-flow prd plan --task <task_id>
 uv run coco-flow prd code --task <task_id>
 uv run coco-flow prd run -i "需求描述"
-uv run coco-flow tasks reset <task_id>
-uv run coco-flow tasks archive <task_id>
+
 uv run coco-flow api serve --host 127.0.0.1 --port 4318
 uv run coco-flow ui serve
+
+uv run coco-flow daemon start
+uv run coco-flow daemon status
+uv run coco-flow daemon stop
 ```
 
-## Tests
+## Workflow Behavior
 
-Current automated tests use the standard library `unittest` runner:
+### Input
 
-```bash
-cd /Users/bytedance/Work/tools/bytedance/coco-flow
-uv run python -m unittest discover -s tests -v
-```
+- Tasks are stored under `~/.config/coco-flow/tasks/`.
+- `POST /api/tasks` and `prd refine --prd ...` accept plain text, local file paths, and Lark doc links.
+- Plain text and local files are stored immediately and enter `input_ready`.
+- Lark doc links enter `input_processing`, then finish asynchronously after the document body is fetched.
+- The Input stage writes `input.json` and `input.log`.
 
-The first batch covers:
+### Refine
 
-- pending Lark refine fallback
-- `plan` task builder output
-- `prd run` stopping at `plan` when complexity is `复杂`
+- `refine` supports `native` and `local`.
+- `native refine` runs a staged flow around intent extraction, knowledge selection, knowledge brief generation, draft generation, and verification.
+- `local refine` produces a structured fallback draft.
+- Typical artifacts include `prd-refined.md`, `refine-intent.json`, `refine-knowledge-selection.json`, `refine-knowledge-brief.md`, `refine-verify.json`, and `refine-result.json`.
+
+### Design And Plan
+
+- `design` is a standalone stage exposed in both CLI and API.
+- `plan` supports `native` and `local`.
+- `native plan` runs staged scope extraction, generation, and verification.
+- Typical artifacts include `design.md`, `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-knowledge-selection.json`, and `plan-knowledge-brief.md`.
+
+### Code
+
+- `code` runs asynchronously.
+- Single-repo tasks can be advanced directly; multi-repo tasks support `code?repo=...` and `code-all`.
+- `native code` runs repo batches in isolated worktrees and writes task-level and repo-level result artifacts.
+- Minimal verification is built in:
+  - Go: `go build` on affected directories by default
+  - Go tests: opt in with `COCO_FLOW_ENABLE_GO_TEST_VERIFY=1`
+  - Python: `python3 -m py_compile`
 
 ## Web UI
 
 The Web UI lives in [`web/`](web/).
 
-The simplest way to test locally is now:
+The simplest local startup flow is:
 
 ```bash
 cd /Users/bytedance/Work/tools/bytedance/coco-flow
@@ -96,77 +95,48 @@ uv run coco-flow ui serve
 
 This command will:
 
-- build the front-end from `web/`
-- start the FastAPI server
-- serve the built static assets together with the API on `http://127.0.0.1:4318`
+- build `web/`
+- start the FastAPI app
+- serve static assets and API together on `http://127.0.0.1:4318`
+
+Useful options:
 
 ```bash
-# optional: serve an already-built UI without rebuilding
 uv run coco-flow ui serve --no-build
-
-# optional: point to a custom static directory
 uv run coco-flow ui serve --web-dir /absolute/path/to/dist
 ```
 
-Current UI actions:
+Current UI capabilities:
 
-- create task
-- run refine after `Input` is ready
-- run plan
-- run code stage asynchronously
-- browse knowledge documents in a simple list + Markdown preview layout
-- create and edit knowledge documents directly as Markdown files with optional YAML frontmatter
-- edit `prd.source.md` / `prd-refined.md` / `design.md` / `plan.md`
-- reset task
-- archive task
+- create tasks
+- run `refine`, `design`, `plan`, and `code`
+- browse and edit knowledge documents
+- edit `prd.source.md`, `prd-refined.md`, `design.md`, and `plan.md`
+- reset, archive, and inspect task artifacts
 
 ## Execution Modes
 
-`coco-flow` currently supports two execution modes:
+Executors:
 
-- `native` (default): call local `coco` directly from `coco-flow`
-- `local`: use `coco-flow`'s local fallback implementations
+- `native`: default, backed by local `coco` and ACP
+- `local`: built-in fallback implementation
 
-Switch with environment variables:
+Common environment variables:
 
 ```bash
 export COCO_FLOW_COCO_BIN=/path/to/coco
+export COCO_FLOW_KNOWLEDGE_EXECUTOR=local
 export COCO_FLOW_REFINE_EXECUTOR=local
 export COCO_FLOW_PLAN_EXECUTOR=local
 export COCO_FLOW_CODE_EXECUTOR=local
-```
-
-Behavior notes:
-
-- `refine` / `plan`: default to native; if native execution fails, `coco-flow` falls back to local template generation
-- `Input`: task creation now always stores raw input first; plain text / local files render `prd.source.md` synchronously, while Lark links are resolved by an async `Input` step that records `input.json` / `input.log`
-- `refine` accepts plain text, local file paths, and Lark doc links; when a Lark doc cannot be fetched yet, it creates a pending refine placeholder instead of failing task creation
-- `refine` now runs an internal `prepare -> intent -> knowledge selection -> knowledge brief -> generate` pipeline and records `refine-intent.json`, optional `refine-knowledge-selection.json`, optional `refine-knowledge-brief.md`, optional `refine-verify.json`, and `refine-result.json`; `native refine` now upgrades into a three-stage LLM flow: intent extraction, final generation, and verifier/judge, with knowledge adjudication on top of the rule-based shortlist
-- `plan` now runs an internal approved-knowledge `selection -> brief` step and records optional `plan-knowledge-selection.json` / `plan-knowledge-brief.md`; `native plan` is now upgraded into a staged flow of scope extraction, design generation/verification, and execution generation/verification, with optional `plan-scope.json` / `plan-execution.json` / `plan-verify.json` artifacts, while the brief is compressed toward decision-useful sections such as boundaries, stable rules, and validation points
-- deeper rationale for `refine` lives in [`docs/refine-v2-design.md`](docs/refine-v2-design.md)
-- deeper rationale for `plan` lives in [`docs/plan-engine.md`](docs/plan-engine.md)
-- `code`: supports `native` and `local`
-- `code`: consumes `design-repo-binding.json`, `plan-work-items.json`, `plan-execution-graph.json`, `plan-validation.json`, and `plan-result.json`
-- `code`: records `code-dispatch.json`, `code-progress.json`, task-level `code-result.json`, and repo-level `code-results` / `code-logs` / `code-verify` / `diffs`
-- `code=native` runs through `coco acp serve`, executes repo batches, verifies the changed scope, retries on build failures, and records commit/code-result artifacts back into the task
-- Go verification defaults to `go build` only; `go test` is disabled by default for large repos. If you really want it, set `COCO_FLOW_ENABLE_GO_TEST_VERIFY=1`, and `coco-flow` will only run tests for affected packages that actually contain `*_test.go`
-
-## Idle Timeout
-
-By default:
-
-- daemon process idle timeout: `3600` seconds (`1h`)
-- ACP session idle timeout: `600` seconds (`10m`)
-
-Override with environment variables:
-
-```bash
 export COCO_FLOW_DAEMON_IDLE_TIMEOUT_SECONDS=86400
 export COCO_FLOW_ACP_IDLE_TIMEOUT_SECONDS=86400
 ```
 
-Use the first variable if you only want the local daemon process to stay alive longer.
-Use both variables if you also want the daemon to keep ACP sessions warm for much longer.
+Default idle timeouts:
+
+- daemon: `3600` seconds
+- ACP session: `600` seconds
 
 ## API
 
@@ -178,40 +148,74 @@ Current endpoints:
 - `GET /api/knowledge`
 - `POST /api/knowledge`
 - `GET /api/knowledge/{document_id}`
-- `PUT /api/knowledge/{document_id}/content`
 - `PUT /api/knowledge/{document_id}`
+- `PUT /api/knowledge/{document_id}/content`
 - `DELETE /api/knowledge/{document_id}`
 - `GET /api/tasks`
 - `POST /api/tasks`
 - `GET /api/tasks/{task_id}`
+- `PUT /api/tasks/{task_id}/repos`
+- `DELETE /api/tasks/{task_id}`
 - `POST /api/tasks/{task_id}/refine`
+- `POST /api/tasks/{task_id}/design`
 - `POST /api/tasks/{task_id}/plan`
 - `POST /api/tasks/{task_id}/code`
 - `POST /api/tasks/{task_id}/code-all`
 - `POST /api/tasks/{task_id}/reset`
 - `POST /api/tasks/{task_id}/archive`
-- `GET /api/tasks/{task_id}/artifact?name=...`
+- `GET /api/tasks/{task_id}/artifact?name=...&repo=...`
 - `PUT /api/tasks/{task_id}/artifact?name=...`
+- `GET /api/repos/recent`
+- `POST /api/repos/validate`
+- `GET /api/fs/roots`
+- `GET /api/fs/list?path=...`
 
 ## Project Layout
 
 ```text
 src/coco_flow/
-├── api/            # FastAPI app factory
-├── engines/        # Input / Refine / Design / Plan / Code reasoning engines
+├── api/            # FastAPI app factory and routes
+├── clients/        # ACP client abstraction
+├── daemon/         # Local daemon and session management
+├── engines/        # Input / Refine / Design / Plan / Code engines
 ├── models/         # Shared response models
-├── services/       # Workflow wrappers, queries, and runtime helpers
-├── cli.py          # Typer entrypoint
-└── config.py       # Config and compatibility roots
+├── services/       # Workflow shells, queries, runtime helpers
+└── cli.py          # Typer entrypoint
 
 web/
-├── src/App.tsx     # Local workflow workbench
-├── src/api.ts      # Browser API client
-└── src/index.css   # First-pass UI styling
+├── src/App.tsx
+├── src/api.ts
+└── src/index.css
 ```
 
-## Next Steps
+## Verification
 
-- continue aligning `plan` AI candidate-file normalization and repo grouping details with `coco-ext`
-- harden the pending Lark refine flow and surface clearer recovery guidance in the UI
-- expand automated tests for background task execution and multi-repo flows
+Targeted checks:
+
+```bash
+uv run python -m py_compile src/coco_flow/engines/refine/__init__.py
+uv run python -m py_compile src/coco_flow/engines/plan.py
+uv run python -m py_compile src/coco_flow/engines/plan_generate.py
+uv run python -m py_compile src/coco_flow/engines/plan_models.py
+uv run python -m py_compile src/coco_flow/engines/plan_knowledge.py
+uv run python -m py_compile src/coco_flow/engines/plan_research.py
+uv run python -m py_compile src/coco_flow/engines/plan_render.py
+uv run python -m py_compile src/coco_flow/services/tasks/plan.py
+uv run python -m py_compile src/coco_flow/services/tasks/code.py
+uv run python -m unittest discover -s tests -v
+```
+
+Frontend build:
+
+```bash
+cd /Users/bytedance/Work/tools/bytedance/coco-flow/web
+npm install
+npm run build
+```
+
+## Deep Dives
+
+- [`docs/refine-v2-design.md`](docs/refine-v2-design.md)
+- [`docs/design-v2-design.md`](docs/design-v2-design.md)
+- [`docs/plan-engine.md`](docs/plan-engine.md)
+- [`docs/code-v2-design.md`](docs/code-v2-design.md)
