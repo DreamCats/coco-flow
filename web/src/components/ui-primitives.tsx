@@ -8,6 +8,10 @@ function taskStatusLabel(status: TaskStatus) {
       return '需求整理中'
     case 'refined':
       return '待生成方案'
+    case 'designing':
+      return '设计生成中'
+    case 'designed':
+      return '待生成计划'
     case 'planning':
       return '方案生成中'
     case 'planned':
@@ -91,6 +95,10 @@ export function StatusBadge({ status }: { status: TaskStatus }) {
       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
       : status === 'partially_coded'
         ? 'border-orange-200 bg-orange-50 text-orange-700'
+        : status === 'designing'
+          ? 'border-sky-200 bg-sky-50 text-sky-700'
+        : status === 'designed'
+          ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
         : status === 'planning'
           ? 'border-sky-200 bg-sky-50 text-sky-700'
         : status === 'planned'

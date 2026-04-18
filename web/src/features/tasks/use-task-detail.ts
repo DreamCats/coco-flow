@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { archiveCode, getTask, startCode, startPlan, startRefine, type TaskRecord } from '../../api'
+import { archiveCode, getTask, startCode, startDesign, startPlan, startRefine, type TaskRecord } from '../../api'
 
 export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>) {
   const [task, setTask] = useState<TaskRecord | null>(null)
@@ -89,6 +89,7 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
     busyAction,
     refresh: load,
     startRefineAction: () => runAction('refine', async () => void (await startRefine(taskId))),
+    startDesignAction: () => runAction('design', async () => void (await startDesign(taskId))),
     startPlanAction: () => runAction('plan', async () => void (await startPlan(taskId))),
     startCodeAction: (repoId?: string) => runAction('code', async () => void (await startCode(taskId, repoId))),
     archiveAction: (repoId?: string) => runAction('archive', async () => void (await archiveCode(taskId, repoId))),
@@ -96,5 +97,5 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
 }
 
 function shouldPoll(task: TaskRecord) {
-  return task.status === 'input_processing' || task.status === 'initialized' || task.status === 'refining' || task.status === 'planning' || task.status === 'coding'
+  return task.status === 'input_processing' || task.status === 'initialized' || task.status === 'refining' || task.status === 'designing' || task.status === 'planning' || task.status === 'coding'
 }

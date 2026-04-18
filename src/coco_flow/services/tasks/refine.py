@@ -128,6 +128,16 @@ def _reset_refine_outputs(task_dir: Path) -> None:
         path.unlink()
     for name in (
         "design.md",
+        "design.log",
+        "design-change-points.json",
+        "design-repo-assignment.json",
+        "design-research.json",
+        "design-repo-responsibility-matrix.json",
+        "design-knowledge-brief.md",
+        "design-repo-binding.json",
+        "design-sections.json",
+        "design-verify.json",
+        "design-result.json",
         "plan.md",
         "plan-knowledge-selection.json",
         "plan-knowledge-brief.md",

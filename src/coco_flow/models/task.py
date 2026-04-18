@@ -101,6 +101,10 @@ class TaskActionResponse(BaseModel):
     status: str
 
 
+class UpdateTaskReposRequest(BaseModel):
+    repos: list[str] = Field(default_factory=list)
+
+
 class WorkspaceInfo(BaseModel):
     product_name: str
     config_root: str

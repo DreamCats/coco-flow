@@ -88,6 +88,7 @@ export function TaskDetailPage() {
         busyAction={detail.busyAction}
         handlers={{
           onStartRefine: detail.startRefineAction,
+          onStartDesign: detail.startDesignAction,
           onStartPlan: detail.startPlanAction,
           onStartCode: detail.startCodeAction,
           onArchive: detail.archiveAction,
@@ -97,6 +98,7 @@ export function TaskDetailPage() {
           await reload()
         }}
         stage={activeStage}
+        stages={stages}
         task={detail.task}
       />
     </div>

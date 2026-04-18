@@ -7,6 +7,8 @@ export type TaskStatus =
   | 'input_failed'
   | 'refining'
   | 'refined'
+  | 'designing'
+  | 'designed'
   | 'planning'
   | 'planned'
   | 'coding'
@@ -22,7 +24,9 @@ export type TaskArtifactName =
   | 'prd.source.md'
   | 'prd-refined.md'
   | 'refine.notes.md'
+  | 'design.notes.md'
   | 'refine.log'
+  | 'design.log'
   | 'design.md'
   | 'plan.md'
   | 'plan.log'
@@ -57,7 +61,7 @@ export type RepoResult = {
 
 export type TaskTimelineItem = {
   label: string
-  state: 'done' | 'current' | 'pending'
+  state: 'done' | 'current' | 'pending' | 'blocked' | 'failed'
   detail: string
 }
 
@@ -257,6 +261,17 @@ export async function startRefine(taskId: string) {
   return response.json() as Promise<{ task_id: string; status: string }>
 }
 
+export async function startDesign(taskId: string) {
+  const response = await fetch(`/api/tasks/${taskId}/design`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: string; error?: string } | null
+    throw new Error(body?.detail || body?.error || '启动 design 失败')
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
+}
+
 export async function startPlan(taskId: string) {
   const response = await fetch(`/api/tasks/${taskId}/plan`, {
     method: 'POST',
@@ -340,6 +355,19 @@ export async function updateTaskArtifact(taskId: string, name: TaskArtifactName,
     throw new Error(body?.error || '保存文档失败')
   }
   return response.json() as Promise<UpdateArtifactResponse>
+}
+
+export async function updateTaskRepos(taskId: string, repos: string[]) {
+  const response = await fetch(`/api/tasks/${taskId}/repos`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repos }),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: string; error?: string } | null
+    throw new Error(body?.detail || body?.error || '更新仓库失败')
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
 }
 
 export async function listRecentRepos() {

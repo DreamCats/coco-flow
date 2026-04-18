@@ -5,7 +5,6 @@ import {
   listRemoteRoots,
   validateRepo,
   type RemoteDirEntry,
-  type RemoteRoot,
   type RepoCandidate,
 } from '../api'
 
@@ -17,7 +16,6 @@ export function RepoPicker({
   onChange: (repos: RepoCandidate[]) => void
 }) {
   const [recentRepos, setRecentRepos] = useState<RepoCandidate[]>([])
-  const [roots, setRoots] = useState<RemoteRoot[]>([])
   const [manualPath, setManualPath] = useState('')
   const [loadingRecent, setLoadingRecent] = useState(true)
   const [loadingBrowser, setLoadingBrowser] = useState(true)
@@ -37,8 +35,8 @@ export function RepoPicker({
           return
         }
         setRecentRepos(recent)
-        setRoots(rootList)
-        const initialPath = recent[0]?.path || rootList[0]?.path || ''
+        const homeRoot = rootList.find((root) => root.label.toLowerCase() === 'home')
+        const initialPath = homeRoot?.path || rootList[0]?.path || recent[0]?.path || ''
         if (initialPath) {
           await loadBrowser(initialPath, cancelled)
         } else {
@@ -47,7 +45,6 @@ export function RepoPicker({
       } catch {
         if (!cancelled) {
           setRecentRepos([])
-          setRoots([])
           setLoadingBrowser(false)
         }
       } finally {
@@ -240,25 +237,7 @@ export function RepoPicker({
         </section>
 
         <section className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">远程目录</div>
-            <div className="flex flex-wrap gap-2">
-              {roots.map((root) => (
-                <button
-                  className={`rounded-[12px] border px-3 py-2 text-xs uppercase tracking-[0.5px] transition ${
-                    browserPath === root.path
-                      ? 'border-[#c96442] bg-[#fff7f2] text-[#c96442] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:border-[#d97757] dark:bg-[#3a2620] dark:text-[#f0c0b0]'
-                      : 'border-[#d1cfc5] bg-[#e8e6dc] text-[#4d4c48] hover:bg-[#ddd9cc] dark:border-[#30302e] dark:bg-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#3a3937]'
-                  }`}
-                  key={root.path}
-                  onClick={() => void loadBrowser(root.path)}
-                  type="button"
-                >
-                  {root.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">远程目录</div>
 
           <div className="mt-3 rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.86)] dark:border-[#30302e] dark:bg-[#232220] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
             <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">当前位置</div>
