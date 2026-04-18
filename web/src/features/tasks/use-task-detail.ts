@@ -89,7 +89,15 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
     busyAction,
     refresh: load,
     startRefineAction: () => runAction('refine', async () => void (await startRefine(taskId))),
-    startDesignAction: () => runAction('design', async () => void (await startDesign(taskId))),
+    startDesignAction: () => {
+      if (
+        task?.status === 'planned' &&
+        !window.confirm('确认重新设计吗？这会覆盖当前 design 产物，清理现有 plan 结果；设计完成后需要重新生成 Plan。')
+      ) {
+        return Promise.resolve()
+      }
+      return runAction('design', async () => void (await startDesign(taskId)))
+    },
     startPlanAction: () => runAction('plan', async () => void (await startPlan(taskId))),
     startCodeAction: (repoId?: string) => runAction('code', async () => void (await startCode(taskId, repoId))),
     archiveAction: (repoId?: string) => runAction('archive', async () => void (await archiveCode(taskId, repoId))),

@@ -18,6 +18,7 @@ from coco_flow.engines.design.matrix import (
 )
 from coco_flow.engines.design.generate import (
     build_design_sections_payload,
+    collect_design_contract_issues,
     generate_design_markdown,
     generate_local_design_markdown,
 )
@@ -33,7 +34,7 @@ from coco_flow.engines.plan_models import (
     ResearchFinding,
 )
 from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
-from coco_flow.services.tasks.design import design_task
+from coco_flow.services.tasks.design import design_task, start_designing_task
 from coco_flow.services.tasks.plan import plan_task
 
 
@@ -245,13 +246,57 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(payload["system_changes"][0]["system_id"], "live_pack")
             self.assertEqual(payload["validate_repos"][0]["repo_id"], "live_shopapi")
             self.assertEqual(payload["reference_repos"][0]["repo_id"], "live_common")
+            self.assertEqual(payload["repo_decisions"][0]["repo_id"], "live_pack")
+            self.assertIn("联动验证", payload["repo_decisions"][1]["decision_summary"])
 
             markdown = generate_local_design_markdown(prepared, repo_binding_payload, payload, "")
             self.assertIn("#### Live Pack", markdown)
+            self.assertIn("选择原因", markdown)
             self.assertIn("### 联动验证仓库", markdown)
             self.assertIn("live_shopapi", markdown)
             self.assertIn("### 参考链路", markdown)
             self.assertIn("live_common", markdown)
+
+    def test_design_contract_requires_multi_repo_roles_and_candidate_files(self) -> None:
+        repo_binding_payload = {
+            "repo_bindings": [
+                {
+                    "repo_id": "demo",
+                    "decision": "in_scope",
+                    "scope_tier": "must_change",
+                    "system_name": "Demo",
+                    "candidate_files": ["main.go"],
+                },
+                {
+                    "repo_id": "test",
+                    "decision": "in_scope",
+                    "scope_tier": "validate_only",
+                    "system_name": "Test",
+                },
+            ]
+        }
+        sections_payload = {
+            "repo_decisions": [
+                {
+                    "repo_id": "demo",
+                    "candidate_files": ["main.go"],
+                },
+                {
+                    "repo_id": "test",
+                    "candidate_files": ["quick_sort.go"],
+                },
+            ]
+        }
+
+        issues = collect_design_contract_issues(
+            "# Design\n\n## 方案设计\n\n### 分系统改造\n- demo 仓负责新增 two sum。\n",
+            repo_binding_payload,
+            sections_payload,
+        )
+
+        self.assertTrue(any("test" in issue for issue in issues))
+        self.assertTrue(any("联动验证仓库" in issue for issue in issues))
+        self.assertTrue(any("main.go" in issue or "实现落点" in issue for issue in issues))
 
     def test_local_responsibility_matrix_prefers_state_aggregation_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -906,6 +951,51 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("## 方案设计", design)
             self.assertIn("竞拍讲解卡需要支持主播侧状态提示", design)
             self.assertTrue((task_dir / "design-result.json").exists())
+
+    def test_start_designing_task_allows_planned_and_clears_plan_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            repo_root = Path(tmp) / "repo"
+            repo_root.mkdir(parents=True)
+            task_id = "task-redesign-from-planned"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = datetime.now().astimezone().isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "重新设计测试",
+                        "status": "planned",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "重新设计测试",
+                        "repo_count": 1,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(
+                json.dumps({"repos": [{"id": "demo_repo", "path": str(repo_root), "status": "planned"}]}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "design.md").write_text("# Design\n\n- old design\n", encoding="utf-8")
+            (task_dir / "plan.md").write_text("# Plan\n\n- old plan\n", encoding="utf-8")
+            (task_dir / "plan.log").write_text("old plan log\n", encoding="utf-8")
+            (task_dir / "plan-result.json").write_text('{"status":"planned"}\n', encoding="utf-8")
+
+            status = start_designing_task(task_id, settings=settings)
+
+            self.assertEqual(status, "designing")
+            self.assertEqual(json.loads((task_dir / "task.json").read_text(encoding="utf-8"))["status"], "designing")
+            self.assertEqual(json.loads((task_dir / "repos.json").read_text(encoding="utf-8"))["repos"][0]["status"], "designing")
+            self.assertFalse((task_dir / "plan.md").exists())
+            self.assertFalse((task_dir / "plan.log").exists())
+            self.assertFalse((task_dir / "plan-result.json").exists())
 
     def test_design_can_infer_repos_from_selected_knowledge_when_repos_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

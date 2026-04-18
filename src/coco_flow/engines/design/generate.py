@@ -22,12 +22,19 @@ _HEADING_RE = re.compile(r"(?m)^#\s+Design\s*$")
 def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_payload: dict[str, object], knowledge_brief_markdown: str) -> dict[str, object]:
     repo_bindings = repo_binding_payload.get("repo_bindings")
     binding_items = repo_bindings if isinstance(repo_bindings, list) else []
+    research_items = prepared.research_payload.get("repos")
+    research_by_repo_id = {
+        str(item.get("repo_id") or ""): item
+        for item in (research_items if isinstance(research_items, list) else [])
+        if isinstance(item, dict) and str(item.get("repo_id") or "").strip()
+    }
     system_changes: list[dict[str, object]] = []
     system_dependencies: list[dict[str, object]] = []
     in_scope_repo_ids: list[str] = []
     must_change_repo_ids: list[str] = []
     validate_repos: list[dict[str, object]] = []
     reference_repos: list[dict[str, object]] = []
+    repo_decisions: list[dict[str, object]] = []
     for item in binding_items:
         if not isinstance(item, dict):
             continue
@@ -35,8 +42,10 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
             continue
         repo_id = str(item.get("repo_id") or "")
         scope_tier = str(item.get("scope_tier") or "")
+        research_entry = research_by_repo_id.get(repo_id, {})
         if repo_id:
             in_scope_repo_ids.append(repo_id)
+        repo_decisions.append(_build_repo_decision_note(item, research_entry))
         if scope_tier in {"must_change", "co_change"}:
             if repo_id:
                 must_change_repo_ids.append(repo_id)
@@ -93,6 +102,7 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
         "solution_overview": solution_overview,
         "system_changes": system_changes,
         "system_dependencies": system_dependencies,
+        "repo_decisions": repo_decisions,
         "validate_repos": validate_repos,
         "reference_repos": reference_repos,
         "critical_flows": [
@@ -144,6 +154,11 @@ def generate_local_design_markdown(
 ) -> str:
     repo_bindings = [item for item in repo_binding_payload.get("repo_bindings", []) if isinstance(item, dict) and str(item.get("decision") or "") == "in_scope"]
     must_change_bindings = [item for item in repo_bindings if str(item.get("scope_tier") or "") in {"must_change", "co_change"}]
+    repo_decision_notes = {
+        str(item.get("repo_id") or ""): item
+        for item in (sections_payload.get("repo_decisions") or [])
+        if isinstance(item, dict) and str(item.get("repo_id") or "").strip()
+    }
     lines = [
         "# Design",
         "",
@@ -163,6 +178,8 @@ def generate_local_design_markdown(
                     f"- 角色：{str(item.get('role') or '')}",
                     f"- scope_tier：{str(item.get('scope_tier') or '')}",
                     f"- 职责：{str(item.get('responsibility') or '')}",
+                    f"- 选择原因：{str((repo_decision_notes.get(str(item.get('repo_id') or '')) or {}).get('decision_summary') or item.get('reason') or '承担本次核心改造，因此纳入主改造面。')}",
+                    f"- 仓库现状：{str((repo_decision_notes.get(str(item.get('repo_id') or '')) or {}).get('repo_summary') or '当前缺少额外仓库现状摘要。')}",
                     "- 计划改动：",
                 ]
             )
@@ -183,7 +200,12 @@ def generate_local_design_markdown(
         for item in validate_repos:
             if not isinstance(item, dict):
                 continue
-            lines.append(f"- {item.get('repo_id') or ''}：{item.get('reason') or '需要联动验证，但默认不纳入主改造面。'}")
+            note = repo_decision_notes.get(str(item.get("repo_id") or ""), {})
+            detail = str(note.get("decision_summary") or item.get("reason") or "需要联动验证，但默认不纳入主改造面。")
+            repo_summary = str(note.get("repo_summary") or "").strip()
+            if repo_summary:
+                detail = f"{detail} 当前仓库现状：{repo_summary}"
+            lines.append(f"- {item.get('repo_id') or ''}：{detail}")
         lines.append("")
     reference_repos = sections_payload.get("reference_repos") or []
     if isinstance(reference_repos, list) and reference_repos:
@@ -191,7 +213,9 @@ def generate_local_design_markdown(
         for item in reference_repos:
             if not isinstance(item, dict):
                 continue
-            lines.append(f"- {item.get('repo_id') or ''}：作为背景链路参考，本次默认不改。")
+            note = repo_decision_notes.get(str(item.get("repo_id") or ""), {})
+            detail = str(note.get("decision_summary") or "作为背景链路参考，本次默认不改。")
+            lines.append(f"- {item.get('repo_id') or ''}：{detail}")
         lines.append("")
     lines.extend(["### 系统依赖关系", ""])
     dependencies = sections_payload.get("system_dependencies") or []
@@ -286,6 +310,11 @@ def generate_native_design_markdown(
         artifacts["design-verify.json"] = {"ok": True, "issues": [], "reason": "single bound repo fast path"}
         return content
 
+    contract_issues = collect_design_contract_issues(content, repo_binding_payload, sections_payload)
+    if contract_issues:
+        issue_text = "; ".join(contract_issues[:3])
+        raise ValueError(f"native_design_contract_failed: {issue_text}")
+
     verify_template_path = _write_verify_template(prepared.task_dir)
     try:
         client.run_agent(
@@ -335,6 +364,101 @@ def parse_design_verify_output(raw: str) -> dict[str, object]:
         "ok": bool(payload.get("ok")),
         "issues": [str(item) for item in payload.get("issues", []) if str(item).strip()],
         "reason": str(payload.get("reason") or ""),
+    }
+
+
+def collect_design_contract_issues(
+    design_markdown: str,
+    repo_binding_payload: dict[str, object],
+    sections_payload: dict[str, object],
+) -> list[str]:
+    normalized = design_markdown.lower()
+    issues: list[str] = []
+    raw_bindings = repo_binding_payload.get("repo_bindings")
+    binding_items = raw_bindings if isinstance(raw_bindings, list) else []
+    repo_decisions = {
+        str(item.get("repo_id") or ""): item
+        for item in (sections_payload.get("repo_decisions") or [])
+        if isinstance(item, dict) and str(item.get("repo_id") or "").strip()
+    }
+    validate_repo_ids: list[str] = []
+    for item in binding_items:
+        if not isinstance(item, dict) or str(item.get("decision") or "") != "in_scope":
+            continue
+        repo_id = str(item.get("repo_id") or "").strip()
+        if not repo_id:
+            continue
+        system_name = str(item.get("system_name") or "").strip()
+        repo_tokens = [repo_id.lower()]
+        if system_name:
+            repo_tokens.append(system_name.lower())
+        if not any(token and token in normalized for token in repo_tokens):
+            issues.append(f"design.md 未明确提及 in_scope 仓库 {repo_id}")
+        if str(item.get("scope_tier") or "") == "validate_only":
+            validate_repo_ids.append(repo_id)
+    if validate_repo_ids and "联动验证仓库" not in design_markdown:
+        issues.append("存在 validate_only 仓库，但 design.md 未单独展开联动验证仓库")
+    for repo_id, note in repo_decisions.items():
+        if repo_id.lower() not in normalized:
+            continue
+        candidate_files = note.get("candidate_files") or []
+        if not isinstance(candidate_files, list) or not candidate_files:
+            continue
+        if not any(str(value).strip().lower() in normalized for value in candidate_files[:3]):
+            issues.append(f"design.md 提到了 {repo_id}，但未落候选文件或实现落点")
+    return issues
+
+
+def _build_repo_decision_note(binding_item: dict[str, object], research_entry: dict[str, object]) -> dict[str, object]:
+    repo_id = str(binding_item.get("repo_id") or "")
+    scope_tier = str(binding_item.get("scope_tier") or "")
+    reason = str(binding_item.get("reason") or "").strip()
+    responsibility = str(binding_item.get("responsibility") or "").strip()
+    repo_summary = str(research_entry.get("summary") or "").strip()
+    evidence = [str(value) for value in research_entry.get("evidence", []) if str(value).strip()] if isinstance(research_entry.get("evidence"), list) else []
+    candidate_files = [
+        str(value)
+        for value in (
+            binding_item.get("candidate_files")
+            if isinstance(binding_item.get("candidate_files"), list)
+            else research_entry.get("candidate_files", [])
+        )[:6]
+        if str(value).strip()
+    ]
+    candidate_dirs = [
+        str(value)
+        for value in (
+            binding_item.get("candidate_dirs")
+            if isinstance(binding_item.get("candidate_dirs"), list)
+            else research_entry.get("candidate_dirs", [])
+        )[:6]
+        if str(value).strip()
+    ]
+    summary_parts: list[str] = []
+    if scope_tier in {"must_change", "co_change"}:
+        summary_parts.append(reason or "承担本次核心改造，因此纳入主改造面。")
+    elif scope_tier == "validate_only":
+        if reason:
+            summary_parts.append(f"{reason} 默认仅做联动验证，不作为主改造仓。")
+        else:
+            summary_parts.append("存在相关上下游或算法参考，但默认仅做联动验证。")
+    else:
+        summary_parts.append(reason or "仅保留背景或参考信息，本次默认不改。")
+    if repo_summary:
+        summary_parts.append(f"仓库现状：{repo_summary}")
+    elif responsibility:
+        summary_parts.append(f"仓库职责：{responsibility}")
+    return {
+        "repo_id": repo_id,
+        "system_name": str(binding_item.get("system_name") or repo_id),
+        "role": str(binding_item.get("role") or ""),
+        "scope_tier": scope_tier,
+        "decision_summary": " ".join(part for part in summary_parts if part),
+        "repo_summary": repo_summary,
+        "responsibility": responsibility,
+        "candidate_files": candidate_files,
+        "candidate_dirs": candidate_dirs,
+        "evidence": evidence[:4],
     }
 
 

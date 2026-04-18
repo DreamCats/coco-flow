@@ -15,6 +15,10 @@ def build_design_template_markdown() -> str:
         "- 待补充\n\n"
         "### 分系统改造\n"
         "- 待补充\n\n"
+        "### 联动验证仓库\n"
+        "- 待补充\n\n"
+        "### 参考链路\n"
+        "- 待补充\n\n"
         "### 系统依赖关系\n"
         "- 待补充\n\n"
         "### 关键链路说明\n"
@@ -49,8 +53,11 @@ def build_design_generate_agent_prompt(
             "保留模板中的一级标题和章节顺序，不要擅自删改章节名。",
             "不得引入当前 repo binding 或 design sections 中没有出现的仓库、系统或文件。",
             "“分系统改造”只展开 scope_tier=must_change 的仓库。",
-            "scope_tier=validate_only 的仓库只在联动验证语义下简要提及，不要写成主改造仓。",
+            "每个 in_scope 仓库都必须被明确提及，不能只写主仓。",
+            "scope_tier=validate_only 的仓库必须写进“联动验证仓库”，并解释为什么不作为主改造仓。",
             "scope_tier=reference_only 的仓库只保留必要背景，不要展开成本次改造项。",
+            "每个 must_change 仓库都必须写清：为什么选它、仓库现状、建议落点或候选文件。",
+            "优先消费 Design Sections 里的 repo_decisions；不要只复述 PRD Refined。",
             "内容要更像人写的设计文档，但不能偏离结构化结果。",
             "完成后只需简短回复已完成。",
         ],
