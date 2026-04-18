@@ -9,6 +9,7 @@ export function TaskCreateModal({
   onClose: () => void
   onCreated: (taskId: string) => Promise<void> | void
 }) {
+  const [title, setTitle] = useState('')
   const [source, setSource] = useState('')
   const [supplement, setSupplement] = useState('')
   const [creating, setCreating] = useState(false)
@@ -28,6 +29,7 @@ export function TaskCreateModal({
       setError('')
       const result = await createTask({
         input: composeCreateTaskInput(source, supplement),
+        title: title.trim() || undefined,
         repos: [],
       })
       await onCreated(result.task_id)
@@ -61,6 +63,18 @@ export function TaskCreateModal({
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          <section className="rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-4 dark:border-[#30302e] dark:bg-[#232220]">
+            <div className="text-[10px] uppercase tracking-[0.45em] text-[#87867f] dark:text-[#b0aea5]">任务标题</div>
+            <div className="mt-3 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">建议填一个简短标题，方便后续在任务列表中快速识别。</div>
+            <input
+              className="mt-4 w-full rounded-[18px] border border-dashed border-[#d8d3c8] bg-[#fffdf9] px-4 py-4 text-sm text-[#141413] outline-none focus:border-[#3898ec] dark:border-[#3a3937] dark:bg-[#151412] dark:text-[#faf9f5] dark:focus:border-[#3898ec]"
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="例如：统一商品规则定义口径"
+              type="text"
+              value={title}
+            />
+          </section>
+
           <section className="rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-4 dark:border-[#30302e] dark:bg-[#232220]">
             <div className="text-[10px] uppercase tracking-[0.45em] text-[#87867f] dark:text-[#b0aea5]">输入内容</div>
             <div className="mt-3 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">填 PRD 内容，或者直接贴飞书文档链接。</div>
