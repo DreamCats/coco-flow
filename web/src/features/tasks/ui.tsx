@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { stageStatusLabel, stageTone, taskStatusLabel } from './model'
 import type { TaskStageStatus } from './model'
 import type { TaskStatus } from '../../api'
 
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
   return (
-    <span className="rounded-full border border-[#d9cec0] bg-[#fffaf2] px-3 py-1 text-xs text-[#8d7766] dark:border-[#46423e] dark:bg-[#191816] dark:text-[#bcae9f]">
+    <span className="whitespace-nowrap rounded-full border border-[#d9cec0] bg-[#fffaf2] px-3 py-1 text-xs text-[#8d7766] dark:border-[#46423e] dark:bg-[#191816] dark:text-[#bcae9f]">
       {taskStatusLabel(status)}
     </span>
   )
@@ -24,21 +26,90 @@ export function SectionCard({ title, children }: { title: string; children: Reac
   )
 }
 
-export function ArtifactPanel({ title, content }: { title: string; content: string }) {
+export function ArtifactPanel({ title, content, renderAs = 'markdown' }: { title: string; content: string; renderAs?: 'markdown' | 'plain' }) {
   return (
     <div className="rounded-[18px] border border-[#ece6da] bg-[#fffdf9] px-4 py-4 dark:border-[#383632] dark:bg-[#151412]">
       <div className="text-sm font-medium text-[#141413] dark:text-[#faf9f5]">{title}</div>
-      <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs leading-6 text-[#5e5d59] dark:text-[#b0aea5]">
-        {content || '当前还没有产物。'}
-      </pre>
+      {renderAs === 'plain' ? (
+        <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs leading-6 text-[#5e5d59] dark:text-[#b0aea5]">
+          {content || '当前还没有产物。'}
+        </pre>
+      ) : (
+        <MarkdownBody content={content || '当前还没有产物。'} />
+      )}
     </div>
   )
 }
 
-export function NotePanel({ content }: { content: string }) {
+export function NotePanel({ content, renderAs = 'markdown' }: { content: string; renderAs?: 'markdown' | 'plain' }) {
   return (
     <div className="min-h-[220px] rounded-[18px] border border-dashed border-[#d8d3c8] bg-[#fffdf9] px-4 py-4 text-sm leading-7 text-[#8a7a67] dark:border-[#3a3937] dark:bg-[#151412] dark:text-[#8f8a82]">
-      {content || '当前没有补充说明。'}
+      {renderAs === 'plain' ? <div>{content || '当前没有补充说明。'}</div> : <MarkdownBody content={content || '当前没有补充说明。'} compact />}
+    </div>
+  )
+}
+
+function MarkdownBody({ content, compact = false }: { content: string; compact?: boolean }) {
+  return (
+    <div className={`mt-3 text-[#141413] dark:text-[#faf9f5]`}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => (
+            <h1 className={compact ? 'mt-2 mb-3 text-[28px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]' : 'mt-2 mb-3 text-[32px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'}>
+              {children}
+            </h1>
+          ),
+          h2: ({ children }) => (
+            <h2 className={compact ? 'mt-5 mb-3 text-[22px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]' : 'mt-6 mb-3 text-[24px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'}>
+              {children}
+            </h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className={compact ? 'mt-4 mb-2 text-[18px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]' : 'mt-5 mb-2 text-[20px] leading-[1.2] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]'}>
+              {children}
+            </h3>
+          ),
+          p: ({ children }) => <p className={compact ? 'my-2 text-[14px] leading-[1.8] text-[#4d4c48] dark:text-[#b0aea5]' : 'my-2 text-[15px] leading-[1.8] text-[#4d4c48] dark:text-[#b0aea5]'}>{children}</p>,
+          ul: ({ children }) => <ul className={compact ? 'my-3 list-disc space-y-1.5 pl-5 text-[14px] leading-7 text-[#4d4c48] dark:text-[#b0aea5]' : 'my-3 list-disc space-y-1.5 pl-5 text-[15px] leading-7 text-[#4d4c48] dark:text-[#b0aea5]'}>{children}</ul>,
+          ol: ({ children }) => <ol className={compact ? 'my-3 list-decimal space-y-1.5 pl-5 text-[14px] leading-7 text-[#4d4c48] dark:text-[#b0aea5]' : 'my-3 list-decimal space-y-1.5 pl-5 text-[15px] leading-7 text-[#4d4c48] dark:text-[#b0aea5]'}>{children}</ol>,
+          li: ({ children }) => <li>{children}</li>,
+          blockquote: ({ children }) => (
+            <blockquote className="my-4 rounded-r-[16px] border-l-4 border-[#d1cfc5] bg-[#f5f4ed] px-4 py-3 text-[#5e5d59] dark:border-[#4b4a46] dark:bg-[#232220] dark:text-[#b0aea5]">
+              {children}
+            </blockquote>
+          ),
+          table: ({ children }) => (
+            <div className="my-4 overflow-x-auto rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] dark:border-[#30302e] dark:bg-[#232220]">
+              <table className="min-w-full border-collapse text-left text-sm">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-[#eeece2] dark:bg-[#2a2927]">{children}</thead>,
+          th: ({ children }) => <th className="border-b border-[#ddd9cc] px-3 py-2 font-semibold text-[#141413] dark:border-[#3a3937] dark:text-[#faf9f5]">{children}</th>,
+          td: ({ children }) => <td className="border-t border-[#e8e6dc] px-3 py-2 text-[#4d4c48] dark:border-[#30302e] dark:text-[#b0aea5]">{children}</td>,
+          hr: () => <hr className="my-6 border-0 border-t border-[#e8e6dc] dark:border-[#30302e]" />,
+          a: ({ href, children }) => (
+            <a className="text-[#c96442] underline underline-offset-2 dark:text-[#f0c0b0]" href={href} rel="noreferrer" target="_blank">
+              {children}
+            </a>
+          ),
+          strong: ({ children }) => <strong className="font-semibold text-[#141413] dark:text-[#faf9f5]">{children}</strong>,
+          em: ({ children }) => <em className="italic">{children}</em>,
+          code: ({ className, children }) =>
+            className ? (
+              <code className="font-mono text-xs leading-6 text-[#5e5d59] dark:text-[#b0aea5]">{children}</code>
+            ) : (
+              <code className="rounded bg-[#f1ede3] px-1.5 py-0.5 font-mono text-[0.9em] text-[#6b2e1f] dark:bg-[#2f2623] dark:text-[#f0c0b0]">{children}</code>
+            ),
+          pre: ({ children }) => (
+            <pre className="my-4 overflow-x-auto rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] px-4 py-3 shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#141413] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
+              {children}
+            </pre>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   )
 }

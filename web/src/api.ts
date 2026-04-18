@@ -2,6 +2,10 @@ import type { KnowledgeDocument } from './knowledge/types'
 
 export type TaskStatus =
   | 'initialized'
+  | 'input_processing'
+  | 'input_ready'
+  | 'input_failed'
+  | 'refining'
   | 'refined'
   | 'planning'
   | 'planned'
@@ -17,6 +21,7 @@ export type SourceType = 'text' | 'file' | 'lark_doc'
 export type TaskArtifactName =
   | 'prd.source.md'
   | 'prd-refined.md'
+  | 'refine.notes.md'
   | 'refine.log'
   | 'design.md'
   | 'plan.md'
@@ -129,6 +134,7 @@ export type RemoteDirEntry = {
 export type CreateTaskRequest = {
   input: string
   title?: string
+  supplement?: string
   repos?: string[]
 }
 

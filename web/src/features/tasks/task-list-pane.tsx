@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
 import { deleteTask, type TaskListItem } from '../../api'
 import { useAppData } from '../../hooks/use-app-data'
+import { truncateTaskTitle } from './model'
 import { TaskCreateModal } from './task-create-modal'
 import { TaskStatusBadge } from './ui'
 
@@ -114,7 +115,9 @@ function TaskListItemCard({ task, onDelete }: { task: TaskListItem; onDelete: ()
       <Link className="block" params={{ taskId: task.id }} resetScroll={false} to="/tasks/$taskId">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[15px] font-semibold leading-5 tracking-[-0.03em]">{task.title}</div>
+            <div className="truncate text-[15px] font-semibold leading-5 tracking-[-0.03em]" title={task.title}>
+              {truncateTaskTitle(task.title, 18)}
+            </div>
             <div className={`mt-1 text-[11px] font-mono ${active ? 'text-[#87867f] dark:text-[#d8b2a6]' : 'text-stone-500 dark:text-stone-400'}`}>{task.id}</div>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -153,7 +156,7 @@ function TaskPaneMessage({ children }: { children: React.ReactNode }) {
 }
 
 function canDeleteTaskStatus(status: TaskListItem['status']) {
-  return new Set(['initialized', 'refined', 'planned', 'failed']).has(status)
+  return new Set(['initialized', 'input_processing', 'input_ready', 'input_failed', 'refined', 'planned', 'failed']).has(status)
 }
 
 function PlusIcon() {

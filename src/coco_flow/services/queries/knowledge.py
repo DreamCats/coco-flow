@@ -6,6 +6,7 @@ import ast
 import hashlib
 import json
 import re
+import yaml
 
 from coco_flow.config import Settings
 from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
@@ -262,6 +263,13 @@ def split_frontmatter_blocks(content: str) -> tuple[list[str], str]:
 
 
 def parse_frontmatter_block(block: str) -> dict[str, object]:
+    try:
+        payload = yaml.safe_load(block) or {}
+    except yaml.YAMLError:
+        payload = {}
+    if isinstance(payload, dict):
+        return payload
+
     meta: dict[str, object] = {}
     for line in block.splitlines():
         current = line.strip()

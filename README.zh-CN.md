@@ -16,7 +16,7 @@
 
 ## 深入阅读
 
-- [`docs/refine-engine.md`](docs/refine-engine.md)：解释 `refine` 引擎做什么、为什么拆成多阶段、各阶段的收益和边界
+- [`docs/refine-v2-design.md`](docs/refine-v2-design.md)：当前 Refine 设计，基于 Input 产物、知识筛选和多步 Prompt
 - [`docs/plan-engine.md`](docs/plan-engine.md)：解释 `plan` 引擎怎样做 repo research、scope 收敛、方案生成与验证
 - [`docs/knowledge-generation-engine.md`](docs/knowledge-generation-engine.md)：解释知识草稿生成链路
 
@@ -129,7 +129,7 @@ export COCO_FLOW_CODE_EXECUTOR=local
   - 飞书文档链接
 - 飞书文档如果暂时无法拉到正文，会生成 pending refine 占位稿，而不是直接创建失败
 - `refine` 现在会额外产出 `refine-result.json`，记录 `context_mode`、业务记忆是否命中、风险提示；当没有业务记忆可用时会显式降级为 `source_only`
-- `refine` 的详细编排和设计动机见 [`docs/refine-engine.md`](docs/refine-engine.md)
+- `refine` 的详细编排和设计动机见 [`docs/refine-v2-design.md`](docs/refine-v2-design.md)
 - `plan` 的详细编排和设计动机见 [`docs/plan-engine.md`](docs/plan-engine.md)
 - `plan` 现在会额外产出 `plan-scope.json`、`plan-execution.json`、`plan-verify.json`；其中 native plan 已拆成 scope、design、execution 三段内部编排
 - `code=native` 走 `coco acp serve`

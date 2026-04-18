@@ -112,6 +112,13 @@ uv run python -m unittest discover -s tests -v
   - 本地文件路径
   - 飞书文档链接（`/wiki/TOKEN`、`/docx/TOKEN`）
 - 创建后默认后台异步启动 `refine`
+- 当前 `POST /api/tasks` 已先对齐到 `Input` 阶段语义：
+  - 纯文本 / 本地文件：同步落盘并直接进入 `input_ready`
+  - 飞书文档链接：先创建 task，再异步进入 `input_processing` 拉正文
+  - 不再在创建后无条件自动启动 `refine`
+- `Input` 当前会额外生成：
+  - `input.json`
+  - `input.log`
 - CLI 层当前同时保留两套入口：
   - `tasks ...`：底层 task 入口
   - `prd ...`：对齐 `coco-ext` 的迁移入口
@@ -119,22 +126,24 @@ uv run python -m unittest discover -s tests -v
 ### refine
 
 - `refine` 支持 `native` 和 `local`
-- `native` 通过 `coco acp serve` 执行 prompt-only refine
+- `native` 通过 ACP 混合模式执行 refine
+  - `intent extraction`：agent（固定 `refine-intent.json` 模板）
+  - `knowledge shortlist`：agent（固定 `refine-knowledge-selection.json` 模板）
+  - `knowledge deep read`：agent（固定 `refine-knowledge-read.md` 模板）
+  - `generate refined draft`：agent（固定模板文件填充）
+  - `verify`：agent（固定 `refine-verify.json` 模板）
 - `local` 生成结构化兜底稿
 - `refine` 当前已支持业务记忆降级模式：
   - 默认优先读取 repo 下 `.livecoding/context/`
   - 若未找到可用上下文，显式降级为 `source_only`
   - 若只找到部分上下文，标记为 `partial_grounded`
 - `refine` 当前内部已拆成 `prepare -> intent -> knowledge selection -> knowledge brief -> generate` 多步编排
-- `native refine` 当前已升级成三段式 LLM 编排：
-  - `intent extractor`
-  - `refined generator`
-  - `verifier / judge`
+- `native refine` 当前已按“controller 建模板 + agent 填文件”的方式组织主要结构化产物
 - `native refine` 还会在规则筛中的 approved knowledge 上额外做一步 LLM 适用性裁决；`local refine` 保持规则筛选回退
 - `refine` 当前会额外生成：
   - `refine-intent.json`
   - `refine-knowledge-selection.json`（记录 approved knowledge 的规则筛选结果）
-  - `refine-knowledge-brief.md`（仅在存在业务记忆时）
+  - `refine-knowledge-read.md`
   - `refine-verify.json`（仅 native refine 生成）
 - 飞书文档若暂时拉不到正文，会生成 pending refine 占位稿，状态保持 `initialized`
 - `refine.log` 当前会记录：

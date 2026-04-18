@@ -87,6 +87,7 @@ class UpdateArtifactResponse(BaseModel):
 class CreateTaskRequest(BaseModel):
     input: str
     title: str | None = None
+    supplement: str | None = None
     repos: list[str] = Field(default_factory=list)
 
 

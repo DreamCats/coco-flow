@@ -39,7 +39,7 @@ def load_settings() -> Settings:
     code_executor = os.getenv("COCO_FLOW_CODE_EXECUTOR", "native").strip() or "native"
     enable_go_test_verify = (os.getenv("COCO_FLOW_ENABLE_GO_TEST_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
     coco_bin = os.getenv("COCO_FLOW_COCO_BIN", "coco").strip() or "coco"
-    native_query_timeout = os.getenv("COCO_FLOW_NATIVE_QUERY_TIMEOUT", "90s").strip() or "90s"
+    native_query_timeout = os.getenv("COCO_FLOW_NATIVE_QUERY_TIMEOUT", "180s").strip() or "180s"
     native_code_timeout = os.getenv("COCO_FLOW_NATIVE_CODE_TIMEOUT", "10m").strip() or "10m"
     acp_idle_timeout_seconds = float(os.getenv("COCO_FLOW_ACP_IDLE_TIMEOUT_SECONDS", "600").strip() or "600")
     daemon_idle_timeout_seconds = float(os.getenv("COCO_FLOW_DAEMON_IDLE_TIMEOUT_SECONDS", "3600").strip() or "3600")

@@ -116,6 +116,42 @@ class KnowledgeStoreTest(unittest.TestCase):
             saved_content = saved_path.read_text(encoding="utf-8")
             self.assertEqual(saved_content, source)
 
+    def test_read_document_supports_yaml_multiline_lists(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = make_settings(Path(temp_dir))
+            store = KnowledgeStore(settings)
+            path = settings.knowledge_root / "flows" / "auction-flow.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                (
+                    "---\n"
+                    "kind: flow\n"
+                    "id: auction-flow\n"
+                    "title: 竞拍讲解卡\n"
+                    "status: approved\n"
+                    "engines:\n"
+                    "  - refine\n"
+                    "  - plan\n"
+                    "repos:\n"
+                    "  - code.byted.org/oec/live_shop\n"
+                    "  - code.byted.org/oec/live_shopapi\n"
+                    "domain_name: 竞拍讲解卡\n"
+                    "---\n\n"
+                    "## Summary\n\n支持多行 YAML 数组。\n"
+                ),
+                encoding="utf-8",
+            )
+
+            document = store.get_document("auction-flow")
+
+            assert document is not None
+            self.assertEqual(document.status, "approved")
+            self.assertEqual(document.engines, ["refine", "plan"])
+            self.assertEqual(
+                document.repos,
+                ["code.byted.org/oec/live_shop", "code.byted.org/oec/live_shopapi"],
+            )
+
     def test_update_document_content_normalizes_multiple_frontmatter_blocks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = make_settings(Path(temp_dir))

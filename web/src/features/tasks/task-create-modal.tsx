@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { createTask } from '../../api'
-import { composeCreateTaskInput } from './content'
 
 export function TaskCreateModal({
   onClose,
@@ -28,8 +27,9 @@ export function TaskCreateModal({
       setCreating(true)
       setError('')
       const result = await createTask({
-        input: composeCreateTaskInput(source, supplement),
+        input: source.trim(),
         title: title.trim() || undefined,
+        supplement: supplement.trim() || undefined,
         repos: [],
       })
       await onCreated(result.task_id)

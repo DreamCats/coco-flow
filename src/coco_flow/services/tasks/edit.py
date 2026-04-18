@@ -10,18 +10,25 @@ from coco_flow.services.queries.task_detail import read_artifact_content, read_j
 from coco_flow.services.tasks.refine import locate_task_dir
 
 STATUS_INITIALIZED = "initialized"
+STATUS_INPUT_PROCESSING = "input_processing"
+STATUS_INPUT_READY = "input_ready"
+STATUS_INPUT_FAILED = "input_failed"
+STATUS_REFINING = "refining"
 STATUS_REFINED = "refined"
 STATUS_PLANNED = "planned"
+STATUS_FAILED = "failed"
 
 EDIT_RULES = {
     "prd.source.md": {
-        "allowed": {STATUS_INITIALIZED, STATUS_REFINED, STATUS_PLANNED},
-        "next_status": STATUS_INITIALIZED,
+        "allowed": {STATUS_INITIALIZED, STATUS_INPUT_PROCESSING, STATUS_INPUT_READY, STATUS_INPUT_FAILED, STATUS_REFINED, STATUS_PLANNED},
+        "next_status": STATUS_INPUT_READY,
         "invalidate": [
+            "input.log",
             "prd-refined.md",
             "refine-intent.json",
+            "refine-query.json",
             "refine-knowledge-selection.json",
-            "refine-knowledge-brief.md",
+            "refine-knowledge-read.md",
             "refine-verify.json",
             "refine-result.json",
             "plan-knowledge-selection.json",
@@ -39,7 +46,7 @@ EDIT_RULES = {
         "invalidate_dirs": ["code-results", "code-logs", "diffs"],
     },
     "prd-refined.md": {
-        "allowed": {STATUS_REFINED, STATUS_PLANNED},
+        "allowed": {STATUS_REFINING, STATUS_REFINED, STATUS_PLANNED},
         "next_status": STATUS_REFINED,
         "invalidate": [
             "design.md",
@@ -54,6 +61,12 @@ EDIT_RULES = {
             "code.log",
         ],
         "invalidate_dirs": ["code-results", "code-logs", "diffs"],
+    },
+    "refine.notes.md": {
+        "allowed": {STATUS_INPUT_READY, STATUS_REFINING, STATUS_REFINED, STATUS_PLANNED, STATUS_FAILED},
+        "next_status": "__keep__",
+        "invalidate": [],
+        "invalidate_dirs": [],
     },
     "design.md": {
         "allowed": {STATUS_PLANNED},
@@ -101,10 +114,20 @@ def update_artifact(
     for dir_name in rule["invalidate_dirs"]:
         remove_tree(task_dir / dir_name)
 
-    next_status = str(rule["next_status"])
+    next_status = status if str(rule["next_status"]) == "__keep__" else str(rule["next_status"])
     task_meta["status"] = next_status
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
     (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n")
+    input_meta = read_json_file(task_dir / "input.json")
+    if input_meta:
+        input_meta["status"] = next_status
+        (task_dir / "input.json").write_text(json.dumps(input_meta, ensure_ascii=False, indent=2) + "\n")
+    source_meta = read_json_file(task_dir / "source.json")
+    if source_meta and name == "prd.source.md":
+        source_meta["fetch_error"] = ""
+        source_meta["fetch_error_code"] = ""
+        source_meta["captured_at"] = datetime.now().astimezone().isoformat()
+        (task_dir / "source.json").write_text(json.dumps(source_meta, ensure_ascii=False, indent=2) + "\n")
     sync_repo_statuses(task_dir, next_status)
     return next_status, read_artifact_content(task_dir, name)
 
