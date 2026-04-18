@@ -94,6 +94,55 @@ class CodeV2DispatchTest(unittest.TestCase):
         self.assertEqual([batch.execution_mode for batch in batches], ["apply", "verify_only"])
         self.assertEqual(payload["batches"][0]["work_item_ids"], ["W1"])
 
+    def test_dispatch_does_not_promote_design_candidate_files_into_change_scope(self) -> None:
+        prepared = CodePreparedInput(
+            task_dir=Path("/tmp/task"),
+            task_id="task-1",
+            title="demo",
+            task_meta={},
+            repos_meta={
+                "repos": [
+                    {"id": "demo", "path": "/tmp/demo", "status": "planned"},
+                ]
+            },
+            design_repo_binding_payload={
+                "repo_bindings": [
+                    {
+                        "repo_id": "demo",
+                        "decision": "in_scope",
+                        "scope_tier": "must_change",
+                        "candidate_files": ["existing_reference.py"],
+                        "candidate_dirs": [],
+                    }
+                ]
+            },
+            plan_work_items_payload={
+                "work_items": [
+                    {
+                        "id": "W1",
+                        "title": "实现 two sum",
+                        "repo_id": "demo",
+                        "goal": "实现算法",
+                        "change_scope": [],
+                        "done_definition": ["实现 two sum"],
+                        "verification_steps": ["python py_compile"],
+                        "depends_on": [],
+                    }
+                ]
+            },
+            plan_execution_graph_payload={"execution_order": ["W1"], "edges": []},
+            plan_validation_payload={"task_validations": []},
+            plan_result_payload={"status": "planned"},
+            refined_markdown="# PRD Refined\n",
+            design_markdown="# Design\n",
+            plan_markdown="# Plan\n",
+        )
+
+        runtime = build_code_runtime_state(prepared)
+
+        self.assertEqual(runtime.batches[0].change_scope, [])
+        self.assertEqual(runtime.dispatch_payload["batches"][0]["change_scope"], [])
+
     def test_execute_prompt_references_code_batch_bundle_not_full_plan_payloads(self) -> None:
         prepared = CodePreparedInput(
             task_dir=Path("/tmp/task"),

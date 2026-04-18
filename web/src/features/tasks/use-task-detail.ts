@@ -10,7 +10,7 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
 
   async function load() {
     const detail = await getTask(taskId)
-    setTask(detail)
+    setTask((current) => (isSameTaskRecord(current, detail) ? current : detail))
     setError('')
     return detail
   }
@@ -24,7 +24,7 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
         if (cancelled) {
           return
         }
-        setTask(detail)
+        setTask((current) => (isSameTaskRecord(current, detail) ? current : detail))
         setError('')
       } catch (err) {
         if (!cancelled) {
@@ -53,7 +53,7 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
           if (cancelled) {
             return
           }
-          setTask(detail)
+          setTask((current) => (isSameTaskRecord(current, detail) ? current : detail))
           if (!shouldPoll(detail)) {
             await onAfterAction()
           }
@@ -115,4 +115,67 @@ function shouldPoll(task: TaskRecord) {
     task.status === 'coding' ||
     (task.status === 'partially_coded' && task.codeProgress.counts.running > 0)
   )
+}
+
+function isSameTaskRecord(current: TaskRecord | null, next: TaskRecord) {
+  if (!current) {
+    return false
+  }
+  return (
+    current.id === next.id &&
+    current.title === next.title &&
+    current.status === next.status &&
+    current.sourceType === next.sourceType &&
+    current.sourceFetchError === next.sourceFetchError &&
+    current.sourceFetchErrorCode === next.sourceFetchErrorCode &&
+    current.updatedAt === next.updatedAt &&
+    current.owner === next.owner &&
+    current.complexity === next.complexity &&
+    current.nextAction === next.nextAction &&
+    isSameStringList(current.repoNext, next.repoNext) &&
+    isSameArtifacts(current.artifacts, next.artifacts) &&
+    isSameTimeline(current.timeline, next.timeline) &&
+    isSameRepos(current.repos, next.repos) &&
+    isSameCodeProgress(current.codeProgress, next.codeProgress)
+  )
+}
+
+function isSameStringList(current: string[], next: string[]) {
+  if (current.length !== next.length) {
+    return false
+  }
+  return current.every((item, index) => item === next[index])
+}
+
+function isSameArtifacts(current: Record<string, string>, next: Record<string, string>) {
+  const currentKeys = Object.keys(current)
+  const nextKeys = Object.keys(next)
+  if (currentKeys.length !== nextKeys.length) {
+    return false
+  }
+  return currentKeys.every((key) => current[key] === next[key])
+}
+
+function isSameTimeline(current: TaskRecord['timeline'], next: TaskRecord['timeline']) {
+  if (current.length !== next.length) {
+    return false
+  }
+  return current.every((item, index) => {
+    const nextItem = next[index]
+    return nextItem && item.label === nextItem.label && item.state === nextItem.state && item.detail === nextItem.detail
+  })
+}
+
+function isSameRepos(current: TaskRecord['repos'], next: TaskRecord['repos']) {
+  if (current.length !== next.length) {
+    return false
+  }
+  return current.every((repo, index) => {
+    const nextRepo = next[index]
+    return nextRepo && JSON.stringify(repo) === JSON.stringify(nextRepo)
+  })
+}
+
+function isSameCodeProgress(current: TaskRecord['codeProgress'], next: TaskRecord['codeProgress']) {
+  return JSON.stringify(current) === JSON.stringify(next)
 }

@@ -27,7 +27,6 @@ def build_code_runtime_state(prepared: CodePreparedInput) -> CodeRunState:
         batch_id_by_repo[repo_id] = batch_id
         change_scope = _dedupe(
             [path for item in repo_items for path in item.change_scope]
-            + _string_list(binding.get("candidate_files"))
         )[:10]
         verify_rules = _dedupe(
             [rule for item in repo_items for rule in item.verification_steps]
