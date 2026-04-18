@@ -1,428 +1,303 @@
 from __future__ import annotations
 
-import ast
 import json
-from pathlib import Path
+from math import ceil
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
-from coco_flow.engines.business_memory import BusinessMemoryContext
-from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
+from coco_flow.models import KnowledgeDocument
+from coco_flow.prompts.refine import build_refine_knowledge_read_prompt, build_refine_shortlist_prompt
+from coco_flow.services.queries.knowledge import KnowledgeStore
 
-from .models import RefineIntent, RefineKnowledgeBrief, RefinePreparedInput
+from .models import EXECUTOR_NATIVE, KnowledgeCard, RefineIntent, RefineKnowledgeRead, RefineKnowledgeSelection, RefinePreparedInput
 
-_PRIORITY_KINDS = {"glossary", "rules", "history", "faq"}
-_KNOWLEDGE_KIND_PRIORITY = {"domain": 0, "rule": 1, "flow": 2}
-_KIND_DIRS = {
-    "domain": "domains",
-    "flow": "flows",
-    "rule": "rules",
-}
+SHORTLIST_CHUNK_SIZE = 8
 
 
-def build_refine_knowledge_brief(
-    memory: BusinessMemoryContext,
-    intent: RefineIntent,
-    prepared: RefinePreparedInput,
-    settings: Settings,
-) -> RefineKnowledgeBrief:
-    candidates = _list_refine_knowledge_candidates(settings)
-    scored_payloads = [_score_payload(item, prepared, intent) for item in candidates]
-    approved_documents = _select_refine_knowledge_documents(candidates, prepared, intent)
-    adjudication_payload = build_refine_knowledge_adjudication_payload(
-        settings=settings,
-        prepared=prepared,
-        intent=intent,
-        selected_documents=approved_documents,
-    )
-    approved_documents = _apply_adjudication_result(approved_documents, adjudication_payload)
-    terms = intent.key_terms[:8]
-    ordered_documents = sorted(
-        memory.documents,
-        key=lambda item: (item.kind not in _PRIORITY_KINDS, item.name),
-    )
-    selected_memory = ordered_documents[:4]
-    if not selected_memory and not approved_documents:
-        return RefineKnowledgeBrief(
-            markdown="",
-            matched_documents=[],
-            matched_terms=terms,
-            selected_knowledge_ids=[],
-            selection_payload={
-                "selected_ids": [],
-                "selected_titles": [],
-                "candidates": [],
-            },
-        )
-
-    lines = [
-        "# Refine Knowledge Brief",
-        "",
-        "- 用途：仅用于 refine 阶段的术语消歧、历史规则补充和冲突识别。",
-        "- 优先级：当前 PRD 原文优先于历史知识与 approved knowledge。",
-        f"- context_mode: {memory.mode}",
-        "",
-        "## 当前需求意图",
-        "",
-        f"- 需求目标：{intent.goal or intent.title}",
-        f"- 关键术语：{', '.join(terms) if terms else '无'}",
-        "",
-    ]
-    if intent.constraints:
-        lines.extend(
-            [
-                "## 约束提醒",
-                "",
-                *[f"- {item}" for item in intent.constraints[:4]],
-                "",
-            ]
-        )
-
-    matched_documents: list[str] = []
-    for document in selected_memory:
-        matched_documents.append(document.name)
-        lines.extend(
-            [
-                f"## {document.name} ({document.kind})",
-                "",
-                _extract_relevant_excerpt(document.excerpt, terms),
-                "",
-            ]
-        )
-
-    if approved_documents:
-        lines.extend(
-            [
-                "## Approved Knowledge",
-                "",
-            ]
-        )
-        for document in approved_documents:
-            matched_documents.append(f"knowledge:{document.id}")
-            lines.extend(
-                [
-                    f"### {document.title} [{document.kind}]",
-                    "",
-                    f"- id: {document.id}",
-                    f"- domain: {document.domainName or document.domainId or 'unknown'}",
-                    f"- repos: {', '.join(document.repos) if document.repos else '无'}",
-                    _render_knowledge_excerpt(document, terms),
-                    "",
-                ]
-            )
-
-    selection_payload = {
-        "selected_ids": [item.id for item in approved_documents],
-        "selected_titles": [item.title for item in approved_documents],
-        "candidates": scored_payloads,
-        "adjudication": adjudication_payload,
+def build_refine_query(prepared: RefinePreparedInput, intent: RefineIntent) -> dict[str, object]:
+    return {
+        "title": prepared.title,
+        "goal": intent.goal,
+        "terms": intent.terms[:8],
+        "change_points": intent.change_points[:5],
+        "risks_seed": intent.risks_seed[:4],
+        "discussion_seed": intent.discussion_seed[:4],
+        "boundary_seed": intent.boundary_seed[:4],
     }
-    return RefineKnowledgeBrief(
-        markdown="\n".join(lines).rstrip() + "\n",
-        matched_documents=matched_documents,
-        matched_terms=terms,
-        selected_knowledge_ids=[item.id for item in approved_documents],
-        selection_payload=selection_payload,
-    )
 
 
-def _extract_relevant_excerpt(content: str, terms: list[str]) -> str:
-    normalized_lines = [line.strip() for line in content.splitlines() if line.strip()]
-    if not normalized_lines:
-        return "- 无可用历史知识摘录。"
-
-    if terms:
-        matched = [line for line in normalized_lines if any(term.lower() in line.lower() for term in terms)]
-        if matched:
-            return "\n".join(f"- {line}" for line in matched[:6])
-
-    return "\n".join(f"- {line}" for line in normalized_lines[:4])
-
-
-def _render_knowledge_excerpt(document: KnowledgeDocument, terms: list[str]) -> str:
-    body = document.body.strip()
-    if not body:
-        return "- 摘要：无正文。"
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
-    if terms:
-        matched = [line for line in lines if any(term.lower() in line.lower() for term in terms)]
-        if matched:
-            return "\n".join(f"- {line}" for line in matched[:5])
-    return "\n".join(f"- {line}" for line in lines[:4])
-
-
-def _select_refine_knowledge_documents(
-    candidates: list[KnowledgeDocument],
+def shortlist_refine_knowledge(
+    *,
     prepared: RefinePreparedInput,
     intent: RefineIntent,
-) -> list[KnowledgeDocument]:
-    scored: list[tuple[int, KnowledgeDocument]] = []
-    for document in candidates:
-        score = _score_document(document, prepared, intent)
-        if score > 0:
-            scored.append((score, document))
-    scored.sort(
-        key=lambda item: (
-            -item[0],
-            _KNOWLEDGE_KIND_PRIORITY.get(item[1].kind, 9),
-            item[1].title,
-        )
-    )
-    return [item[1] for item in scored[:4]]
-
-
-def _list_refine_knowledge_candidates(settings: Settings) -> list[KnowledgeDocument]:
-    documents: list[KnowledgeDocument] = []
-    for kind, directory in _KIND_DIRS.items():
-        kind_dir = settings.knowledge_root / directory
-        if not kind_dir.is_dir():
-            continue
-        for path in sorted(kind_dir.glob("*.md")):
-            document = _read_knowledge_document(path, kind)
-            if document.status == "approved" and "refine" in document.engines:
-                documents.append(document)
-    return documents
-
-
-def build_refine_knowledge_adjudication_payload(
-    *,
     settings: Settings,
+    on_log,
+) -> tuple[list[KnowledgeDocument], RefineKnowledgeSelection]:
+    store = KnowledgeStore(settings)
+    candidates = [
+        document
+        for document in store.list_documents()
+        if document.status == "approved" and "refine" in document.engines
+    ]
+    cards = [_to_card(document) for document in candidates]
+    scored_cards = _score_cards(cards, candidates, prepared, intent)
+    if settings.refine_executor.strip().lower() != EXECUTOR_NATIVE:
+        selection = _rule_select(cards, scored_cards)
+        selected_docs = _selected_documents(candidates, selection.selected_ids)
+        return selected_docs, selection
+
+    selection = _native_select(cards, candidates, scored_cards, intent, settings, on_log)
+    selected_docs = _selected_documents(candidates, selection.selected_ids)
+    return selected_docs, selection
+
+
+def read_selected_knowledge(
+    *,
     prepared: RefinePreparedInput,
     intent: RefineIntent,
     selected_documents: list[KnowledgeDocument],
-) -> dict[str, object]:
-    if settings.refine_executor.strip().lower() != "native":
-        return {"mode": "rule_only", "selected_ids": [item.id for item in selected_documents], "reason": "executor_is_not_native"}
-    if len(selected_documents) <= 1:
-        return {"mode": "rule_only", "selected_ids": [item.id for item in selected_documents], "reason": "candidate_count_leq_1"}
+    settings: Settings,
+    on_log,
+) -> RefineKnowledgeRead:
+    if not selected_documents:
+        return RefineKnowledgeRead(markdown="", selected_ids=[], selected_titles=[])
+
+    if settings.refine_executor.strip().lower() != EXECUTOR_NATIVE:
+        return _read_knowledge_locally(selected_documents)
 
     client = CocoACPClient(
         settings.coco_bin,
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
+    raw_documents = "\n\n".join(_render_document_for_prompt(document) for document in selected_documents)
     try:
-        raw = client.run_prompt_only(
-            build_refine_knowledge_adjudication_prompt(prepared, intent, selected_documents),
+        markdown = client.run_prompt_only(
+            build_refine_knowledge_read_prompt(
+                intent_payload=intent.to_payload(),
+                knowledge_documents_markdown=raw_documents,
+            ),
             settings.native_query_timeout,
-            cwd=prepared.repo_root,
             fresh_session=True,
+        ).strip()
+        if not markdown:
+            raise ValueError("empty_knowledge_read")
+        on_log(f"knowledge_read_mode: llm ({len(selected_documents)} docs)")
+        return RefineKnowledgeRead(
+            markdown=markdown.rstrip() + "\n",
+            selected_ids=[document.id for document in selected_documents],
+            selected_titles=[document.title for document in selected_documents],
         )
-        payload = parse_refine_knowledge_adjudication_output(raw, selected_documents)
-        payload["mode"] = "llm_adjudicated"
-        return payload
     except ValueError as error:
-        return {
-            "mode": "rule_only",
-            "selected_ids": [item.id for item in selected_documents],
-            "reason": f"llm_adjudication_failed: {error}",
-        }
+        on_log(f"knowledge_read_fallback: {error}")
+        return _read_knowledge_locally(selected_documents)
 
 
-def build_refine_knowledge_adjudication_prompt(
-    prepared: RefinePreparedInput,
-    intent: RefineIntent,
-    documents: list[KnowledgeDocument],
-) -> str:
-    lines = [
-        "你在做 coco-flow refine knowledge adjudication。",
-        "目标：从已规则筛中的 approved knowledge 中，选出最适合当前 refine 的知识。",
-        "要求：",
-        "1. 只保留对术语消歧、历史规则补充、冲突识别真正有帮助的知识。",
-        "2. 如果知识更偏实现链路细节、对 refine 帮助弱，可以降级或剔除。",
-        "3. 当前 PRD 原文优先，历史知识不能覆盖当前需求。",
-        "4. 输出必须是 JSON 对象，不要输出其它文字。",
-        '5. JSON 格式：{"selected_ids":["..."],"rejected_ids":["..."],"reason":"..."}',
-        "",
-        f"当前任务标题：{prepared.title}",
-        f"需求目标：{intent.goal or prepared.title}",
-        f"关键术语：{', '.join(intent.key_terms[:8]) if intent.key_terms else '无'}",
-        f"约束：{'; '.join(intent.constraints[:4]) if intent.constraints else '无'}",
-        "",
-        "候选知识：",
-    ]
-    for document in documents:
-        lines.extend(
-            [
-                f"- id: {document.id}",
-                f"  kind: {document.kind}",
-                f"  title: {document.title}",
-                f"  domain: {document.domainName or document.domainId or 'unknown'}",
-                f"  repos: {', '.join(document.repos) if document.repos else '无'}",
-                f"  desc: {document.desc or '无'}",
-                f"  excerpt: {_excerpt_for_adjudication(document.body)}",
-            ]
-        )
-    return "\n".join(lines)
-
-
-def parse_refine_knowledge_adjudication_output(raw: str, documents: list[KnowledgeDocument]) -> dict[str, object]:
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"invalid_adjudication_json: {error}") from error
-    if not isinstance(payload, dict):
-        raise ValueError("adjudication_output_is_not_object")
-    known_ids = {item.id for item in documents}
-    selected_ids = [str(item) for item in payload.get("selected_ids", []) if str(item) in known_ids]
-    rejected_ids = [str(item) for item in payload.get("rejected_ids", []) if str(item) in known_ids]
-    if not selected_ids:
-        raise ValueError("adjudication_selected_ids_empty")
-    return {
-        "selected_ids": selected_ids,
-        "rejected_ids": rejected_ids,
-        "reason": str(payload.get("reason") or ""),
-    }
-
-
-def _apply_adjudication_result(
-    selected_documents: list[KnowledgeDocument],
-    adjudication_payload: dict[str, object],
-) -> list[KnowledgeDocument]:
-    ids = adjudication_payload.get("selected_ids")
-    if not isinstance(ids, list) or not ids:
-        return selected_documents
-    selected_id_set = {str(item) for item in ids}
-    filtered = [item for item in selected_documents if item.id in selected_id_set]
-    return filtered or selected_documents
-
-
-def _excerpt_for_adjudication(body: str, limit: int = 240) -> str:
-    normalized = " ".join(line.strip() for line in body.splitlines() if line.strip())
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[:limit].rstrip() + "..."
-
-
-def _score_document(document: KnowledgeDocument, prepared: RefinePreparedInput, intent: RefineIntent) -> int:
-    score = 0
-    repo_ids = _repo_ids(prepared)
-    if any(repo_id in document.repos for repo_id in repo_ids):
-        score += 5
-    score += min(_keyword_hits(document, intent), 4)
-    if document.domainName and any(document.domainName.lower() in value.lower() for value in [intent.title, intent.goal]):
-        score += 3
-    if document.kind == "domain":
-        score += 1
-    return score
-
-
-def _score_payload(document: KnowledgeDocument, prepared: RefinePreparedInput, intent: RefineIntent) -> dict[str, object]:
-    repo_ids = _repo_ids(prepared)
-    return {
-        "id": document.id,
-        "title": document.title,
-        "kind": document.kind,
-        "status": document.status,
-        "score": _score_document(document, prepared, intent),
-        "repo_match": any(repo_id in document.repos for repo_id in repo_ids),
-        "keyword_hits": sorted(
-            {
-                term
-                for term in intent.key_terms
-                if any(term.lower() in value.lower() for value in [document.title, document.desc, document.domainName, document.body])
-            }
-        ),
-    }
-
-
-def _repo_ids(prepared: RefinePreparedInput) -> list[str]:
-    repos = prepared.repos_meta.get("repos")
-    if not isinstance(repos, list):
-        return []
-    return [str(item.get("id") or "") for item in repos if isinstance(item, dict) and str(item.get("id") or "")]
-
-
-def _keyword_hits(document: KnowledgeDocument, intent: RefineIntent) -> int:
-    values = [document.title, document.desc, document.domainName, document.body]
-    return sum(1 for term in intent.key_terms if any(term.lower() in value.lower() for value in values))
-
-
-def _read_knowledge_document(path: Path, fallback_kind: str) -> KnowledgeDocument:
-    content = path.read_text(encoding="utf-8")
-    meta, body = _parse_frontmatter(content)
-    evidence_payload = meta.get("evidence")
-    return KnowledgeDocument(
-        id=str(meta.get("id") or path.stem),
-        kind=str(meta.get("kind") or fallback_kind),
-        status=str(meta.get("status") or "draft"),
-        title=str(meta.get("title") or path.stem),
-        desc=str(meta.get("desc") or ""),
-        domainId=str(meta.get("domain_id") or ""),
-        domainName=str(meta.get("domain_name") or ""),
-        engines=_as_string_list(meta.get("engines")),
-        repos=_as_string_list(meta.get("repos")),
-        priority=str(meta.get("priority") or "medium"),
-        confidence=str(meta.get("confidence") or "medium"),
-        updatedAt=str(meta.get("updated_at") or ""),
-        owner=str(meta.get("owner") or "unknown"),
-        body=body,
-        evidence=_build_evidence(evidence_payload),
+def _rule_select(cards: list[KnowledgeCard], scored_cards: list[tuple[int, KnowledgeCard]]) -> RefineKnowledgeSelection:
+    selected_cards = [card for score, card in scored_cards if score > 0][:4]
+    rejected_ids = [card.id for card in cards if card.id not in {item.id for item in selected_cards}]
+    reason = "rule_scored_from_frontmatter"
+    return RefineKnowledgeSelection(
+        selected_ids=[card.id for card in selected_cards],
+        rejected_ids=rejected_ids,
+        reason=reason,
+        candidates=[{"score": score, **card.to_payload()} for score, card in scored_cards],
+        mode="rule",
     )
 
 
-def _parse_frontmatter(content: str) -> tuple[dict[str, object], str]:
-    normalized = content.replace("\r\n", "\n")
-    if not normalized.startswith("---\n"):
-        return {}, normalized.strip()
-    end = normalized.find("\n---\n", 4)
-    if end == -1:
-        return {}, normalized.strip()
-    block = normalized[4:end]
-    body = normalized[end + 5 :].strip()
-    meta: dict[str, object] = {}
-    for line in block.splitlines():
-        current = line.strip()
-        if not current or ":" not in current:
-            continue
-        key, raw_value = current.split(":", 1)
-        meta[key.strip()] = _parse_frontmatter_value(raw_value.strip())
-    return meta, body
-
-
-def _parse_frontmatter_value(raw: str) -> object:
-    if not raw:
-        return ""
-    if raw.startswith(("[", "{", '"')) or raw in {"true", "false", "null"}:
+def _native_select(
+    cards: list[KnowledgeCard],
+    documents: list[KnowledgeDocument],
+    scored_cards: list[tuple[int, KnowledgeCard]],
+    intent: RefineIntent,
+    settings: Settings,
+    on_log,
+) -> RefineKnowledgeSelection:
+    client = CocoACPClient(
+        settings.coco_bin,
+        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+        settings=settings,
+    )
+    selected_ids: list[str] = []
+    rejected_ids: list[str] = []
+    reasons: list[str] = []
+    total_chunks = ceil(len(cards) / SHORTLIST_CHUNK_SIZE)
+    for index in range(total_chunks):
+        chunk_cards = cards[index * SHORTLIST_CHUNK_SIZE : (index + 1) * SHORTLIST_CHUNK_SIZE]
         try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            pass
-    if raw.startswith(("['", '["', "{'")):
-        try:
-            return ast.literal_eval(raw)
-        except (SyntaxError, ValueError):
-            pass
-    return raw
+            raw = client.run_prompt_only(
+                build_refine_shortlist_prompt(
+                    intent_payload=intent.to_payload(),
+                    knowledge_cards=[card.to_payload() for card in chunk_cards],
+                ),
+                settings.native_query_timeout,
+                fresh_session=True,
+            )
+            payload = _parse_shortlist_output(raw, chunk_cards)
+            selected_ids.extend(payload["selected_ids"])
+            rejected_ids.extend(payload["rejected_ids"])
+            if payload["reason"]:
+                reasons.append(str(payload["reason"]))
+        except ValueError as error:
+            on_log(f"knowledge_shortlist_chunk_fallback: chunk={index + 1}/{total_chunks} error={error}")
+            for card in chunk_cards[:2]:
+                if _card_score_lookup(scored_cards, card.id) > 0:
+                    selected_ids.append(card.id)
+    selected_ids = _ordered_unique(selected_ids)[:4]
+    if not selected_ids:
+        selection = _rule_select(cards, scored_cards)
+        selection.mode = "native_fallback_rule"
+        return selection
+    rejected_ids = [card.id for card in cards if card.id not in set(selected_ids)]
+    return RefineKnowledgeSelection(
+        selected_ids=selected_ids,
+        rejected_ids=rejected_ids,
+        reason="; ".join(_ordered_unique(reasons)) or "llm_shortlist_from_frontmatter",
+        candidates=[{"score": score, **card.to_payload()} for score, card in scored_cards],
+        mode="llm",
+    )
 
 
-def _as_string_list(value: object) -> list[str]:
-    if isinstance(value, list):
-        return [str(item) for item in value if str(item).strip()]
-    return []
+def _score_cards(
+    cards: list[KnowledgeCard],
+    documents: list[KnowledgeDocument],
+    prepared: RefinePreparedInput,
+    intent: RefineIntent,
+) -> list[tuple[int, KnowledgeCard]]:
+    score_map: dict[str, int] = {}
+    query_terms = [prepared.title, intent.goal, *intent.terms, *intent.change_points, *intent.boundary_seed]
+    lowered_terms = [item.lower() for item in query_terms if item.strip()]
+    for card, document in zip(cards, documents, strict=False):
+        haystack = " ".join([card.title, card.desc, card.domain_name, document.body[:600]]).lower()
+        score = 0
+        for term in lowered_terms:
+            if term and term in haystack:
+                score += 3
+        if card.priority == "high":
+            score += 1
+        if card.confidence == "high":
+            score += 1
+        score_map[card.id] = score
+    scored = [(score_map[card.id], card) for card in cards]
+    scored.sort(key=lambda item: (-item[0], item[1].kind, item[1].title))
+    return scored
 
 
-def _build_evidence(payload: object) -> KnowledgeEvidence:
-    if isinstance(payload, dict):
-        return KnowledgeEvidence(
-            inputTitle=str(payload.get("inputTitle") or ""),
-            inputDescription=str(payload.get("inputDescription") or ""),
-            repoMatches=_as_string_list(payload.get("repoMatches")),
-            keywordMatches=_as_string_list(payload.get("keywordMatches")),
-            pathMatches=_as_string_list(payload.get("pathMatches")),
-            candidateFiles=_as_string_list(payload.get("candidateFiles")),
-            contextHits=_as_string_list(payload.get("contextHits")),
-            retrievalNotes=_as_string_list(payload.get("retrievalNotes")),
-            openQuestions=_as_string_list(payload.get("openQuestions")),
+def _read_knowledge_locally(selected_documents: list[KnowledgeDocument]) -> RefineKnowledgeRead:
+    lines = ["# Refine Knowledge Read", ""]
+    for document in selected_documents:
+        lines.extend(
+            [
+                f"## {document.title}",
+                "",
+                f"- id: {document.id}",
+                f"- kind: {document.kind}",
+                f"- domain: {document.domainName or document.domainId or 'unknown'}",
+                f"- desc: {document.desc or '无'}",
+                "",
+                _extract_relevant_excerpt(document.body),
+                "",
+            ]
         )
-    return KnowledgeEvidence(
-        inputTitle="",
-        inputDescription="",
-        repoMatches=[],
-        keywordMatches=[],
-        pathMatches=[],
-        candidateFiles=[],
-        contextHits=[],
-        retrievalNotes=[],
-        openQuestions=[],
+    return RefineKnowledgeRead(
+        markdown="\n".join(lines).rstrip() + "\n",
+        selected_ids=[document.id for document in selected_documents],
+        selected_titles=[document.title for document in selected_documents],
+    )
+
+
+def _extract_relevant_excerpt(body: str) -> str:
+    sections = _split_markdown_sections(body)
+    for title in ("Summary", "summary", "术语定义", "稳定规则", "风险", "Dependencies"):
+        if title in sections and sections[title].strip():
+            return sections[title].strip()
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    return "\n".join(lines[:8]) if lines else "- 无正文。"
+
+
+def _split_markdown_sections(content: str) -> dict[str, str]:
+    sections: dict[str, str] = {}
+    current = ""
+    current_lines: list[str] = []
+    for line in content.splitlines():
+        if line.startswith("## "):
+            if current:
+                sections[current] = "\n".join(current_lines).strip()
+            current = line.removeprefix("## ").strip()
+            current_lines = []
+            continue
+        if current:
+            current_lines.append(line)
+    if current:
+        sections[current] = "\n".join(current_lines).strip()
+    return sections
+
+
+def _render_document_for_prompt(document: KnowledgeDocument) -> str:
+    return "\n".join(
+        [
+            f"### {document.title}",
+            "",
+            f"- id: {document.id}",
+            f"- kind: {document.kind}",
+            f"- domain_name: {document.domainName or document.domainId or 'unknown'}",
+            f"- desc: {document.desc or '无'}",
+            "",
+            document.body.strip(),
+        ]
+    ).strip()
+
+
+def _parse_shortlist_output(raw: str, cards: list[KnowledgeCard]) -> dict[str, object]:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid_shortlist_json: {error}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("shortlist_output_is_not_object")
+    valid_ids = {card.id for card in cards}
+    selected_ids = [item for item in [str(item).strip() for item in payload.get("selected_ids", [])] if item in valid_ids]
+    rejected_ids = [item for item in [str(item).strip() for item in payload.get("rejected_ids", [])] if item in valid_ids]
+    return {
+        "selected_ids": _ordered_unique(selected_ids),
+        "rejected_ids": _ordered_unique(rejected_ids),
+        "reason": str(payload.get("reason") or "").strip(),
+    }
+
+
+def _selected_documents(documents: list[KnowledgeDocument], selected_ids: list[str]) -> list[KnowledgeDocument]:
+    selected_set = set(selected_ids)
+    ordered = [document for document in documents if document.id in selected_set]
+    ordered.sort(key=lambda item: selected_ids.index(item.id))
+    return ordered
+
+
+def _card_score_lookup(scored_cards: list[tuple[int, KnowledgeCard]], card_id: str) -> int:
+    for score, card in scored_cards:
+        if card.id == card_id:
+            return score
+    return 0
+
+
+def _ordered_unique(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        ordered.append(item)
+    return ordered
+
+
+def _to_card(document: KnowledgeDocument) -> KnowledgeCard:
+    return KnowledgeCard(
+        id=document.id,
+        title=document.title,
+        desc=document.desc,
+        kind=document.kind,
+        domain_name=document.domainName or document.domainId or "",
+        priority=document.priority,
+        confidence=document.confidence,
     )

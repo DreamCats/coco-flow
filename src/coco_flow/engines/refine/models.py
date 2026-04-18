@@ -9,6 +9,7 @@ STATUS_REFINED = "refined"
 EXECUTOR_NATIVE = "native"
 EXECUTOR_LOCAL = "local"
 SOURCE_TYPE_LARK_DOC = "lark_doc"
+SUPPLEMENT_HEADING = "## 研发补充说明"
 
 LogHandler = Callable[[str], None]
 
@@ -22,50 +23,81 @@ class RefinePreparedInput:
     source_meta: dict[str, object]
     source_markdown: str
     source_content: str
-    repos_meta: dict[str, object]
-    repo_root: str | None
+    supplement: str
+    input_meta: dict[str, object]
 
 
 @dataclass
 class RefineIntent:
-    title: str
-    source_type: str
     goal: str
-    key_terms: list[str]
-    potential_features: list[str]
-    constraints: list[str]
-    open_questions: list[str]
-    source_length: int
+    change_points: list[str]
+    terms: list[str]
+    risks_seed: list[str]
+    discussion_seed: list[str]
+    boundary_seed: list[str]
 
     def to_payload(self) -> dict[str, object]:
         return {
-            "title": self.title,
-            "source_type": self.source_type,
             "goal": self.goal,
-            "key_terms": self.key_terms,
-            "potential_features": self.potential_features,
-            "constraints": self.constraints,
-            "open_questions": self.open_questions,
-            "source_length": self.source_length,
+            "change_points": self.change_points,
+            "terms": self.terms,
+            "risks_seed": self.risks_seed,
+            "discussion_seed": self.discussion_seed,
+            "boundary_seed": self.boundary_seed,
+        }
+
+
+@dataclass(frozen=True)
+class KnowledgeCard:
+    id: str
+    title: str
+    desc: str
+    kind: str
+    domain_name: str
+    priority: str
+    confidence: str
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "desc": self.desc,
+            "kind": self.kind,
+            "domain_name": self.domain_name,
+            "priority": self.priority,
+            "confidence": self.confidence,
         }
 
 
 @dataclass
-class RefineKnowledgeBrief:
+class RefineKnowledgeSelection:
+    selected_ids: list[str]
+    rejected_ids: list[str]
+    reason: str
+    candidates: list[dict[str, object]]
+    mode: str
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "selected_ids": self.selected_ids,
+            "rejected_ids": self.rejected_ids,
+            "reason": self.reason,
+            "candidates": self.candidates,
+            "mode": self.mode,
+        }
+
+
+@dataclass
+class RefineKnowledgeRead:
     markdown: str
-    matched_documents: list[str]
-    matched_terms: list[str]
-    selected_knowledge_ids: list[str]
-    selection_payload: dict[str, object]
+    selected_ids: list[str]
+    selected_titles: list[str]
 
 
 @dataclass
 class RefineEngineResult:
     status: str
     refined_markdown: str
-    context_mode: str
-    business_memory_used: bool
-    business_memory_provider: str
-    business_memory_documents: list[dict[str, str]]
-    risk_flags: list[str]
+    knowledge_used: bool
+    selected_knowledge_ids: list[str]
     intermediate_artifacts: dict[str, str | dict[str, object]] = field(default_factory=dict)

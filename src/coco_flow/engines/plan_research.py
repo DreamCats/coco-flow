@@ -338,20 +338,25 @@ def parse_refined_sections(content: str) -> RefinedSections:
     sections = split_markdown_sections(content)
     return RefinedSections(
         change_scope=_combine_section_items(
+            sections.get("核心诉求", ""),
+            sections.get("改动范围", ""),
             sections.get("变更范围", ""),
             sections.get("需求概述", ""),
             sections.get("功能点", ""),
         ),
         non_goals=_combine_section_items(
+            sections.get("边界与非目标", ""),
             sections.get("非目标", ""),
             sections.get("边界条件", ""),
         ),
         key_constraints=_combine_section_items(
+            sections.get("风险提示", ""),
             sections.get("关键约束", ""),
             sections.get("业务规则", ""),
         ),
         acceptance_criteria=_combine_section_items(sections.get("验收标准", "")),
         open_questions=_combine_section_items(
+            sections.get("讨论点", ""),
             sections.get("待确认项", ""),
             sections.get("待确认问题", ""),
         ),

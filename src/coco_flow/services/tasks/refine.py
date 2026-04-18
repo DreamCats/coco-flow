@@ -50,11 +50,8 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
             {
                 "task_id": task_id,
                 "status": result.status,
-                "context_mode": result.context_mode,
-                "business_memory_used": result.business_memory_used,
-                "business_memory_provider": result.business_memory_provider,
-                "business_memory_documents": result.business_memory_documents,
-                "risk_flags": result.risk_flags,
+                "knowledge_used": result.knowledge_used,
+                "selected_knowledge_ids": result.selected_knowledge_ids,
                 "intermediate_artifacts": sorted(result.intermediate_artifacts.keys()),
                 "updated_at": datetime.now().astimezone().isoformat(),
             },
