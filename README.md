@@ -14,6 +14,7 @@ Current technical stance:
 ## Deep Dives
 
 - [`docs/refine-v2-design.md`](docs/refine-v2-design.md): current Refine design based on Input artifacts, knowledge selection, and multi-step prompting
+- [`docs/design-v2-design.md`](docs/design-v2-design.md): proposed Design-stage split with formal input/output contracts, repo binding semantics, and template-based artifacts
 - [`docs/plan-engine.md`](docs/plan-engine.md): how the `plan` engine does repo research, scope extraction, generation, and verification
 
 ## First Version Scope
