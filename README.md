@@ -13,7 +13,7 @@ Current technical stance:
 
 ## Deep Dives
 
-- [`docs/refine-engine.md`](docs/refine-engine.md): why the `refine` engine is split into intent, knowledge, generation, and verification stages
+- [`docs/refine-v2-design.md`](docs/refine-v2-design.md): current Refine design based on Input artifacts, knowledge selection, and multi-step prompting
 - [`docs/plan-engine.md`](docs/plan-engine.md): how the `plan` engine does repo research, scope extraction, generation, and verification
 
 ## First Version Scope
@@ -141,7 +141,7 @@ Behavior notes:
 - `refine` accepts plain text, local file paths, and Lark doc links; when a Lark doc cannot be fetched yet, it creates a pending refine placeholder instead of failing task creation
 - `refine` now runs an internal `prepare -> intent -> knowledge selection -> knowledge brief -> generate` pipeline and records `refine-intent.json`, optional `refine-knowledge-selection.json`, optional `refine-knowledge-brief.md`, optional `refine-verify.json`, and `refine-result.json`; `native refine` now upgrades into a three-stage LLM flow: intent extraction, final generation, and verifier/judge, with knowledge adjudication on top of the rule-based shortlist
 - `plan` now runs an internal approved-knowledge `selection -> brief` step and records optional `plan-knowledge-selection.json` / `plan-knowledge-brief.md`; `native plan` is now upgraded into a staged flow of scope extraction, design generation/verification, and execution generation/verification, with optional `plan-scope.json` / `plan-execution.json` / `plan-verify.json` artifacts, while the brief is compressed toward decision-useful sections such as boundaries, stable rules, and validation points
-- deeper rationale for `refine` lives in [`docs/refine-engine.md`](docs/refine-engine.md)
+- deeper rationale for `refine` lives in [`docs/refine-v2-design.md`](docs/refine-v2-design.md)
 - deeper rationale for `plan` lives in [`docs/plan-engine.md`](docs/plan-engine.md)
 - `code`: supports `native` and `local`
 - `code=native` runs through `coco acp serve`, verifies the changed scope, retries once or twice on build failures, and records commit/code-result artifacts back into the task
