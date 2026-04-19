@@ -20,43 +20,50 @@ Input -> Refine -> Design -> Plan -> Code
 
 ## 快速开始
 
+先安装一次，之后直接用 `coco-flow`：
+
 ```bash
-uv sync
-uv run coco-flow --help
+source ./install.sh
+coco-flow version
+coco-flow start
 ```
 
-常用命令：
+如果不用 `source`，也可以直接执行 `./install.sh`。只是第一次安装后需要重开 shell，或者按脚本输出把 tool bin 目录加到当前 `PATH`。
+
+直接使用示例：
 
 ```bash
-uv run coco-flow version
-uv run coco-flow install
-uv run coco-flow update
+coco-flow --help
 
-uv run coco-flow tasks roots
-uv run coco-flow tasks list
-uv run coco-flow knowledge list
-uv run coco-flow prd list
+coco-flow version
+coco-flow install --path .
+coco-flow update --path .
 
-uv run coco-flow prd refine --prd "需求描述"
-uv run coco-flow prd design --task <task_id>
-uv run coco-flow prd plan --task <task_id>
-uv run coco-flow prd code --task <task_id>
-uv run coco-flow prd run -i "需求描述"
+coco-flow start
+coco-flow start --api-only
 
-uv run coco-flow api serve --host 127.0.0.1 --port 4318
-uv run coco-flow ui serve
+coco-flow tasks roots
+coco-flow tasks list
+coco-flow knowledge list
 
-uv run coco-flow daemon start
-uv run coco-flow daemon status
-uv run coco-flow daemon stop
+coco-flow tasks refine <task_id>
+coco-flow tasks design <task_id>
+coco-flow tasks plan <task_id>
+coco-flow tasks code <task_id>
+coco-flow tasks reset <task_id>
+coco-flow tasks archive <task_id>
+
+coco-flow daemon start
+coco-flow daemon status
+coco-flow daemon stop
 ```
 
 远程机安装脚本：
 
 ```bash
-./scripts/install-remote.sh
+source ./install.sh
+source ./install.sh --with-ui
 ./scripts/install-remote.sh --with-ui
-./scripts/install-remote.sh --local-executors
 ```
 
 ## 工作流行为
@@ -64,7 +71,7 @@ uv run coco-flow daemon stop
 ### Input
 
 - task 默认存储在 `~/.config/coco-flow/tasks/`
-- `POST /api/tasks` 和 `prd refine --prd ...` 支持三类输入：
+- `POST /api/tasks` 支持三类输入：
   - 纯文本
   - 本地文件路径
   - 飞书文档链接
@@ -104,8 +111,8 @@ uv run coco-flow daemon stop
 
 ```bash
 cd /Users/bytedance/Work/tools/bytedance/coco-flow
-uv sync
-uv run coco-flow ui serve
+source ./install.sh --with-ui
+coco-flow start
 ```
 
 这个命令会：
@@ -117,8 +124,9 @@ uv run coco-flow ui serve
 常用选项：
 
 ```bash
-uv run coco-flow ui serve --no-build
-uv run coco-flow ui serve --web-dir /absolute/path/to/dist
+coco-flow start --no-build
+coco-flow start --web-dir /absolute/path/to/dist
+coco-flow start --api-only
 ```
 
 当前 UI 能力：

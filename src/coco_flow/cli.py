@@ -4,7 +4,6 @@ from importlib.metadata import PackageNotFoundError, version
 import json
 from pathlib import Path
 import subprocess
-import re
 
 import typer
 import uvicorn
@@ -15,7 +14,6 @@ from coco_flow.daemon.client import shutdown as shutdown_daemon, start_daemon, s
 from coco_flow.daemon.server import run_daemon_server
 from coco_flow.services import TaskStore
 from coco_flow.services.queries.knowledge import KnowledgeStore
-from coco_flow.services.tasks.create import create_task
 from coco_flow.services.tasks.code import code_task
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.lifecycle import archive_task, reset_task
@@ -28,19 +26,17 @@ app = typer.Typer(
 )
 api_app = typer.Typer(help="Run the local FastAPI service.")
 tasks_app = typer.Typer(help="Inspect task roots and task summaries.")
-prd_app = typer.Typer(help="PRD workflow commands aligned with coco-ext semantics.")
 ui_app = typer.Typer(help="Serve the built web UI together with the local API.")
 daemon_app = typer.Typer(help="Manage the local coco-flow ACP daemon.")
 knowledge_app = typer.Typer(help="Manage knowledge documents.")
 app.add_typer(api_app, name="api")
 app.add_typer(tasks_app, name="tasks")
-app.add_typer(prd_app, name="prd")
 app.add_typer(ui_app, name="ui")
 app.add_typer(daemon_app, name="daemon")
 app.add_typer(knowledge_app, name="knowledge")
 
-_COMPLEXITY_LINE = re.compile(r"(?m)^- complexity:\s*([^\s]+)\s*\((\d+)\)\s*$")
 _PROJECT_MARKERS = ("pyproject.toml", "src/coco_flow/cli.py")
+_PYTHON_VERSION = "3.13"
 
 
 @app.command("version")
@@ -62,11 +58,12 @@ def install_cmd(
 ) -> None:
     project_root = resolve_project_root(path)
     if install_python:
-        run_project_command(["uv", "python", "install", "3.13"], cwd=project_root)
-    run_project_command(["uv", "sync"], cwd=project_root)
+        run_project_command(["uv", "python", "install", _PYTHON_VERSION], cwd=project_root)
+    install_tool_from_project(project_root)
     if with_ui:
         run_project_command(["npm", "install"], cwd=project_root / "web")
-    typer.echo(f"installed: {project_root}")
+    typer.echo(f"installed tool: coco-flow ({project_root})")
+    typer.echo(f"bin dir: {tool_bin_dir(project_root)}")
 
 
 @app.command("update")
@@ -79,10 +76,27 @@ def update_cmd(
     if pull:
         ensure_git_checkout(project_root)
         run_project_command(["git", "pull", "--ff-only"], cwd=project_root)
-    run_project_command(["uv", "sync"], cwd=project_root)
+    run_project_command(["uv", "python", "upgrade", _PYTHON_VERSION], cwd=project_root)
+    install_tool_from_project(project_root)
     if with_ui:
         run_project_command(["npm", "install"], cwd=project_root / "web")
-    typer.echo(f"updated: {project_root}")
+    typer.echo(f"updated tool: coco-flow ({project_root})")
+    typer.echo(f"bin dir: {tool_bin_dir(project_root)}")
+
+
+@app.command("start")
+def start_cmd(
+    host: str = typer.Option("127.0.0.1", help="Bind host."),
+    port: int = typer.Option(4318, min=1, max=65535, help="Bind port."),
+    web_dir: str = typer.Option("", help="Override the static web directory."),
+    build_web: bool = typer.Option(True, "--build/--no-build", help="Build the web UI before serving."),
+    api_only: bool = typer.Option(False, "--api-only", help="Start API only without the bundled UI."),
+    reload: bool = typer.Option(False, help="Enable reload when using --api-only."),
+) -> None:
+    if api_only:
+        serve_api(host=host, port=port, reload=reload)
+        return
+    serve_ui(host=host, port=port, web_dir=web_dir, build_web=build_web)
 
 
 @tasks_app.command("list")
@@ -207,102 +221,6 @@ def archive_task_cmd(task_id: str) -> None:
     typer.echo(f"{task_id}: {status}")
 
 
-@prd_app.command("list")
-def prd_list_cmd(
-    status: str = typer.Option("", help="Filter by task status."),
-    as_json: bool = typer.Option(False, "--json", help="Print JSON output."),
-    limit: int = typer.Option(50, min=1, max=500, help="Max number of tasks to show."),
-) -> None:
-    list_tasks(limit=limit, as_json=as_json, status=status)
-
-
-@prd_app.command("refine")
-def prd_refine_cmd(
-    prd: str = typer.Option("", "--prd", help="PRD input: text, local file path, or Lark doc link."),
-    title: str = typer.Option("", "--title", help="Optional explicit title."),
-    task: str = typer.Option("", "--task", help="Existing task id to refine again."),
-    repo: list[str] = typer.Option(None, "--repo", help="Bind one or more repos to the task."),
-) -> None:
-    settings = load_settings()
-    if task.strip():
-        if prd.strip():
-            source_path = settings.task_root / task.strip() / "prd.source.md"
-            source_path.write_text(prd.strip() + "\n")
-        task_id = task.strip()
-    else:
-        if not prd.strip():
-            raise typer.BadParameter("--prd 不能为空；若要复用已有 task，请传 --task")
-        task_id, _ = create_task(
-            raw_input=prd,
-            title=title or None,
-            repos=repo or [str(Path.cwd())],
-            settings=settings,
-        )
-    try:
-        status = refine_task(task_id, settings=settings)
-    except ValueError as error:
-        typer.echo(str(error), err=True)
-        raise typer.Exit(code=1) from error
-    typer.echo(f"{task_id}: {status}")
-
-
-@prd_app.command("design")
-def prd_design_cmd(task: str = typer.Option(..., "--task", help="Target task id.")) -> None:
-    design_task_cmd(task)
-
-
-@prd_app.command("plan")
-def prd_plan_cmd(task: str = typer.Option(..., "--task", help="Target task id.")) -> None:
-    plan_task_cmd(task)
-
-
-@prd_app.command("code")
-def prd_code_cmd(
-    task: str = typer.Option(..., "--task", help="Target task id."),
-    repo: str = typer.Option("", "--repo", help="Run code for a specific repo in a multi-repo task."),
-    all_repos: bool = typer.Option(False, "--all-repos", help="Run remaining repos in order for a multi-repo task."),
-) -> None:
-    code_task_cmd(task, repo=repo, all_repos=all_repos)
-
-
-@prd_app.command("run")
-def prd_run_cmd(
-    input_value: str = typer.Option(..., "--input", "-i", help="PRD input: text, local file path, or Lark doc link."),
-    title: str = typer.Option("", "--title", help="Optional explicit title."),
-    repo: list[str] = typer.Option(None, "--repo", help="Bind one or more repos to the task."),
-    all_repos: bool = typer.Option(False, "--all-repos", help="Run remaining repos in order for a multi-repo task."),
-) -> None:
-    settings = load_settings()
-    repos = repo or [str(Path.cwd())]
-    task_id, _ = create_task(
-        raw_input=input_value,
-        title=title or None,
-        repos=repos,
-        settings=settings,
-    )
-    typer.echo(f"task_id: {task_id}")
-
-    refine_status = refine_task(task_id, settings=settings)
-    typer.echo(f"refine: {refine_status}")
-    if refine_status == "initialized":
-        typer.echo("refine 仍处于 initialized，请先补充 prd.source.md 正文后再继续。")
-        raise typer.Exit(code=0)
-
-    design_status = design_task(task_id, settings=settings)
-    typer.echo(f"design: {design_status}")
-
-    plan_status = plan_task(task_id, settings=settings)
-    typer.echo(f"plan: {plan_status}")
-
-    complexity = read_task_complexity(settings.task_root / task_id)
-    if complexity == "复杂":
-        typer.echo("plan complexity=复杂，run 停止在 plan 阶段。")
-        raise typer.Exit(code=0)
-
-    code_status = code_task(task_id, settings=settings, all_repos=all_repos)
-    typer.echo(f"code: {code_status}")
-
-
 @api_app.command("serve")
 def serve_api(
     host: str = typer.Option("127.0.0.1", help="Bind host."),
@@ -417,22 +335,29 @@ def ensure_git_checkout(project_root: Path) -> None:
         raise typer.BadParameter(f"git checkout not found: {project_root}")
 
 
+def install_tool_from_project(project_root: Path) -> None:
+    run_project_command(
+        ["uv", "tool", "install", "--force", "--python", _PYTHON_VERSION, "--editable", str(project_root)],
+        cwd=project_root,
+    )
+    run_project_command(["uv", "tool", "update-shell"], cwd=project_root)
+
+
+def tool_bin_dir(project_root: Path) -> str:
+    result = subprocess.run(
+        ["uv", "tool", "dir", "--bin"],
+        cwd=project_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise typer.Exit(code=result.returncode)
+    return result.stdout.strip()
+
+
 def run_project_command(args: list[str], cwd: Path) -> None:
     typer.echo(f"$ {' '.join(args)}")
     result = subprocess.run(args, cwd=cwd, check=False)
     if result.returncode != 0:
         raise typer.Exit(code=result.returncode)
-
-
-def read_task_complexity(task_dir: Path) -> str:
-    plan_path = task_dir / "plan.md"
-    if not plan_path.exists():
-        return ""
-    try:
-        content = plan_path.read_text()
-    except OSError:
-        return ""
-    match = _COMPLEXITY_LINE.search(content)
-    if not match:
-        return ""
-    return match.group(1)

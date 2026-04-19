@@ -20,43 +20,50 @@ Input -> Refine -> Design -> Plan -> Code
 
 ## Quickstart
 
+Install once, then use `coco-flow` directly:
+
 ```bash
-uv sync
-uv run coco-flow --help
+source ./install.sh
+coco-flow version
+coco-flow start
 ```
 
-Common CLI commands:
+You can also run the installer without `source`. In that case, reopen the shell or export the tool bin directory shown by the script before using `coco-flow`.
+
+Direct command examples:
 
 ```bash
-uv run coco-flow version
-uv run coco-flow install
-uv run coco-flow update
+coco-flow --help
 
-uv run coco-flow tasks roots
-uv run coco-flow tasks list
-uv run coco-flow knowledge list
-uv run coco-flow prd list
+coco-flow version
+coco-flow install --path .
+coco-flow update --path .
 
-uv run coco-flow prd refine --prd "需求描述"
-uv run coco-flow prd design --task <task_id>
-uv run coco-flow prd plan --task <task_id>
-uv run coco-flow prd code --task <task_id>
-uv run coco-flow prd run -i "需求描述"
+coco-flow start
+coco-flow start --api-only
 
-uv run coco-flow api serve --host 127.0.0.1 --port 4318
-uv run coco-flow ui serve
+coco-flow tasks roots
+coco-flow tasks list
+coco-flow knowledge list
 
-uv run coco-flow daemon start
-uv run coco-flow daemon status
-uv run coco-flow daemon stop
+coco-flow tasks refine <task_id>
+coco-flow tasks design <task_id>
+coco-flow tasks plan <task_id>
+coco-flow tasks code <task_id>
+coco-flow tasks reset <task_id>
+coco-flow tasks archive <task_id>
+
+coco-flow daemon start
+coco-flow daemon status
+coco-flow daemon stop
 ```
 
 Remote install script:
 
 ```bash
-./scripts/install-remote.sh
+source ./install.sh
+source ./install.sh --with-ui
 ./scripts/install-remote.sh --with-ui
-./scripts/install-remote.sh --local-executors
 ```
 
 ## Workflow Behavior
@@ -64,7 +71,7 @@ Remote install script:
 ### Input
 
 - Tasks are stored under `~/.config/coco-flow/tasks/`.
-- `POST /api/tasks` and `prd refine --prd ...` accept plain text, local file paths, and Lark doc links.
+- `POST /api/tasks` accepts plain text, local file paths, and Lark doc links.
 - Plain text and local files are stored immediately and enter `input_ready`.
 - Lark doc links enter `input_processing`, then finish asynchronously after the document body is fetched.
 - The Input stage writes `input.json` and `input.log`.
@@ -101,8 +108,8 @@ The simplest local startup flow is:
 
 ```bash
 cd /Users/bytedance/Work/tools/bytedance/coco-flow
-uv sync
-uv run coco-flow ui serve
+source ./install.sh --with-ui
+coco-flow start
 ```
 
 This command will:
@@ -114,8 +121,9 @@ This command will:
 Useful options:
 
 ```bash
-uv run coco-flow ui serve --no-build
-uv run coco-flow ui serve --web-dir /absolute/path/to/dist
+coco-flow start --no-build
+coco-flow start --web-dir /absolute/path/to/dist
+coco-flow start --api-only
 ```
 
 Current UI capabilities:

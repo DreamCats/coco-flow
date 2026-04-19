@@ -71,7 +71,7 @@ class TaskDetailPresenterTest(unittest.TestCase):
                 RepoBinding(repo_id="repo-a", path="/tmp/repo-a", status="planned"),
             ]
             action = build_next_action("task-1", "planned", task_dir, repos)
-        self.assertEqual(action, "coco-flow prd code --task task-1 --repo repo-a")
+        self.assertEqual(action, "coco-flow tasks code task-1 --repo repo-a")
 
     def test_build_next_action_reports_blocked_when_no_ready_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -129,7 +129,7 @@ class TaskDetailPresenterTest(unittest.TestCase):
             repo_count=2,
             task_dir="/tmp/task-1",
             source_label="text",
-            next_action="coco-flow prd code --task task-1 --repo repo-a",
+            next_action="coco-flow tasks code task-1 --repo repo-a",
             repos=[
                 RepoBinding(repo_id="repo-b", path="/tmp/repo-b", status="planned", failure_type="blocked_by_dependency"),
                 RepoBinding(repo_id="repo-a", path="/tmp/repo-a", status="planned"),
