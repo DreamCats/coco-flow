@@ -468,47 +468,47 @@ def build_next_action(
     if status == "input_processing":
         return "Input 正在解析飞书正文，请稍候刷新任务详情。"
     if status == "input_failed":
-        return f"请检查 {(task_dir / 'input.log')} 或手动编辑 {(task_dir / 'prd.source.md')}，确认正文后再执行 coco-flow prd refine --task {task_id}"
+        return f"请检查 {(task_dir / 'input.log')} 或手动编辑 {(task_dir / 'prd.source.md')}，确认正文后再执行 coco-flow tasks refine {task_id}"
     if status == "input_ready" and not has_refined:
-        return f"coco-flow prd refine --task {task_id}"
+        return f"coco-flow tasks refine {task_id}"
     if status == "refining":
         return "refine 正在执行，请稍候刷新任务详情。"
     if is_pending_refine_state(task_dir):
-        return f"请先补充 {task_dir / 'prd.source.md'} 的正文，然后重新执行 coco-flow prd refine --task {task_id}"
+        return f"请先补充 {task_dir / 'prd.source.md'} 的正文，然后重新执行 coco-flow tasks refine {task_id}"
 
     if not has_refined:
-        return f"coco-flow prd refine --task {task_id}"
+        return f"coco-flow tasks refine {task_id}"
     if status == "designing":
         return "design 正在执行，请稍候刷新任务详情。"
     if status == "designed" and not has_plan:
-        return f"coco-flow prd plan --task {task_id}"
+        return f"coco-flow tasks plan {task_id}"
     if status == "planning":
         return "plan 正在执行，请稍候刷新任务详情。"
     if status == "failed" and not has_design:
-        return f"coco-flow prd design --task {task_id}"
+        return f"coco-flow tasks design {task_id}"
     if status == "failed" and not has_plan:
-        return f"coco-flow prd plan --task {task_id}"
+        return f"coco-flow tasks plan {task_id}"
     if not has_design:
-        return f"coco-flow prd design --task {task_id}"
+        return f"coco-flow tasks design {task_id}"
     if not has_design or not has_plan:
-        return f"coco-flow prd plan --task {task_id}"
+        return f"coco-flow tasks plan {task_id}"
     if status == "coding":
         return "code workspace 已准备，可继续接入自动实现或人工推进。"
     if status in {"partially_coded", "failed"}:
         next_repo = suggest_next_repo(repos)
         if next_repo:
-            return f"coco-flow prd code --task {task_id} --repo {next_repo}"
+            return f"coco-flow tasks code {task_id} --repo {next_repo}"
         blocked = summarize_blocked_repos(repos)
         if blocked:
             return f"当前可见 repo 受依赖阻塞：{blocked}。请先推进其依赖的上游 repo。"
     if status == "planned":
         next_repo = suggest_next_repo(repos)
         if next_repo:
-            return f"coco-flow prd code --task {task_id} --repo {next_repo}"
+            return f"coco-flow tasks code {task_id} --repo {next_repo}"
         blocked = summarize_blocked_repos(repos)
         if blocked:
             return f"当前可见 repo 受依赖阻塞：{blocked}。请先推进其依赖的上游 repo。"
-        return f"coco-flow prd code --task {task_id}"
+        return f"coco-flow tasks code {task_id}"
     if status == "coded":
         return f"coco-flow tasks archive {task_id}"
     if status == "archived":
