@@ -40,11 +40,49 @@ app.add_typer(daemon_app, name="daemon")
 app.add_typer(knowledge_app, name="knowledge")
 
 _COMPLEXITY_LINE = re.compile(r"(?m)^- complexity:\s*([^\s]+)\s*\((\d+)\)\s*$")
+_PROJECT_MARKERS = ("pyproject.toml", "src/coco_flow/cli.py")
 
 
 @app.command("version")
-def version_cmd() -> None:
-    typer.echo(f"coco-flow {package_version()}")
+def version_cmd(
+    as_json: bool = typer.Option(False, "--json", help="Print JSON output."),
+) -> None:
+    version_value = package_version()
+    if as_json:
+        typer.echo(json.dumps({"name": "coco-flow", "version": version_value}, ensure_ascii=False, indent=2))
+        return
+    typer.echo(f"coco-flow {version_value}")
+
+
+@app.command("install")
+def install_cmd(
+    path: str = typer.Option(".", "--path", help="coco-flow repo root."),
+    with_ui: bool = typer.Option(False, "--with-ui/--no-ui", help="Install web dependencies under web/."),
+    install_python: bool = typer.Option(True, "--install-python/--skip-python", help="Install Python 3.13 with uv first."),
+) -> None:
+    project_root = resolve_project_root(path)
+    if install_python:
+        run_project_command(["uv", "python", "install", "3.13"], cwd=project_root)
+    run_project_command(["uv", "sync"], cwd=project_root)
+    if with_ui:
+        run_project_command(["npm", "install"], cwd=project_root / "web")
+    typer.echo(f"installed: {project_root}")
+
+
+@app.command("update")
+def update_cmd(
+    path: str = typer.Option(".", "--path", help="coco-flow repo root."),
+    pull: bool = typer.Option(True, "--pull/--no-pull", help="Run git pull --ff-only before syncing."),
+    with_ui: bool = typer.Option(False, "--with-ui/--no-ui", help="Refresh web dependencies under web/."),
+) -> None:
+    project_root = resolve_project_root(path)
+    if pull:
+        ensure_git_checkout(project_root)
+        run_project_command(["git", "pull", "--ff-only"], cwd=project_root)
+    run_project_command(["uv", "sync"], cwd=project_root)
+    if with_ui:
+        run_project_command(["npm", "install"], cwd=project_root / "web")
+    typer.echo(f"updated: {project_root}")
 
 
 @tasks_app.command("list")
@@ -365,6 +403,25 @@ def ensure_web_build(web_root: Path) -> None:
     )
     if build.returncode != 0:
         raise typer.Exit(code=build.returncode)
+
+
+def resolve_project_root(raw_path: str) -> Path:
+    project_root = Path(raw_path).expanduser().resolve()
+    if not all((project_root / marker).exists() for marker in _PROJECT_MARKERS):
+        raise typer.BadParameter(f"not a coco-flow project root: {project_root}")
+    return project_root
+
+
+def ensure_git_checkout(project_root: Path) -> None:
+    if not (project_root / ".git").exists():
+        raise typer.BadParameter(f"git checkout not found: {project_root}")
+
+
+def run_project_command(args: list[str], cwd: Path) -> None:
+    typer.echo(f"$ {' '.join(args)}")
+    result = subprocess.run(args, cwd=cwd, check=False)
+    if result.returncode != 0:
+        raise typer.Exit(code=result.returncode)
 
 
 def read_task_complexity(task_dir: Path) -> str:

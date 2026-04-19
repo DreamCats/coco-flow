@@ -28,6 +28,10 @@ uv run coco-flow --help
 常用命令：
 
 ```bash
+uv run coco-flow version
+uv run coco-flow install
+uv run coco-flow update
+
 uv run coco-flow tasks roots
 uv run coco-flow tasks list
 uv run coco-flow knowledge list
@@ -45,6 +49,14 @@ uv run coco-flow ui serve
 uv run coco-flow daemon start
 uv run coco-flow daemon status
 uv run coco-flow daemon stop
+```
+
+远程机安装脚本：
+
+```bash
+./scripts/install-remote.sh
+./scripts/install-remote.sh --with-ui
+./scripts/install-remote.sh --local-executors
 ```
 
 ## 工作流行为
