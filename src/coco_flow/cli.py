@@ -86,7 +86,7 @@ def update_cmd(
 
 @app.command("start")
 def start_cmd(
-    host: str = typer.Option("127.0.0.1", help="Bind host."),
+    host: str = typer.Option("0.0.0.0", help="Bind host."),
     port: int = typer.Option(4318, min=1, max=65535, help="Bind port."),
     web_dir: str = typer.Option("", help="Override the static web directory."),
     build_web: bool = typer.Option(True, "--build/--no-build", help="Build the web UI before serving."),
@@ -223,7 +223,7 @@ def archive_task_cmd(task_id: str) -> None:
 
 @api_app.command("serve")
 def serve_api(
-    host: str = typer.Option("127.0.0.1", help="Bind host."),
+    host: str = typer.Option("0.0.0.0", help="Bind host."),
     port: int = typer.Option(4318, min=1, max=65535, help="Bind port."),
     reload: bool = typer.Option(False, help="Enable reload for local development."),
 ) -> None:
@@ -238,7 +238,7 @@ def serve_api(
 
 @ui_app.command("serve")
 def serve_ui(
-    host: str = typer.Option("127.0.0.1", help="Bind host."),
+    host: str = typer.Option("0.0.0.0", help="Bind host."),
     port: int = typer.Option(4318, min=1, max=65535, help="Bind port."),
     web_dir: str = typer.Option("", help="Override the static web directory."),
     build_web: bool = typer.Option(True, "--build/--no-build", help="Build the web UI before serving."),
@@ -257,6 +257,11 @@ def serve_ui(
     typer.echo(f"  host: {host}")
     typer.echo(f"  port: {port}")
     typer.echo(f"  web: {resolved_web_dir}")
+    typer.echo(f"  local: http://127.0.0.1:{port}")
+    typer.echo(f"  remote: http://<dev-machine-ip>:{port}")
+    typer.echo("  tip: 远程开发机上运行时，可先确保端口可达；更稳妥的是本地执行")
+    typer.echo(f"       ssh -L {port}:127.0.0.1:{port} <user>@<dev-machine>")
+    typer.echo(f"       然后在本地浏览器打开 http://127.0.0.1:{port}")
     uvicorn.run(
         create_app(static_dir=str(resolved_web_dir)),
         host=host,

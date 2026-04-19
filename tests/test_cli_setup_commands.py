@@ -92,7 +92,21 @@ class CliSetupCommandsTest(unittest.TestCase):
             result = runner.invoke(app, ["start", "--no-build"])
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
-        serve_ui_mock.assert_called_once_with(host="127.0.0.1", port=4318, web_dir="", build_web=False)
+        serve_ui_mock.assert_called_once_with(host="0.0.0.0", port=4318, web_dir="", build_web=False)
+
+    def test_ui_serve_prints_remote_access_hint(self) -> None:
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            dist_dir = Path(tmp)
+            (dist_dir / "index.html").write_text("<html></html>")
+            with patch("coco_flow.cli.uvicorn.run") as uvicorn_run_mock:
+                result = runner.invoke(app, ["ui", "serve", "--no-build", "--web-dir", str(dist_dir)])
+
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        self.assertIn("local: http://127.0.0.1:4318", result.output)
+        self.assertIn("remote: http://<dev-machine-ip>:4318", result.output)
+        self.assertIn("ssh -L 4318:127.0.0.1:4318 <user>@<dev-machine>", result.output)
+        uvicorn_run_mock.assert_called_once()
 
 
 if __name__ == "__main__":
