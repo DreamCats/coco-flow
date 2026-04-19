@@ -28,7 +28,14 @@ coco-flow version
 coco-flow start
 ```
 
-You can also run the installer without `source`. In that case, reopen the shell or export the tool bin directory shown by the script before using `coco-flow`.
+You can also install in one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash -s -- --no-ui
+```
+
+If you do not use `source`, reopen the shell or export the tool bin directory shown by the script before using `coco-flow`.
 
 Direct command examples:
 
@@ -62,8 +69,7 @@ Remote install script:
 
 ```bash
 source ./install.sh
-source ./install.sh --with-ui
-./scripts/install-remote.sh --with-ui
+curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash
 ```
 
 ## Workflow Behavior
@@ -108,7 +114,7 @@ The simplest local startup flow is:
 
 ```bash
 cd /Users/bytedance/Work/tools/bytedance/coco-flow
-source ./install.sh --with-ui
+source ./install.sh
 coco-flow start
 ```
 

@@ -53,14 +53,14 @@ def version_cmd(
 @app.command("install")
 def install_cmd(
     path: str = typer.Option(".", "--path", help="coco-flow repo root."),
-    with_ui: bool = typer.Option(False, "--with-ui/--no-ui", help="Install web dependencies under web/."),
+    no_ui: bool = typer.Option(False, "--no-ui", help="Skip web dependencies under web/."),
     install_python: bool = typer.Option(True, "--install-python/--skip-python", help="Install Python 3.13 with uv first."),
 ) -> None:
     project_root = resolve_project_root(path)
     if install_python:
         run_project_command(["uv", "python", "install", _PYTHON_VERSION], cwd=project_root)
     install_tool_from_project(project_root)
-    if with_ui:
+    if not no_ui:
         run_project_command(["npm", "install"], cwd=project_root / "web")
     typer.echo(f"installed tool: coco-flow ({project_root})")
     typer.echo(f"bin dir: {tool_bin_dir(project_root)}")
@@ -70,7 +70,7 @@ def install_cmd(
 def update_cmd(
     path: str = typer.Option(".", "--path", help="coco-flow repo root."),
     pull: bool = typer.Option(True, "--pull/--no-pull", help="Run git pull --ff-only before syncing."),
-    with_ui: bool = typer.Option(False, "--with-ui/--no-ui", help="Refresh web dependencies under web/."),
+    no_ui: bool = typer.Option(False, "--no-ui", help="Skip web dependencies under web/."),
 ) -> None:
     project_root = resolve_project_root(path)
     if pull:
@@ -78,7 +78,7 @@ def update_cmd(
         run_project_command(["git", "pull", "--ff-only"], cwd=project_root)
     run_project_command(["uv", "python", "upgrade", _PYTHON_VERSION], cwd=project_root)
     install_tool_from_project(project_root)
-    if with_ui:
+    if not no_ui:
         run_project_command(["npm", "install"], cwd=project_root / "web")
     typer.echo(f"updated tool: coco-flow ({project_root})")
     typer.echo(f"bin dir: {tool_bin_dir(project_root)}")

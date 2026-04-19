@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WITH_UI=0
+REPO_URL="${COCO_FLOW_REPO_URL:-https://github.com/DreamCats/coco-flow.git}"
+REPO_REF="${COCO_FLOW_REPO_REF:-main}"
+INSTALL_DIR="${COCO_FLOW_INSTALL_DIR:-$HOME/.local/share/coco-flow}"
+WITH_UI=1
 LOCAL_EXECUTORS=0
 SOURCE_MODE=0
 HAD_ERREXIT=0
@@ -36,10 +39,38 @@ restore_shell_opts() {
   fi
 }
 
+project_root_from_repo_script() {
+  if [[ -f "$ROOT_DIR/pyproject.toml" && -f "$ROOT_DIR/src/coco_flow/cli.py" ]]; then
+    printf '%s\n' "$ROOT_DIR"
+    return 0
+  fi
+  return 1
+}
+
+ensure_repo_checkout() {
+  if ! command -v git >/dev/null 2>&1; then
+    echo "git is required for curl-based installation" >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$INSTALL_DIR")"
+
+  if [[ ! -d "$INSTALL_DIR/.git" ]]; then
+    git clone --branch "$REPO_REF" "$REPO_URL" "$INSTALL_DIR"
+    printf '%s\n' "$INSTALL_DIR"
+    return 0
+  fi
+
+  git -C "$INSTALL_DIR" fetch origin "$REPO_REF"
+  git -C "$INSTALL_DIR" checkout "$REPO_REF"
+  git -C "$INSTALL_DIR" pull --ff-only origin "$REPO_REF"
+  printf '%s\n' "$INSTALL_DIR"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --with-ui)
-      WITH_UI=1
+    --no-ui)
+      WITH_UI=0
       shift
       ;;
     --local-executors)
@@ -49,11 +80,13 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       cat <<'EOF'
 Usage:
-  ./install.sh [--with-ui] [--local-executors]
-  source ./install.sh [--with-ui] [--local-executors]
+  ./install.sh [--no-ui] [--local-executors]
+  source ./install.sh [--no-ui] [--local-executors]
+  curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash -s -- --no-ui
 
 Options:
-  --with-ui           Install web dependencies under web/
+  --no-ui             Skip web dependencies under web/
   --local-executors   Print local executor exports after install
 EOF
       if [[ "$SOURCE_MODE" -eq 1 ]]; then
@@ -79,10 +112,21 @@ fi
 
 export PATH="$HOME/.local/bin:$PATH"
 
-cd "$ROOT_DIR"
+PROJECT_ROOT="$(project_root_from_repo_script || true)"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  PROJECT_ROOT="$(ensure_repo_checkout)" || {
+    if [[ "$SOURCE_MODE" -eq 1 ]]; then
+      restore_shell_opts
+      return 1
+    fi
+    exit 1
+  }
+fi
+
+cd "$PROJECT_ROOT"
 
 uv python install 3.13
-uv tool install --force --python 3.13 --editable "$ROOT_DIR"
+uv tool install --force --python 3.13 --editable "$PROJECT_ROOT"
 uv tool update-shell >/dev/null 2>&1 || true
 
 if [[ "$WITH_UI" -eq 1 ]]; then
@@ -100,6 +144,7 @@ fi
 "$TOOL_BIN_DIR/coco-flow" version
 
 echo
+echo "repo: $PROJECT_ROOT"
 echo "ready: coco-flow start"
 
 if [[ "$LOCAL_EXECUTORS" -eq 1 ]]; then

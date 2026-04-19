@@ -28,7 +28,14 @@ coco-flow version
 coco-flow start
 ```
 
-如果不用 `source`，也可以直接执行 `./install.sh`。只是第一次安装后需要重开 shell，或者按脚本输出把 tool bin 目录加到当前 `PATH`。
+也可以一条命令安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash -s -- --no-ui
+```
+
+如果不用 `source`，第一次安装后需要重开 shell，或者按脚本输出把 tool bin 目录加到当前 `PATH`。
 
 直接使用示例：
 
@@ -62,8 +69,7 @@ coco-flow daemon stop
 
 ```bash
 source ./install.sh
-source ./install.sh --with-ui
-./scripts/install-remote.sh --with-ui
+curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash
 ```
 
 ## 工作流行为
@@ -111,7 +117,7 @@ source ./install.sh --with-ui
 
 ```bash
 cd /Users/bytedance/Work/tools/bytedance/coco-flow
-source ./install.sh --with-ui
+source ./install.sh
 coco-flow start
 ```
 

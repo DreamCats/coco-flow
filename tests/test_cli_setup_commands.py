@@ -36,7 +36,7 @@ class CliSetupCommandsTest(unittest.TestCase):
         self.assertIn('"name": "coco-flow"', result.output)
         self.assertIn('"version":', result.output)
 
-    def test_install_runs_uv_sync_and_optional_ui_install(self) -> None:
+    def test_install_runs_uv_sync_and_ui_install_by_default(self) -> None:
         runner = CliRunner()
         with tempfile.TemporaryDirectory() as tmp:
             project_root = make_project_root(Path(tmp))
@@ -45,7 +45,7 @@ class CliSetupCommandsTest(unittest.TestCase):
             with patch("coco_flow.cli.subprocess.run", side_effect=[completed, completed, completed, completed, dir_completed]) as run_mock:
                 result = runner.invoke(
                     app,
-                    ["install", "--path", str(project_root), "--with-ui"],
+                    ["install", "--path", str(project_root)],
                 )
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
@@ -68,7 +68,7 @@ class CliSetupCommandsTest(unittest.TestCase):
             project_root = make_project_root(Path(tmp))
             completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
             dir_completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="/tmp/bin\n", stderr="")
-            with patch("coco_flow.cli.subprocess.run", side_effect=[completed, completed, completed, completed, dir_completed]) as run_mock:
+            with patch("coco_flow.cli.subprocess.run", side_effect=[completed, completed, completed, completed, completed, dir_completed]) as run_mock:
                 result = runner.invoke(app, ["update", "--path", str(project_root)])
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
@@ -81,6 +81,7 @@ class CliSetupCommandsTest(unittest.TestCase):
                 call(["uv", "python", "upgrade", "3.13"], cwd=project_root, check=False),
                 call(["uv", "tool", "install", "--force", "--python", "3.13", "--editable", str(project_root)], cwd=project_root, check=False),
                 call(["uv", "tool", "update-shell"], cwd=project_root, check=False),
+                call(["npm", "install"], cwd=project_root / "web", check=False),
                 call(["uv", "tool", "dir", "--bin"], cwd=project_root, check=False, capture_output=True, text=True),
             ],
         )
