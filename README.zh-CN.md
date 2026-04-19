@@ -37,6 +37,16 @@ curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh
 
 如果不用 `source`，第一次安装后需要重开 shell，或者按脚本输出把 tool bin 目录加到当前 `PATH`。
 
+卸载：
+
+```bash
+uv tool uninstall coco-flow
+rm -rf ~/.local/share/coco-flow
+
+# 可选：删除本地 task 和 knowledge 数据
+rm -rf ~/.config/coco-flow
+```
+
 直接使用示例：
 
 ```bash

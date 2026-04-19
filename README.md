@@ -37,6 +37,16 @@ curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh
 
 If you do not use `source`, reopen the shell or export the tool bin directory shown by the script before using `coco-flow`.
 
+Uninstall:
+
+```bash
+uv tool uninstall coco-flow
+rm -rf ~/.local/share/coco-flow
+
+# optional: remove local task and knowledge data
+rm -rf ~/.config/coco-flow
+```
+
 Direct command examples:
 
 ```bash
