@@ -178,6 +178,7 @@ class CliSetupCommandsTest(unittest.TestCase):
         self.assertIn("local: http://127.0.0.1:4318", result.output)
         self.assertIn("remote: http://<dev-machine-ip>:4318", result.output)
         self.assertIn("ssh -fN -o ExitOnForwardFailure=yes -o ServerAliveInterval=60 -L 4318:127.0.0.1:4318 <user>@<dev-machine>", result.output)
+        self.assertIn("pkill -f 'ssh .* -L 4318:127.0.0.1:4318 .*<user>@<dev-machine>'", result.output)
         self.assertIn("coco-flow start --detach", result.output)
         uvicorn_run_mock.assert_called_once()
 

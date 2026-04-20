@@ -298,6 +298,9 @@ def serve_ui(
         f"-L {port}:127.0.0.1:{port} <user>@<dev-machine>"
     )
     typer.echo(f"       然后在本地浏览器打开 http://127.0.0.1:{port}")
+    typer.echo(
+        f"       关闭隧道可执行: pkill -f 'ssh .* -L {port}:127.0.0.1:{port} .*<user>@<dev-machine>'"
+    )
     typer.echo("       如需让服务持续运行，可改用: coco-flow start --detach")
     uvicorn.run(
         create_app(static_dir=str(resolved_web_dir)),
