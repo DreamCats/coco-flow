@@ -11,7 +11,7 @@ HAD_ERREXIT=0
 HAD_NOUNSET=0
 HAD_PIPEFAIL=0
 
-if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+if (return 0 2>/dev/null); then
   SOURCE_MODE=1
 fi
 
