@@ -57,7 +57,10 @@ coco-flow install --path .
 coco-flow update --path .
 
 coco-flow start
+coco-flow start --detach
 coco-flow start --api-only
+coco-flow status
+coco-flow stop
 
 coco-flow tasks roots
 coco-flow tasks list
@@ -144,7 +147,9 @@ coco-flow start
 - 如果不方便直连，优先用 SSH 端口转发：
 
 ```bash
-ssh -L 4318:127.0.0.1:4318 <user>@<dev-machine>
+ssh -fN -o ExitOnForwardFailure=yes -o ServerAliveInterval=60 \
+  -L 4318:127.0.0.1:4318 \
+  <user>@<dev-machine>
 ```
 
 然后在本地浏览器打开 `http://127.0.0.1:4318`。
@@ -153,8 +158,11 @@ ssh -L 4318:127.0.0.1:4318 <user>@<dev-machine>
 
 ```bash
 coco-flow start --no-build
+coco-flow start --detach
 coco-flow start --web-dir /absolute/path/to/dist
 coco-flow start --api-only
+coco-flow status
+coco-flow stop
 ```
 
 当前 UI 能力：

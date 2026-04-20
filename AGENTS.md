@@ -40,6 +40,10 @@ uv run coco-flow api serve --host 127.0.0.1 --port 4318
 
 # 单命令启动 UI + API
 uv run coco-flow ui serve
+uv run coco-flow start
+uv run coco-flow start --detach
+uv run coco-flow status
+uv run coco-flow stop
 
 # 查看任务
 uv run coco-flow tasks roots

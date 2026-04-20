@@ -13,3 +13,11 @@ def daemon_pid_path(config_root: Path) -> Path:
 
 def daemon_log_path(config_root: Path) -> Path:
     return config_root / "daemon.log"
+
+
+def server_pid_path(config_root: Path) -> Path:
+    return config_root / "server.pid"
+
+
+def server_log_path(config_root: Path) -> Path:
+    return config_root / "server.log"

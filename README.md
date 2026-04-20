@@ -57,7 +57,10 @@ coco-flow install --path .
 coco-flow update --path .
 
 coco-flow start
+coco-flow start --detach
 coco-flow start --api-only
+coco-flow status
+coco-flow stop
 
 coco-flow tasks roots
 coco-flow tasks list
@@ -141,7 +144,9 @@ If you run `coco-flow start` on a remote development machine and want to open th
 - otherwise, use SSH port forwarding:
 
 ```bash
-ssh -L 4318:127.0.0.1:4318 <user>@<dev-machine>
+ssh -fN -o ExitOnForwardFailure=yes -o ServerAliveInterval=60 \
+  -L 4318:127.0.0.1:4318 \
+  <user>@<dev-machine>
 ```
 
 Then open `http://127.0.0.1:4318` in your local browser.
@@ -150,8 +155,11 @@ Useful options:
 
 ```bash
 coco-flow start --no-build
+coco-flow start --detach
 coco-flow start --web-dir /absolute/path/to/dist
 coco-flow start --api-only
+coco-flow status
+coco-flow stop
 ```
 
 Current UI capabilities:
