@@ -21,6 +21,11 @@ def build_design_research_payload(
     knowledge_brief_markdown: str,
     on_log,
 ) -> dict[str, object]:
+    """在最终 binding 前补深对 repo 的理解。
+
+    这一步会先在本地做 candidate repo 的预筛，再按需并行调用 agent，把
+    候选 repo 补成更完整的 repo brief。
+    """
     local_payload = build_local_design_research_payload(prepared)
     if settings.plan_executor.strip().lower() != EXECUTOR_NATIVE:
         return local_payload
@@ -102,6 +107,10 @@ def build_design_research_payload(
 
 
 def build_local_design_research_payload(prepared: DesignPreparedInput) -> dict[str, object]:
+    """基于术语命中和候选文件，生成确定性的本地 repo briefs。
+
+    它既是 local fallback，也是 native repo exploration 的预筛输入。
+    """
     scores = _compute_prefilter_scores(prepared)
     candidate_repo_ids = _select_candidate_repo_ids(scores)
     skipped_repo_ids = [item["repo_id"] for item in scores if item["repo_id"] not in candidate_repo_ids]

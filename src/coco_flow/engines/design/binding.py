@@ -13,6 +13,11 @@ from .models import DesignPreparedInput, DesignRepoBinding, DesignRepoBindingEnt
 
 
 def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding:
+    """在不依赖 agent 的情况下，生成最终 repo binding 决策。
+
+    它会把 change points、repo research 和 responsibility matrix 合并起来，
+    收敛成每个 repo 是否 in scope 以及属于哪个 scope tier 的结论。
+    """
     repo_count = len(prepared.repo_scopes)
     change_point_ids = [int(item.get("id") or 0) for item in prepared.change_points_payload.get("change_points", []) if isinstance(item, dict)] or [1]
     matrix_by_repo = {
@@ -89,6 +94,11 @@ def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding
 
 
 def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, knowledge_brief_markdown: str, on_log) -> DesignRepoBinding:
+    """确定 Design 阶段最终承诺的 repo 集合和 scope tier。
+
+    native 模式会先让 agent 生成 binding 草稿，再和本地 responsibility
+    matrix 的先验信息合并，避免结果发散。
+    """
     fallback = build_local_repo_binding(prepared)
     if prepared.is_single_bound_repo:
         fallback.mode = "single_bound_fast_path"

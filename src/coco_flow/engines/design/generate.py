@@ -20,6 +20,11 @@ _HEADING_RE = re.compile(r"(?m)^#\s+Design\s*$")
 
 
 def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_payload: dict[str, object], knowledge_brief_markdown: str) -> dict[str, object]:
+    """组装渲染 design.md 所需的结构化 section 模型。
+
+    这是最后一层纯结构化步骤；有了这些 sections，后面就可以渲染成本地版
+    或 native 版 design markdown。
+    """
     repo_bindings = repo_binding_payload.get("repo_bindings")
     binding_items = repo_bindings if isinstance(repo_bindings, list) else []
     research_items = prepared.research_payload.get("repos")
@@ -152,6 +157,7 @@ def generate_design_markdown(
     artifacts: dict[str, str | dict[str, object]],
     on_log,
 ) -> str:
+    """渲染最终 design.md；能走 native 就走 native，否则回退到 local。"""
     if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
             return generate_native_design_markdown(prepared, repo_binding_payload, sections_payload, knowledge_brief_markdown, settings, artifacts, on_log)
@@ -166,6 +172,7 @@ def generate_local_design_markdown(
     sections_payload: dict[str, object],
     knowledge_brief_markdown: str,
 ) -> str:
+    """基于结构化 payload，渲染一份确定性的本地 design markdown。"""
     repo_bindings = [item for item in repo_binding_payload.get("repo_bindings", []) if isinstance(item, dict) and str(item.get("decision") or "") == "in_scope"]
     must_change_bindings = [item for item in repo_bindings if str(item.get("scope_tier") or "") in {"must_change", "co_change"}]
     repo_decision_notes = {
@@ -297,6 +304,7 @@ def generate_native_design_markdown(
     artifacts: dict[str, str | dict[str, object]],
     on_log,
 ) -> str:
+    """让 agent 生成 design.md，再补契约检查和 verify。"""
     client = CocoACPClient(
         settings.coco_bin,
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
