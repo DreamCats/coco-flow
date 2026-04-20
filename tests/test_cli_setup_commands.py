@@ -104,6 +104,22 @@ class CliSetupCommandsTest(unittest.TestCase):
             ],
         )
 
+    def test_update_defaults_to_installed_repo_root(self) -> None:
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = make_project_root(Path(tmp))
+            completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            dir_completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="/tmp/bin\n", stderr="")
+            with (
+                patch("coco_flow.cli.installed_repo_root", return_value=project_root),
+                patch("coco_flow.cli.subprocess.run", side_effect=[completed, completed, completed, completed, completed, dir_completed]) as run_mock,
+            ):
+                result = runner.invoke(app, ["update"])
+
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        self.assertIn(f"updated tool: coco-flow ({project_root})", result.output)
+        self.assertEqual(run_mock.call_args_list[0], call(["git", "pull", "--ff-only"], cwd=project_root, check=False))
+
     def test_start_delegates_to_ui_serve(self) -> None:
         runner = CliRunner()
         with patch("coco_flow.cli.serve_ui") as serve_ui_mock:

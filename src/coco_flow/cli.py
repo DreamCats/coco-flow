@@ -43,6 +43,7 @@ app.add_typer(knowledge_app, name="knowledge")
 
 _PROJECT_MARKERS = ("pyproject.toml", "src/coco_flow/cli.py")
 _PYTHON_VERSION = "3.13"
+_DEFAULT_INSTALL_DIR = Path.home() / ".local" / "share" / "coco-flow"
 
 
 @app.command("version")
@@ -74,11 +75,11 @@ def install_cmd(
 
 @app.command("update")
 def update_cmd(
-    path: str = typer.Option(".", "--path", help="coco-flow repo root."),
+    path: str = typer.Option("", "--path", help="coco-flow repo root. Defaults to the installed repo."),
     pull: bool = typer.Option(True, "--pull/--no-pull", help="Run git pull --ff-only before syncing."),
     no_ui: bool = typer.Option(False, "--no-ui", help="Skip web dependencies under web/."),
 ) -> None:
-    project_root = resolve_project_root(path)
+    project_root = resolve_project_root(path or str(installed_repo_root()))
     if pull:
         ensure_git_checkout(project_root)
         run_project_command(["git", "pull", "--ff-only"], cwd=project_root)
@@ -383,6 +384,13 @@ def resolve_project_root(raw_path: str) -> Path:
     if not all((project_root / marker).exists() for marker in _PROJECT_MARKERS):
         raise typer.BadParameter(f"not a coco-flow project root: {project_root}")
     return project_root
+
+
+def installed_repo_root() -> Path:
+    raw_path = os.getenv("COCO_FLOW_INSTALL_DIR", "").strip()
+    if not raw_path:
+        return _DEFAULT_INSTALL_DIR
+    return Path(raw_path).expanduser()
 
 
 def ensure_git_checkout(project_root: Path) -> None:
