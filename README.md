@@ -132,7 +132,19 @@ This command will:
 
 - build `web/`
 - start the FastAPI app
-- serve static assets and API together on `http://127.0.0.1:4318`
+- bind on `0.0.0.0:4318`
+- serve static assets and API together; on the same machine you can open `http://127.0.0.1:4318`
+
+If you run `coco-flow start` on a remote development machine and want to open the Web UI from your local computer:
+
+- if the machine IP and port are directly reachable, open `http://<dev-machine-ip>:4318`
+- otherwise, use SSH port forwarding:
+
+```bash
+ssh -L 4318:127.0.0.1:4318 <user>@<dev-machine>
+```
+
+Then open `http://127.0.0.1:4318` in your local browser.
 
 Useful options:
 

@@ -20,6 +20,11 @@ def build_design_change_points_payload(
     knowledge_brief_markdown: str,
     on_log,
 ) -> dict[str, object]:
+    """抽取 Design 阶段围绕展开的那几个核心 change points。
+
+    native 模式会让 agent 填一个 JSON 模板；local 模式则退回到基于
+    refined sections 的启发式抽取。
+    """
     fallback = build_local_design_change_points_payload(prepared)
     if settings.plan_executor.strip().lower() != EXECUTOR_NATIVE:
         return fallback
@@ -93,6 +98,11 @@ def build_design_repo_assignment_payload(
     prepared: DesignPreparedInput,
     change_points_payload: dict[str, object],
 ) -> dict[str, object]:
+    """为每个 change point 找出可能的主负责 repo 和辅助 repo。
+
+    这一步故意比最终 repo binding 更轻，只提供一个初步路由假设，后面的
+    research 和 matrix 还会继续修正。
+    """
     change_points = [item for item in change_points_payload.get("change_points", []) if isinstance(item, dict)]
     repos = prepared.repo_researches
     source = "attached_repos" if prepared.repo_scopes else "discovered_repos"

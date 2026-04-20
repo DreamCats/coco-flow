@@ -22,6 +22,11 @@ def build_design_responsibility_matrix_payload(
     knowledge_brief_markdown: str,
     on_log,
 ) -> dict[str, object]:
+    """汇总每个 repo 的职责画像，并给出推荐的 scope tier。
+
+    矩阵处在原始 repo research 和最终 repo binding 之间，起到收敛与稳定
+    决策的作用，让后面的判断更容易解释。
+    """
     fallback = build_local_design_responsibility_matrix_payload(prepared)
     if prepared.is_single_bound_repo:
         fallback["mode"] = "single_bound_fast_path"

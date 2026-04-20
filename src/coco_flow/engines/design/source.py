@@ -32,6 +32,10 @@ def locate_task_dir(task_id: str, settings: Settings) -> Path | None:
 
 
 def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings: Settings) -> DesignPreparedInput:
+    """读取 Design 依赖的全部上游产物，并归一化成统一输入。
+
+    这里是磁盘上的 task 文件和后续设计编排之间的桥梁。
+    """
     task_id = task_dir.name
     input_meta = read_json_file(task_dir / "input.json")
     refine_intent_payload = read_json_file(task_dir / "refine-intent.json")
@@ -97,6 +101,11 @@ def infer_repo_scopes_from_knowledge(
     settings: Settings,
     refine_knowledge_selection_payload: dict[str, object],
 ) -> tuple[list[RepoScope], dict[str, object]]:
+    """当 task 没有显式绑定 repo 时，尝试从 approved knowledge 里补 repo scopes。
+
+    Design 默认更偏好显式 repo 绑定；这个函数是兜底路径，把知识文档里的
+    repo 线索转成标准化的 RepoScope。
+    """
     selected_ids = [
         str(item).strip()
         for item in refine_knowledge_selection_payload.get("selected_ids", [])
