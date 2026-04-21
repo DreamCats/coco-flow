@@ -313,10 +313,6 @@ def generate_native_design_markdown(
         settings=settings,
     )
 
-    if prepared.is_single_bound_repo:
-        artifacts["design-verify.json"] = {"ok": True, "issues": [], "reason": "single bound repo fast path"}
-        return content
-
     verify_payload, retry_source, retry_issues = _evaluate_design_output(
         client=client,
         prepared=prepared,
@@ -505,6 +501,7 @@ def collect_design_contract_issues(
 ) -> list[str]:
     normalized = design_markdown.lower()
     issues: list[str] = []
+    issues.extend(_collect_design_format_issues(design_markdown))
     closure_mode = str(repo_binding_payload.get("closure_mode") or sections_payload.get("closure_mode") or "")
     selection_basis = str(repo_binding_payload.get("selection_basis") or sections_payload.get("selection_basis") or "")
     raw_bindings = repo_binding_payload.get("repo_bindings")
@@ -544,6 +541,25 @@ def collect_design_contract_issues(
             continue
         if not any(str(value).strip().lower() in normalized for value in candidate_files[:3]):
             issues.append(f"design.md 提到了 {repo_id}，但未落候选文件或实现落点")
+    return issues
+
+
+def _collect_design_format_issues(design_markdown: str) -> list[str]:
+    issues: list[str] = []
+    for raw_line in design_markdown.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.count("**") % 2 == 1:
+            issues.append("design.md 存在未闭合的加粗标记")
+            break
+    for raw_line in design_markdown.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.count("（") != line.count("）"):
+            issues.append("design.md 存在未闭合的中文括号")
+            break
     return issues
 
 
