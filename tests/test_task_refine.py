@@ -10,7 +10,7 @@ from unittest.mock import patch
 from coco_flow.config import Settings
 from coco_flow.engines.refine.generate import parse_refine_verify_output
 from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
-from coco_flow.services.tasks.refine import refine_task
+from coco_flow.services.tasks.refine import refine_task, start_refining_task
 
 
 def make_settings(root: Path, refine_executor: str = "local") -> Settings:
@@ -37,6 +37,64 @@ def make_settings(root: Path, refine_executor: str = "local") -> Settings:
 
 
 class RefineTaskTest(unittest.TestCase):
+    def test_start_refining_task_resets_downstream_outputs_and_repo_statuses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            task_dir = build_task(
+                settings=settings,
+                task_id="task-reset",
+                title="重跑 refine",
+                source_markdown="# PRD Source\n\n重跑 refine。\n",
+            )
+
+            task_meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+            task_meta["status"] = "coded"
+            (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "repos.json").write_text(
+                json.dumps(
+                    {
+                        "repos": [
+                            {"id": "demo_repo", "path": "/tmp/demo_repo", "status": "coded"},
+                            {"id": "aux_repo", "path": "/tmp/aux_repo", "status": "planned"},
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            for name in (
+                "prd-refined.md",
+                "design.md",
+                "design-result.json",
+                "plan.md",
+                "plan-result.json",
+                "code-result.json",
+                "code.log",
+            ):
+                (task_dir / name).write_text("stale\n", encoding="utf-8")
+            for directory in ("code-results", "code-logs", "code-verify", "diffs"):
+                path = task_dir / directory
+                path.mkdir(parents=True, exist_ok=True)
+                (path / "demo.txt").write_text("stale\n", encoding="utf-8")
+
+            status = start_refining_task("task-reset", settings=settings)
+
+            self.assertEqual(status, "refining")
+            next_task_meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+            self.assertEqual(next_task_meta["status"], "refining")
+            self.assertFalse((task_dir / "prd-refined.md").exists())
+            self.assertFalse((task_dir / "design.md").exists())
+            self.assertFalse((task_dir / "plan.md").exists())
+            self.assertFalse((task_dir / "code-result.json").exists())
+            self.assertFalse((task_dir / "code-results").exists())
+            self.assertFalse((task_dir / "diffs").exists())
+
+            repos_meta = json.loads((task_dir / "repos.json").read_text(encoding="utf-8"))
+            self.assertEqual([item["status"] for item in repos_meta["repos"]], ["initialized", "initialized"])
+
     def test_local_refine_outputs_new_five_sections_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
@@ -483,7 +541,7 @@ class RefineTaskTest(unittest.TestCase):
             self.assertEqual(verify["issues"], ["需要重写"])
 
     def test_plan_research_can_parse_new_refined_sections(self) -> None:
-        from coco_flow.engines.plan_research import parse_refined_sections
+        from coco_flow.engines.shared.research import parse_refined_sections
 
         sections = parse_refined_sections(
             "# PRD Refined\n\n"

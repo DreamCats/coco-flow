@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
 import { deleteTask, type TaskListItem } from '../../api'
+import { ConfirmationModal } from '../../components/confirmation-modal'
 import { useAppData } from '../../hooks/use-app-data'
 import { truncateTaskTitle } from './model'
 import { TaskCreateModal } from './task-create-modal'
@@ -12,6 +13,9 @@ export function TaskListPane() {
   const location = useLocation()
   const [query, setQuery] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<TaskListItem | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   const filteredTasks = useMemo(() => {
     const keyword = query.trim().toLowerCase()
@@ -21,18 +25,23 @@ export function TaskListPane() {
     return tasks.filter((task) => task.title.toLowerCase().includes(keyword) || task.id.toLowerCase().includes(keyword) || task.repoIds.some((repoId) => repoId.toLowerCase().includes(keyword)))
   }, [tasks, query])
 
-  async function handleDelete(task: TaskListItem) {
-    if (!window.confirm(`确认删除 task ${task.id}？仅允许删除未进入 code 的 task。`)) {
+  async function confirmDeleteTask() {
+    if (!deleteTarget) {
       return
     }
     try {
-      await deleteTask(task.id)
+      setDeleteBusy(true)
+      setDeleteError('')
+      await deleteTask(deleteTarget.id)
       await reload()
-      if (location.pathname === `/tasks/${task.id}`) {
+      if (location.pathname === `/tasks/${deleteTarget.id}`) {
         void navigate({ to: '/tasks' })
       }
+      setDeleteTarget(null)
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : '删除 task 失败')
+      setDeleteError(err instanceof Error ? err.message : '删除 task 失败')
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -81,7 +90,14 @@ export function TaskListPane() {
         ) : (
           <div className="space-y-1.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
             {filteredTasks.map((task) => (
-              <TaskListItemCard key={task.id} onDelete={() => void handleDelete(task)} task={task} />
+              <TaskListItemCard
+                key={task.id}
+                onDelete={() => {
+                  setDeleteError('')
+                  setDeleteTarget(task)
+                }}
+                task={task}
+              />
             ))}
           </div>
         )}
@@ -97,6 +113,25 @@ export function TaskListPane() {
           }}
         />
       ) : null}
+
+      <ConfirmationModal
+        busy={deleteBusy}
+        confirmLabel="删除任务"
+        description={deleteTarget ? `删除后会移除 task ${deleteTarget.id} 的目录和当前阶段产物，该操作不可恢复。` : ''}
+        error={deleteError}
+        eyebrow="Task Deletion"
+        impacts={deleteTarget ? ['仅允许删除未进入 code 的 task', '当前 task 目录和所有 artifact 会一起删除', '如果你正在查看该 task，删除后会返回任务列表'] : []}
+        onClose={() => {
+          if (!deleteBusy) {
+            setDeleteTarget(null)
+            setDeleteError('')
+          }
+        }}
+        onConfirm={() => void confirmDeleteTask()}
+        open={Boolean(deleteTarget)}
+        title={deleteTarget ? `删除 ${deleteTarget.id}` : ''}
+        tone="danger"
+      />
     </>
   )
 }

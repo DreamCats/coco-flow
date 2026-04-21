@@ -61,6 +61,7 @@ def build_local_plan_task_outline_payload(prepared: PlanPreparedInput) -> dict[s
                 "task_type": task_type,
                 "serves_change_points": _as_int_list(item.get("serves_change_points")) or [1],
                 "goal": _build_task_goal(repo_id, task_type, prepared),
+                "specific_steps": _build_specific_steps(repo_id, task_type, change_summary, candidate_files, candidate_dirs),
                 "scope_summary": change_summary[:4] + candidate_dirs[:2],
                 "inputs": _build_task_inputs(prepared, repo_id, task_type),
                 "outputs": _build_task_outputs(repo_id, task_type),
@@ -94,6 +95,7 @@ def normalize_plan_work_items(outline_payload: dict[str, object], prepared: Plan
                 task_type=_normalize_task_type(item.get("task_type")),
                 serves_change_points=_as_int_list(item.get("serves_change_points")) or [1],
                 goal=str(item.get("goal") or _build_task_goal(repo_id, "implementation", prepared)).strip(),
+                specific_steps=_as_str_list(item.get("specific_steps"))[:6],
                 change_scope=_as_str_list(item.get("change_scope"))[:8],
                 inputs=_as_str_list(item.get("inputs"))[:6],
                 outputs=_as_str_list(item.get("outputs"))[:6],
@@ -191,6 +193,7 @@ def _dedupe_and_reindex_work_items(items: list[PlanWorkItem], prepared: PlanPrep
                 task_type="implementation",
                 serves_change_points=[1],
                 goal=_build_task_goal(repo_id, "implementation", prepared),
+                specific_steps=_build_specific_steps(repo_id, "implementation", [], [], []),
                 change_scope=[],
                 inputs=_build_task_inputs(prepared, repo_id, "implementation"),
                 outputs=_build_task_outputs(repo_id, "implementation"),
@@ -261,6 +264,29 @@ def _build_validation_focus(prepared: PlanPreparedInput, task_type: str, boundar
     for item in prepared.refined_sections.acceptance_criteria[:2]:
         checks.append(f"验收：{item}")
     return checks[:6]
+
+
+def _build_specific_steps(
+    repo_id: str,
+    task_type: str,
+    change_summary: list[str],
+    candidate_files: list[str],
+    candidate_dirs: list[str],
+) -> list[str]:
+    steps: list[str] = []
+    if task_type == "validation":
+        for file_path in candidate_files[:2]:
+            steps.append(f"在 {file_path} 所在链路中核对联动行为与兼容性。")
+        if not steps:
+            for directory in candidate_dirs[:2]:
+                steps.append(f"在 {repo_id}/{directory} 范围内补齐联动验证与回归确认。")
+    else:
+        for file_path in candidate_files[:3]:
+            steps.append(f"在 {file_path} 中收敛与本次需求直接相关的核心逻辑。")
+        if not steps:
+            for summary in change_summary[:3]:
+                steps.append(f"在 {repo_id} 的对应模块中落地：{summary}")
+    return _as_str_list(steps)[:5] or [f"在 {repo_id} 的核心模块中按 Design 结论完成最小范围改动。"]
 
 
 def _build_handoff_notes(task_type: str, scope_tier: str) -> list[str]:

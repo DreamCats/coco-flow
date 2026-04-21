@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import YAML from 'yaml'
 import { createKnowledgeDocument, deleteKnowledgeDocument, listKnowledge, updateKnowledgeDocumentContent } from '../api'
+import { ConfirmationModal } from '../components/confirmation-modal'
 import { KnowledgeCreateDrawer } from '../components/knowledge/knowledge-create-drawer'
 import { PanelMessage } from '../components/ui-primitives'
 import type { KnowledgeDocument, KnowledgeStatus } from '../knowledge/types'
@@ -23,6 +24,8 @@ export function KnowledgePage() {
   const [draftContent, setDraftContent] = useState('')
   const [previewMode, setPreviewMode] = useState<PreviewMode>('rendered')
   const [metadataOpen, setMetadataOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<KnowledgeDocument | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
   const deferredQuery = useDeferredValue(query)
 
   const filteredDocuments = useMemo(() => {
@@ -200,10 +203,15 @@ export function KnowledgePage() {
     if (!selectedDocument) {
       return
     }
-    if (!window.confirm(`确认删除《${selectedDocument.title}》吗？`)) {
+    setDeleteTarget(selectedDocument)
+  }
+
+  function confirmDeleteDocument() {
+    if (!deleteTarget) {
       return
     }
-    const deletingId = selectedDocument.id
+    const deletingId = deleteTarget.id
+    setDeleteBusy(true)
     void deleteKnowledgeDocument(deletingId)
       .then(() => {
         startTransition(() => {
@@ -214,10 +222,14 @@ export function KnowledgePage() {
           setEditingDocumentId('')
           setDraftContent('')
           setError('')
+          setDeleteTarget(null)
         })
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : '删除知识文档失败')
+      })
+      .finally(() => {
+        setDeleteBusy(false)
       })
   }
 
@@ -416,6 +428,23 @@ export function KnowledgePage() {
       </div>
 
       <KnowledgeCreateDrawer creating={creating} onClose={() => setShowCreateDrawer(false)} onSubmit={createDocument} open={showCreateDrawer} />
+
+      <ConfirmationModal
+        busy={deleteBusy}
+        confirmLabel="删除文档"
+        description={deleteTarget ? `《${deleteTarget.title}》会从知识库中移除，相关页面引用会失去这份内容来源。` : ''}
+        eyebrow="Knowledge Deletion"
+        impacts={deleteTarget ? ['会删除当前知识文档源码与 frontmatter', '当前列表选择会被清空，需要重新选择其他文档', '该操作不可恢复'] : []}
+        onClose={() => {
+          if (!deleteBusy) {
+            setDeleteTarget(null)
+          }
+        }}
+        onConfirm={confirmDeleteDocument}
+        open={Boolean(deleteTarget)}
+        title={deleteTarget ? `删除《${deleteTarget.title}》` : ''}
+        tone="danger"
+      />
     </>
   )
 }

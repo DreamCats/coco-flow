@@ -29,9 +29,9 @@ def build_design_verify_agent_prompt(
         requirements=[
             "必须直接编辑指定 JSON 文件，不要只在回复里输出结果。",
             "重点检查章节是否齐全、是否脱离结构化结果、是否引入未出现的仓库或文件。",
-            "如果存在多个 in_scope repo，必须逐个检查 design.md 是否明确交代每个 repo 的角色，而不是只写主仓。",
-            "如果存在 validate_only repo，必须检查它是否被单独写进“联动验证仓库”，并解释为什么不作为主改造仓。",
-            "如果 must_change repo 已给出 candidate_files 或 repo_decisions，必须检查 design.md 是否写出实现落点或候选文件。",
+            "如果存在多个 in_scope repo，必须逐个检查 design.md 是否明确交代每个 repo 的职责与 scope_tier，而不是只写主仓。",
+            "如果 must_change 或 co_change repo 已给出 candidate_files 或 repo_decisions，必须检查 design.md 是否写出实现落点或候选文件。",
+            "如果 design.md 没有把 critical_flows、interface_changes、risk_boundaries 体现在对应章节，应判失败。",
             "如果 design.md 只是重复 refined 需求，没有体现 repo_decisions 里的仓库现状和判定理由，必须判失败。",
             "如果 selection_basis=heuristic_tiebreak，必须检查 design.md 是否明确区分“单仓可闭合”和“默认选择哪个仓作为起始实现仓”。",
             "如果校验通过，ok=true，issues 使用空数组。",

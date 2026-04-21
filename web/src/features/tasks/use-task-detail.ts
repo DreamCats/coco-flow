@@ -1,12 +1,26 @@
 import { useEffect, useState } from 'react'
 import { archiveCode, getTask, resetCode, startCode, startDesign, startPlan, startRefine, type TaskRecord } from '../../api'
 
+type ConfirmationTone = 'danger' | 'warning' | 'neutral'
+
+type PendingConfirmation = {
+  eyebrow: string
+  title: string
+  description: string
+  impacts: string[]
+  confirmLabel: string
+  tone: ConfirmationTone
+  actionKey: string
+  run: () => Promise<void>
+}
+
 export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>) {
   const [task, setTask] = useState<TaskRecord | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionError, setActionError] = useState('')
   const [busyAction, setBusyAction] = useState('')
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null)
 
   async function load() {
     const detail = await getTask(taskId)
@@ -81,19 +95,53 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
     }
   }
 
+  async function confirmPendingAction() {
+    const current = pendingConfirmation
+    if (!current) {
+      return
+    }
+    setPendingConfirmation(null)
+    await runAction(current.actionKey, current.run)
+  }
+
   return {
     task,
     loading,
     error,
     actionError,
     busyAction,
+    pendingConfirmation,
+    closePendingConfirmation: () => setPendingConfirmation(null),
+    confirmPendingAction,
     refresh: load,
-    startRefineAction: () => runAction('refine', async () => void (await startRefine(taskId))),
+    startRefineAction: () => {
+      if (task && shouldConfirmRefineRestart(task.status)) {
+        setPendingConfirmation({
+          eyebrow: 'Refine Restart',
+          title: '重新生成 Refine',
+          description: '这会回退当前任务在 Refine 之后的产物，再基于当前输入重新整理需求边界。',
+          impacts: buildRefineRestartImpacts(task.status),
+          confirmLabel: '回退并重新提炼',
+          tone: 'warning',
+          actionKey: 'refine',
+          run: async () => void (await startRefine(taskId)),
+        })
+        return Promise.resolve()
+      }
+      return runAction('refine', async () => void (await startRefine(taskId)))
+    },
     startDesignAction: () => {
-      if (
-        task?.status === 'planned' &&
-        !window.confirm('确认重新设计吗？这会覆盖当前 design 产物，清理现有 plan 结果；设计完成后需要重新生成 Plan。')
-      ) {
+      if (task?.status === 'planned') {
+        setPendingConfirmation({
+          eyebrow: 'Design Restart',
+          title: '重新生成 Design',
+          description: '当前 Design 会被覆盖，现有 Plan 结果也会被清理，后续需要重新生成计划。',
+          impacts: ['会覆盖当前 design.md 与相关设计产物', '会删除当前 plan.md、任务拆分和执行图', '重新设计完成后，需要重新生成 Plan'],
+          confirmLabel: '回退 Plan 并重新设计',
+          tone: 'warning',
+          actionKey: 'design',
+          run: async () => void (await startDesign(taskId)),
+        })
         return Promise.resolve()
       }
       return runAction('design', async () => void (await startDesign(taskId)))
@@ -103,6 +151,18 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
     resetCodeAction: (repoId?: string) => runAction('reset', async () => void (await resetCode(taskId, repoId))),
     archiveAction: (repoId?: string) => runAction('archive', async () => void (await archiveCode(taskId, repoId))),
   }
+}
+
+function shouldConfirmRefineRestart(status: TaskRecord['status']) {
+  return new Set(['designed', 'planned', 'partially_coded', 'coded', 'failed']).has(status)
+}
+
+function buildRefineRestartImpacts(status: TaskRecord['status']) {
+  const impacts = ['会覆盖当前 prd-refined.md', '会删除现有 design.md 与全部设计产物', '会删除现有 plan.md、任务拆分和执行图']
+  if (status === 'partially_coded' || status === 'coded') {
+    impacts.push('会清空当前 code 结果、diff、verify 和 repo 级执行记录')
+  }
+  return impacts
 }
 
 function shouldPoll(task: TaskRecord) {

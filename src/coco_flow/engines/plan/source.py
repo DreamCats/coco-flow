@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from coco_flow.config import Settings
-from coco_flow.engines.plan_models import RefinedSections
-from coco_flow.engines.plan_research import parse_refined_sections, parse_repo_scopes, read_text_if_exists
+from coco_flow.engines.shared.models import RefinedSections
+from coco_flow.engines.shared.research import parse_refined_sections, parse_repo_scopes, read_text_if_exists
 from coco_flow.services.queries.task_detail import read_json_file
 
 from .models import PlanPreparedInput

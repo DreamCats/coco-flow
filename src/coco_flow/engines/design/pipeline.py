@@ -73,7 +73,11 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
     responsibility_matrix_payload = build_design_responsibility_matrix_payload(prepared, settings, knowledge_brief_markdown, on_log)
     prepared.responsibility_matrix_payload = responsibility_matrix_payload
     artifacts["design-repo-responsibility-matrix.json"] = responsibility_matrix_payload
-    on_log(f"design_repo_matrix_ok: repos={len(responsibility_matrix_payload.get('repos', []))}")
+    on_log(
+        "design_repo_matrix_ok: "
+        f"repos={len(responsibility_matrix_payload.get('repos', []))}, "
+        f"warnings={len(responsibility_matrix_payload.get('warnings', []))}"
+    )
 
     # 最终 binding 负责确定哪些 repo 在范围内，以及各自的 scope tier。
     on_log("design_repo_binding_start: true")

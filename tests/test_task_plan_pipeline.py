@@ -22,8 +22,8 @@ from coco_flow.engines.design.generate import (
     generate_design_markdown,
     generate_local_design_markdown,
 )
-from coco_flow.engines.design.research import build_design_research_payload
-from coco_flow.engines.plan_models import (
+from coco_flow.engines.design.research import _rank_candidate_file, build_design_research_payload
+from coco_flow.engines.shared.models import (
     ComplexityAssessment,
     ContextSnapshot,
     DesignResearchSignals,
@@ -244,18 +244,18 @@ class PlanTaskPipelineTest(unittest.TestCase):
             payload = build_design_sections_payload(prepared, repo_binding_payload, "")
             self.assertEqual(len(payload["system_changes"]), 1)
             self.assertEqual(payload["system_changes"][0]["system_id"], "live_pack")
-            self.assertEqual(payload["validate_repos"][0]["repo_id"], "live_shopapi")
-            self.assertEqual(payload["reference_repos"][0]["repo_id"], "live_common")
             self.assertEqual(payload["repo_decisions"][0]["repo_id"], "live_pack")
             self.assertIn("联动验证", payload["repo_decisions"][1]["decision_summary"])
+            self.assertEqual(payload["repo_decisions"][1]["repo_id"], "live_shopapi")
+            self.assertEqual(payload["repo_decisions"][2]["repo_id"], "live_common")
 
             markdown = generate_local_design_markdown(prepared, repo_binding_payload, payload, "")
             self.assertIn("#### Live Pack", markdown)
             self.assertIn("选择原因", markdown)
-            self.assertIn("### 联动验证仓库", markdown)
             self.assertIn("live_shopapi", markdown)
-            self.assertIn("### 参考链路", markdown)
             self.assertIn("live_common", markdown)
+            self.assertIn("角色定位：联动验证仓", markdown)
+            self.assertIn("角色定位：参考信息仓", markdown)
 
     def test_design_contract_requires_multi_repo_roles_and_candidate_files(self) -> None:
         repo_binding_payload = {
@@ -289,14 +289,313 @@ class PlanTaskPipelineTest(unittest.TestCase):
         }
 
         issues = collect_design_contract_issues(
-            "# Design\n\n## 方案设计\n\n### 分系统改造\n- demo 仓负责新增 two sum。\n",
+            "# Design\n\n## 分仓库方案\n\n#### Demo\n- 仓库：demo\n- 角色定位：本次主改仓\n- 职责：demo 仓负责新增 two sum。\n",
             repo_binding_payload,
             sections_payload,
         )
 
         self.assertTrue(any("test" in issue for issue in issues))
-        self.assertTrue(any("联动验证仓库" in issue for issue in issues))
+        self.assertTrue(any("未明确提及" in issue or "验证定位" in issue for issue in issues))
         self.assertTrue(any("main.go" in issue or "实现落点" in issue for issue in issues))
+
+    def test_candidate_file_ranking_prefers_state_authority_over_context_paths(self) -> None:
+        self.assertGreater(
+            _rank_candidate_file("entities/loaders/auction_loaders/auction_status_loader.go"),
+            _rank_candidate_file("entities/loaders/product_loaders/product_auction_config_data_loader.go"),
+        )
+        self.assertGreater(
+            _rank_candidate_file("entities/loaders/product_loaders/product_auction_data_loader.go"),
+            _rank_candidate_file("entities/loaders/auction_loaders/auction_product_meta_loader.go"),
+        )
+
+    def test_candidate_file_ranking_uses_context_tokens_to_downrank_generic_status_paths(self) -> None:
+        context_tokens = {"auction", "regular", "card"}
+        preferred_dirs = [
+            "entities/loaders/auction_loaders",
+            "entities/loaders/product_loaders",
+            "entities/converters/auction_converters",
+        ]
+        self.assertGreater(
+            _rank_candidate_file(
+                "entities/loaders/product_loaders/product_auction_data_loader.go",
+                context_tokens=context_tokens,
+                preferred_dirs=preferred_dirs,
+            ),
+            _rank_candidate_file(
+                "entities/loaders/product_loaders/product_status_loader.go",
+                context_tokens=context_tokens,
+                preferred_dirs=preferred_dirs,
+            ),
+        )
+        self.assertGreater(
+            _rank_candidate_file(
+                "entities/converters/auction_converters/regular_auction_converter.go",
+                context_tokens=context_tokens,
+                preferred_dirs=preferred_dirs,
+            ),
+            _rank_candidate_file(
+                "utils/status_code.go",
+                context_tokens=context_tokens,
+                preferred_dirs=preferred_dirs,
+            ),
+        )
+
+    def test_build_design_sections_skips_interface_changes_without_external_boundary_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "live_pack"
+            repo_root.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-no-interface-signal",
+                title="统一成功态",
+                refined_markdown="# PRD Refined\n\n- 统一成功态\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
+                repo_researches=[],
+                repo_ids={"live_pack"},
+                repo_root=str(repo_root),
+                sections=RefinedSections(
+                    change_scope=["统一成功态"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+            )
+            payload = build_design_sections_payload(
+                prepared,
+                {
+                    "repo_bindings": [
+                        {
+                            "repo_id": "live_pack",
+                            "decision": "in_scope",
+                            "scope_tier": "must_change",
+                            "system_name": "live_pack",
+                            "serves_change_points": [1],
+                            "responsibility": "状态收敛",
+                            "change_summary": ["统一成功态"],
+                            "candidate_files": [
+                                "entities/loaders/auction_loaders/auction_status_loader.go",
+                                "entities/loaders/product_loaders/product_auction_data_loader.go",
+                            ],
+                            "candidate_dirs": ["entities/loaders"],
+                            "depends_on": [],
+                            "reason": "负责状态收敛",
+                        }
+                    ],
+                    "closure_mode": "single_repo",
+                    "selection_basis": "strong_signal",
+                    "selection_note": "单仓即可闭合实现。",
+                },
+                "",
+            )
+            self.assertEqual(payload["interface_changes"], [])
+
+    def test_design_contract_requires_core_candidate_files_when_repo_is_mentioned(self) -> None:
+        repo_binding_payload = {
+            "repo_bindings": [
+                {
+                    "repo_id": "live_pack",
+                    "decision": "in_scope",
+                    "scope_tier": "must_change",
+                    "system_name": "live_pack",
+                    "candidate_files": [
+                        "entities/loaders/auction_loaders/auction_status_loader.go",
+                        "entities/loaders/product_loaders/product_auction_data_loader.go",
+                        "entities/loaders/product_loaders/product_auction_config_data_loader.go",
+                    ],
+                }
+            ]
+        }
+        sections_payload = {
+            "repo_decisions": [
+                {
+                    "repo_id": "live_pack",
+                    "candidate_files": [
+                        "entities/loaders/auction_loaders/auction_status_loader.go",
+                        "entities/loaders/product_loaders/product_auction_data_loader.go",
+                        "entities/loaders/product_loaders/product_auction_config_data_loader.go",
+                    ]
+                }
+            ]
+        }
+        issues = collect_design_contract_issues(
+            "# Design\n\n## 改造点总览\n- 统一成功态\n\n## 总体方案\n- 只修改 live_pack。\n\n## 分仓库方案\n\n### live_pack\n- 仓库：live_pack\n- 核心改点：\n  - entities/loaders/product_loaders/product_auction_config_data_loader.go\n\n## 仓库依赖关系\n- 无\n\n## 接口协议变更\n- 本次需求不涉及对外接口协议变更。\n\n## 风险与待确认项\n- 无\n",
+            repo_binding_payload,
+            sections_payload,
+        )
+        self.assertTrue(any("第一核心实现落点" in issue for issue in issues))
+
+    def test_design_contract_requires_primary_core_candidate_to_be_front_loaded(self) -> None:
+        repo_binding_payload = {
+            "repo_bindings": [
+                {
+                    "repo_id": "live_pack",
+                    "decision": "in_scope",
+                    "scope_tier": "must_change",
+                    "system_name": "live_pack",
+                    "candidate_files": [
+                        "entities/loaders/auction_loaders/auction_status_loader.go",
+                        "entities/loaders/product_loaders/product_auction_data_loader.go",
+                        "entities/converters/auction_converters/regular_auction_converter.go",
+                    ],
+                }
+            ]
+        }
+        sections_payload = {
+            "repo_decisions": [
+                {
+                    "repo_id": "live_pack",
+                    "candidate_files": [
+                        "entities/loaders/auction_loaders/auction_status_loader.go",
+                        "entities/loaders/product_loaders/product_auction_data_loader.go",
+                        "entities/converters/auction_converters/regular_auction_converter.go",
+                    ]
+                }
+            ]
+        }
+        issues = collect_design_contract_issues(
+            "# Design\n\n## 改造点总览\n- 优先确认 entities/loaders/product_loaders/product_auction_data_loader.go。\n\n## 总体方案\n- live_pack 单仓闭合。\n\n## 分仓库方案\n\n### live_pack\n- 仓库：live_pack\n- 核心改点：\n  - entities/loaders/product_loaders/product_auction_data_loader.go\n- 联动检查：\n  - entities/converters/auction_converters/regular_auction_converter.go\n- 证据：entities/loaders/auction_loaders/auction_status_loader.go 中存在状态判定。\n\n## 仓库依赖关系\n- 无\n\n## 接口协议变更\n- 本次需求不涉及对外接口协议变更。\n\n## 风险与待确认项\n- 无\n",
+            repo_binding_payload,
+            sections_payload,
+        )
+        self.assertTrue(any("未排在候选文件前列" in issue for issue in issues))
+
+    def test_generate_local_design_markdown_prioritizes_core_candidate_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "live_pack"
+            repo_root.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-prioritize-candidates",
+                title="统一成功态",
+                refined_markdown="# PRD Refined\n\n- 统一成功态\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
+                repo_researches=[],
+                repo_ids={"live_pack"},
+                repo_root=str(repo_root),
+                sections=RefinedSections(
+                    change_scope=["统一成功态"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+            )
+            repo_binding_payload = {
+                "repo_bindings": [
+                    {
+                        "repo_id": "live_pack",
+                        "decision": "in_scope",
+                        "scope_tier": "must_change",
+                        "system_name": "live_pack",
+                        "serves_change_points": [1],
+                        "responsibility": "状态收敛",
+                        "change_summary": ["统一成功态"],
+                        "candidate_files": [
+                            "entities/loaders/product_loaders/product_auction_config_data_loader.go",
+                            "entities/converters/auction_converters/regular_auction_converter.go",
+                            "entities/loaders/auction_loaders/auction_status_loader.go",
+                            "entities/loaders/product_loaders/product_auction_data_loader.go",
+                        ],
+                        "candidate_dirs": ["entities/loaders"],
+                        "depends_on": [],
+                        "reason": "负责状态收敛",
+                    }
+                ],
+                "closure_mode": "single_repo",
+                "selection_basis": "strong_signal",
+                "selection_note": "单仓即可闭合实现。",
+            }
+
+            sections_payload = build_design_sections_payload(prepared, repo_binding_payload, "")
+            markdown = generate_local_design_markdown(prepared, repo_binding_payload, sections_payload, "")
+            self.assertLess(
+                markdown.index("entities/loaders/auction_loaders/auction_status_loader.go"),
+                markdown.index("entities/loaders/product_loaders/product_auction_config_data_loader.go"),
+            )
+
+    def test_generate_local_design_markdown_keeps_focus_files_ahead_of_builder_and_list_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "live_pack"
+            repo_root.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-focus-order",
+                title="统一成功态",
+                refined_markdown="# PRD Refined\n\n- 统一成功态\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_knowledge_selection_payload={},
+                refine_knowledge_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
+                repo_researches=[],
+                repo_ids={"live_pack"},
+                repo_root=str(repo_root),
+                sections=RefinedSections(
+                    change_scope=["统一成功态"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=1, level="low", conclusion="低复杂度"),
+            )
+            repo_binding_payload = {
+                "repo_bindings": [
+                    {
+                        "repo_id": "live_pack",
+                        "decision": "in_scope",
+                        "scope_tier": "must_change",
+                        "system_name": "live_pack",
+                        "serves_change_points": [1],
+                        "responsibility": "状态收敛",
+                        "change_summary": ["统一成功态"],
+                        "candidate_files": [
+                            "entities/loaders/auction_loaders/auction_status_loader.go",
+                            "entities/converters/auction_converters/regular_auction_converter.go",
+                            "entities/dto_builders/auction_card_data_dto_builder.go",
+                            "entities/loaders/product_loaders/product_auction_data_loader.go",
+                            "entities/converters/auction_converters/list_converter.go",
+                        ],
+                        "candidate_dirs": ["entities/loaders", "entities/converters"],
+                        "depends_on": [],
+                        "reason": "负责状态收敛",
+                    }
+                ],
+                "closure_mode": "single_repo",
+                "selection_basis": "strong_signal",
+                "selection_note": "单仓即可闭合实现。",
+            }
+
+            sections_payload = build_design_sections_payload(prepared, repo_binding_payload, "")
+            markdown = generate_local_design_markdown(prepared, repo_binding_payload, sections_payload, "")
+            self.assertLess(
+                markdown.index("entities/converters/auction_converters/regular_auction_converter.go"),
+                markdown.index("entities/converters/auction_converters/list_converter.go"),
+            )
+            self.assertLess(
+                markdown.index("entities/loaders/product_loaders/product_auction_data_loader.go"),
+                markdown.index("entities/dto_builders/auction_card_data_dto_builder.go"),
+            )
 
     def test_local_responsibility_matrix_prefers_state_aggregation_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -542,10 +841,13 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 matched = re.search(r"(?m)^- file: (.+)$", prompt)
                 self.assertIsNotNone(matched)
                 template_path = Path(str(matched.group(1)).strip())
-                template_path.write_text(
-                    "# Design\n\n## 系统改造点\n\n- 统一成功态\n\n## 方案设计\n\n### 总体方案\n\n- 只修改 live_pack。\n",
-                    encoding="utf-8",
-                )
+                if str(template_path).endswith(".json"):
+                    template_path.write_text('{"ok": true, "issues": [], "reason": "verify ok"}\n', encoding="utf-8")
+                else:
+                    template_path.write_text(
+                        "# Design\n\n## 改造点总览\n\n- 统一成功态\n\n## 总体方案\n\n- 只修改 live_pack。\n\n## 分仓库方案\n\n#### Live Pack\n- 仓库：live_pack\n- 角色定位：本次主改仓\n- 职责：核心状态收敛\n- 选择原因：只修改 live_pack。\n- 仓库现状：主改仓。\n- 主要改动：\n  - 改成功态逻辑\n- 核心改点：\n  - entities/loaders/auction_loaders/auction_status_loader.go\n\n## 仓库依赖关系\n\n- 当前未识别到明确的强依赖关系。\n\n## 接口协议变更\n\n- 本次需求不涉及对外接口协议变更。\n\n## 风险与待确认项\n\n- 当前未沉淀出额外技术风险或待确认项。\n",
+                        encoding="utf-8",
+                    )
                 return "done"
 
             from unittest.mock import patch
@@ -554,8 +856,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 markdown = generate_design_markdown(prepared, repo_binding_payload, sections_payload, "", settings, artifacts, lambda _message: None)
 
             self.assertIn("# Design", markdown)
-            self.assertEqual(mocked.call_count, 1)
-            self.assertEqual(artifacts["design-verify.json"]["reason"], "single bound repo fast path")
+            self.assertEqual(mocked.call_count, 2)
 
     def test_local_repo_binding_classifies_scope_tiers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -800,7 +1101,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("当前判断：需求可在单仓内闭合实现", markdown)
             self.assertIn("仓库选择：demo 和 test 都可承接实现", markdown)
             self.assertIn("仓库选择说明：demo 和 test 都可承接实现", markdown)
-            self.assertEqual(markdown.count("默认选择 demo 作为起始实现仓"), 2)
+            self.assertEqual(markdown.count("默认选择 demo 作为起始实现仓"), 3)
 
     def test_native_design_research_uses_run_agent_for_multiple_candidate_repos(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1091,8 +1392,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
             verify = json.loads((task_dir / "design-verify.json").read_text(encoding="utf-8"))
             self.assertEqual(verify["ok"], True)
             design = (task_dir / "design.md").read_text(encoding="utf-8")
-            self.assertIn("## 系统改造点", design)
-            self.assertIn("## 方案设计", design)
+            self.assertIn("## 改造点总览", design)
+            self.assertIn("## 总体方案", design)
             self.assertIn("竞拍讲解卡需要支持主播侧状态提示", design)
             self.assertTrue((task_dir / "design-result.json").exists())
 
@@ -1726,13 +2027,13 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("验证要点", brief)
             design = (task_dir / "design.md").read_text(encoding="utf-8")
             plan = (task_dir / "plan.md").read_text(encoding="utf-8")
-            self.assertIn("## 系统改造点", design)
-            self.assertIn("## 方案设计", design)
-            self.assertIn("### 分系统改造", design)
+            self.assertIn("## 改造点总览", design)
+            self.assertIn("## 总体方案", design)
+            self.assertIn("## 分仓库方案", design)
             self.assertIn("- 仓库：demo_repo", design)
-            self.assertIn("- scope_tier：must_change", design)
-            self.assertIn("## 实施策略", plan)
-            self.assertIn("## 任务拆分", plan)
+            self.assertIn("- 角色定位：本次主改仓", design)
+            self.assertIn("## 任务清单", plan)
+            self.assertIn("## 执行顺序", plan)
             self.assertIn("最小范围验证通过", plan)
 
     def test_native_plan_runs_scope_and_verify(self) -> None:
@@ -1840,10 +2141,9 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
             (task_dir / "design.md").write_text(
                 "# Design\n\n"
-                "## 系统改造点\n\n"
+                "## 改造点总览\n\n"
                 "- 收敛讲解卡状态提示改造范围。\n\n"
-                "## 方案设计\n\n"
-                "### 总体方案\n\n"
+                "## 总体方案\n\n"
                 "- 优先收敛讲解卡状态提示边界。\n",
                 encoding="utf-8",
             )
@@ -1939,20 +2239,17 @@ class PlanTaskPipelineTest(unittest.TestCase):
                     path = prompt.split("- file: ", 1)[1].split("\n", 1)[0].strip()
                     Path(path).write_text(
                         "# Plan\n\n"
-                        "## 实施策略\n"
-                        "- 先收敛 demo_repo 主改范围。\n\n"
-                        "## 任务拆分\n"
-                        "- W1 demo_repo 主执行任务。\n\n"
+                        "## 任务清单\n"
+                        "### W1 [demo_repo] 主执行任务\n"
+                        "- 目标：先收敛 demo_repo 主改范围。\n"
+                        "- 具体做什么：\n"
+                        "  - 收敛 demo_repo 主改范围。\n\n"
                         "## 执行顺序\n"
                         "- W1\n\n"
-                        "## 并发与协同\n"
-                        "- 当前无额外并发组。\n\n"
-                        "## 验证计划\n"
+                        "## 验证策略\n"
                         "- 最小范围验证通过。\n\n"
-                        "## 阻塞项与风险\n"
-                        "- 避免破坏现有样式。\n\n"
-                        "## 交付边界\n"
-                        "- 非竞拍态不展示。\n",
+                        "## 风险与阻塞项\n"
+                        "- 避免破坏现有样式。\n\n",
                         encoding="utf-8",
                     )
                     return "ok"
@@ -1975,10 +2272,10 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(run_agent_mock.call_args_list[0].kwargs.get("fresh_session"), True)
             design = (task_dir / "design.md").read_text(encoding="utf-8")
             plan = (task_dir / "plan.md").read_text(encoding="utf-8")
-            self.assertIn("## 系统改造点", design)
+            self.assertIn("## 改造点总览", design)
             self.assertIn("收敛讲解卡状态提示改造范围", design)
             self.assertIn("## 执行顺序", plan)
-            self.assertIn("## 实施策略", plan)
+            self.assertIn("## 任务清单", plan)
             self.assertIn("最小范围验证通过", plan)
 
 

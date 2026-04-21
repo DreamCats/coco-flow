@@ -18,16 +18,16 @@ def generate_plan_markdown(
     validation_payload: dict[str, object],
     settings: Settings,
     on_log,
-) -> str:
+) -> tuple[str, str]:
     if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
             content = generate_native_plan_markdown(prepared, work_items, graph, validation_payload, settings)
             on_log("plan_generate_mode: native")
-            return content
+            return content, "native"
         except Exception as error:
             on_log(f"plan_generate_fallback: {error}")
     on_log("plan_generate_mode: local")
-    return generate_local_plan_markdown(prepared, work_items, graph, validation_payload)
+    return generate_local_plan_markdown(prepared, work_items, graph, validation_payload), "local"
 
 
 def generate_local_plan_markdown(
@@ -42,53 +42,48 @@ def generate_local_plan_markdown(
         f"- task_id: {prepared.task_id}",
         f"- title: {prepared.title}",
         "",
-        "## 实施策略",
-        "",
-        f"- 基于 Design 已确认的 repo binding 进行执行拆分，不再重新 adjudicate repo scope。",
-        f"- 当前共拆出 {len(work_items)} 个 work items。",
-        "",
-        "## 任务拆分",
+        "## 任务清单",
         "",
     ]
     for item in work_items:
         lines.extend(
             [
                 f"### {item.id} {item.title}",
-                f"- repo_id: {item.repo_id}",
-                f"- task_type: {item.task_type}",
-                f"- goal: {item.goal}",
+                f"- 目标：{item.goal}",
             ]
         )
-        if item.depends_on:
-            lines.append(f"- depends_on: {', '.join(item.depends_on)}")
         if item.change_scope:
-            lines.append("- change_scope:")
+            lines.append("- 改动范围：")
             lines.extend(f"  - {entry}" for entry in item.change_scope[:6])
+        if item.specific_steps:
+            lines.append("- 具体做什么：")
+            lines.extend(f"  - {entry}" for entry in item.specific_steps[:5])
         if item.done_definition:
-            lines.append("- done_definition:")
+            lines.append("- 完成标准：")
             lines.extend(f"  - {entry}" for entry in item.done_definition[:4])
-        if item.verification_steps:
-            lines.append("- verification:")
-            lines.extend(f"  - {entry}" for entry in item.verification_steps[:4])
+        if item.depends_on:
+            lines.append(f"- 依赖：{', '.join(item.depends_on)}")
+        else:
+            lines.append("- 依赖：无前置任务约束。")
         lines.append("")
     lines.extend(["## 执行顺序", ""])
     lines.append("- " + " -> ".join(graph.execution_order) if graph.execution_order else "- 当前未形成稳定执行顺序。")
-    lines.extend(["", "## 并发与协同", ""])
     if graph.parallel_groups:
         for index, group in enumerate(graph.parallel_groups, start=1):
-            lines.append(f"- parallel_group_{index}: {', '.join(group)}")
-    else:
-        lines.append("- 当前未识别到明确并发组。")
+            lines.append(f"- 并行组 {index}：{', '.join(group)}")
     if graph.coordination_points:
-        lines.append("- coordination_points:")
+        lines.append("- 协同约束：")
         lines.extend(f"  - {item}" for item in graph.coordination_points[:6])
-    lines.extend(["", "## 验证计划", ""])
+    lines.extend(["", "## 验证策略", ""])
     global_focus = validation_payload.get("global_validation_focus")
     if isinstance(global_focus, list) and global_focus:
         lines.extend(f"- {str(item)}" for item in global_focus[:6] if str(item).strip())
     else:
         lines.append("- 优先覆盖关键链路和最小范围验证。")
-    lines.extend(["", "## 阻塞项与风险", ""])
+    for item in work_items:
+        for verification in item.verification_steps[:3]:
+            lines.append(f"- {item.id}：{verification}")
+    lines.extend(["", "## 风险与阻塞项", ""])
     risks = [risk for item in work_items for risk in item.risk_notes]
     if risks:
         seen: set[str] = set()
@@ -100,11 +95,6 @@ def generate_local_plan_markdown(
             lines.append(f"- {risk}")
     else:
         lines.append("- 当前未沉淀出额外风险。")
-    lines.extend(["", "## 交付边界", ""])
-    for item in prepared.refined_sections.non_goals[:4]:
-        lines.append(f"- 非目标：{item}")
-    if not prepared.refined_sections.non_goals:
-        lines.append("- 保持最小执行范围，不扩大到 Design 未纳入的系统或 repo。")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -114,6 +104,8 @@ def generate_native_plan_markdown(
     graph: PlanExecutionGraph,
     validation_payload: dict[str, object],
     settings: Settings,
+    regeneration_issues: list[str] | None = None,
+    previous_plan_markdown: str = "",
 ) -> str:
     client = CocoACPClient(
         settings.coco_bin,
@@ -132,6 +124,8 @@ def generate_native_plan_markdown(
                 execution_graph_payload=graph.to_payload(),
                 validation_payload=validation_payload,
                 template_path=str(template_path),
+                regeneration_issues=regeneration_issues,
+                previous_plan_markdown=previous_plan_markdown,
             ),
             settings.native_query_timeout,
             cwd=str(prepared.task_dir),

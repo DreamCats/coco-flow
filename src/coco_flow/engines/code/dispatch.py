@@ -94,6 +94,7 @@ def _parse_work_items(prepared: CodePreparedInput) -> list[CodeWorkItem]:
                 id=task_id,
                 repo_id=repo_id,
                 title=str(item.get("title") or "").strip(),
+                goal=str(item.get("goal") or "；".join(_string_list(item.get("specific_steps"))[:2])).strip(),
                 change_scope=_string_list(item.get("change_scope")),
                 done_definition=_string_list(item.get("done_definition")),
                 verification_steps=_string_list(item.get("verification_steps")),

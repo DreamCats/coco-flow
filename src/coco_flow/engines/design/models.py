@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from coco_flow.engines.plan_models import ComplexityAssessment, DesignResearchSignals, RefinedSections, RepoResearch, RepoScope
+from coco_flow.engines.shared.models import ComplexityAssessment, DesignResearchSignals, RefinedSections, RepoResearch, RepoScope
 
 STATUS_DESIGNING = "designing"
 STATUS_DESIGNED = "designed"

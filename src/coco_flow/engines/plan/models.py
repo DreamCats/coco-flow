@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from coco_flow.engines.plan_models import RefinedSections, RepoScope
+from coco_flow.engines.shared.models import RefinedSections, RepoScope
 
 STATUS_PLANNING = "planning"
 STATUS_PLANNED = "planned"
@@ -44,6 +44,7 @@ class PlanWorkItem:
     task_type: str
     serves_change_points: list[int]
     goal: str
+    specific_steps: list[str]
     change_scope: list[str]
     inputs: list[str]
     outputs: list[str]
@@ -62,6 +63,7 @@ class PlanWorkItem:
             "task_type": self.task_type,
             "serves_change_points": self.serves_change_points,
             "goal": self.goal,
+            "specific_steps": self.specific_steps,
             "change_scope": self.change_scope,
             "inputs": self.inputs,
             "outputs": self.outputs,

@@ -25,7 +25,7 @@ def build_design_change_points_payload(
     native 模式会让 agent 填一个 JSON 模板；local 模式则退回到基于
     refined sections 的启发式抽取。
     """
-    fallback = build_local_design_change_points_payload(prepared)
+    fallback = _backfill_change_points_payload(build_local_design_change_points_payload(prepared), prepared, on_log)
     if settings.plan_executor.strip().lower() != EXECUTOR_NATIVE:
         return fallback
 
@@ -55,7 +55,7 @@ def build_design_change_points_payload(
         normalized = _normalize_native_change_points_payload(payload, prepared)
         if not normalized["change_points"]:
             raise ValueError("design_change_points_empty")
-        return normalized
+        return _backfill_change_points_payload(normalized, prepared, on_log)
     except Exception as error:
         on_log(f"design_change_points_fallback: {error}")
         return fallback
@@ -71,22 +71,7 @@ def build_local_design_change_points_payload(prepared: DesignPreparedInput) -> d
 
     change_points: list[dict[str, object]] = []
     for index, title in enumerate(candidates[:8], start=1):
-        related_constraints = [item for item in prepared.sections.key_constraints if _shares_signal(title, item)][:3]
-        related_acceptance = [item for item in prepared.sections.acceptance_criteria if _shares_signal(title, item)][:3]
-        summary_parts = [title]
-        if related_constraints:
-            summary_parts.append("Constraints: " + " / ".join(related_constraints))
-        if related_acceptance:
-            summary_parts.append("Acceptance: " + " / ".join(related_acceptance))
-        change_points.append(
-            {
-                "id": index,
-                "title": title,
-                "summary": " ".join(summary_parts),
-                "constraints": related_constraints,
-                "acceptance": related_acceptance,
-            }
-        )
+        change_points.append(_build_change_point_entry(index=index, title=title, prepared=prepared, source="local"))
 
     return {
         "mode": "local",
@@ -287,26 +272,117 @@ def _normalize_native_change_points_payload(payload: object, prepared: DesignPre
         acceptance = [str(value).strip() for value in item.get("acceptance", []) if str(value).strip()][:3]
         summary = str(item.get("summary") or title).strip() or title
         change_points.append(
-            {
-                "id": index,
-                "title": title,
-                "summary": summary,
-                "constraints": constraints,
-                "acceptance": acceptance,
-            }
+            _build_change_point_entry(
+                index=index,
+                title=title,
+                prepared=prepared,
+                summary=summary,
+                constraints=constraints,
+                acceptance=acceptance,
+                source="llm",
+            )
         )
     if not change_points:
         fallback_title = prepared.title.strip() or "Primary design change"
-        change_points = [
-            {
-                "id": 1,
-                "title": fallback_title,
-                "summary": fallback_title,
-                "constraints": [],
-                "acceptance": [],
-            }
-        ]
+        change_points = [_build_change_point_entry(index=1, title=fallback_title, prepared=prepared, source="llm")]
     return {
         "mode": "llm",
         "change_points": change_points[:8],
     }
+
+
+def _build_change_point_entry(
+    *,
+    index: int,
+    title: str,
+    prepared: DesignPreparedInput,
+    source: str,
+    summary: str = "",
+    constraints: list[str] | None = None,
+    acceptance: list[str] | None = None,
+) -> dict[str, object]:
+    normalized_title = title.strip() or prepared.title.strip() or "Primary design change"
+    related_constraints = constraints if constraints is not None else [
+        item for item in prepared.sections.key_constraints if _shares_signal(normalized_title, item)
+    ][:3]
+    related_acceptance = acceptance if acceptance is not None else [
+        item for item in prepared.sections.acceptance_criteria if _shares_signal(normalized_title, item)
+    ][:3]
+    normalized_constraints = [str(item).strip() for item in related_constraints if str(item).strip()][:3]
+    normalized_acceptance = [str(item).strip() for item in related_acceptance if str(item).strip()][:3]
+    summary_parts = [normalized_title]
+    if normalized_constraints:
+        summary_parts.append("Constraints: " + " / ".join(normalized_constraints))
+    if normalized_acceptance:
+        summary_parts.append("Acceptance: " + " / ".join(normalized_acceptance))
+    return {
+        "id": index,
+        "title": normalized_title,
+        "summary": summary.strip() or " ".join(summary_parts),
+        "constraints": normalized_constraints,
+        "acceptance": normalized_acceptance,
+        "source": source,
+    }
+
+
+def _backfill_change_points_payload(
+    payload: dict[str, object],
+    prepared: DesignPreparedInput,
+    on_log,
+) -> dict[str, object]:
+    raw_items = payload.get("change_points")
+    if not isinstance(raw_items, list):
+        return payload
+    result = [item.copy() for item in raw_items if isinstance(item, dict) and str(item.get("title") or "").strip()]
+    intent_change_points = _intent_change_points(prepared)
+    backfilled = 0
+    skipped = 0
+    for title in intent_change_points:
+        if _change_point_is_covered(title, result):
+            continue
+        if len(result) >= 8:
+            skipped += 1
+            continue
+        result.append(
+            _build_change_point_entry(
+                index=len(result) + 1,
+                title=title,
+                prepared=prepared,
+                source="refine_intent_backfill",
+            )
+        )
+        backfilled += 1
+    normalized: list[dict[str, object]] = []
+    default_source = "llm" if str(payload.get("mode") or "").strip() == "llm" else "local"
+    for index, item in enumerate(result[:8], start=1):
+        entry = item.copy()
+        entry["id"] = index
+        entry["source"] = str(entry.get("source") or default_source).strip() or default_source
+        normalized.append(entry)
+    if backfilled or skipped:
+        on_log(f"design_change_points_backfill: added={backfilled}, skipped={skipped}, intent_total={len(intent_change_points)}")
+    return {
+        **payload,
+        "change_points": normalized,
+    }
+
+
+def _intent_change_points(prepared: DesignPreparedInput) -> list[str]:
+    raw = prepared.refine_intent_payload.get("change_points")
+    if not isinstance(raw, list):
+        return []
+    return [str(item).strip() for item in raw if str(item).strip()]
+
+
+def _change_point_is_covered(title: str, change_points: list[dict[str, object]]) -> bool:
+    lowered_title = title.strip().lower()
+    for item in change_points:
+        current = str(item.get("title") or "").strip()
+        if not current:
+            continue
+        lowered_current = current.lower()
+        if lowered_current == lowered_title or lowered_current in lowered_title or lowered_title in lowered_current:
+            return True
+        if _shares_signal(current, title):
+            return True
+    return False
