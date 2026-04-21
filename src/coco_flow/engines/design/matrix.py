@@ -30,9 +30,9 @@ def build_design_responsibility_matrix_payload(
     fallback = build_local_design_responsibility_matrix_payload(prepared)
     if prepared.is_single_bound_repo:
         fallback["mode"] = "single_bound_fast_path"
-        return fallback
+        return _attach_matrix_warnings(fallback, prepared, on_log)
     if settings.plan_executor.strip().lower() != EXECUTOR_NATIVE:
-        return fallback
+        return _attach_matrix_warnings(fallback, prepared, on_log)
 
     client = CocoACPClient(
         settings.coco_bin,
@@ -61,10 +61,10 @@ def build_design_responsibility_matrix_payload(
         normalized = _normalize_matrix_payload(payload, prepared)
         if not normalized["repos"]:
             raise ValueError("design_responsibility_matrix_empty")
-        return normalized
+        return _attach_matrix_warnings(normalized, prepared, on_log)
     except Exception as error:
         on_log(f"design_repo_matrix_fallback: {error}")
-        return fallback
+        return _attach_matrix_warnings(fallback, prepared, on_log)
     finally:
         if template_path.exists():
             template_path.unlink()
@@ -129,6 +129,7 @@ def build_local_design_responsibility_matrix_payload(prepared: DesignPreparedInp
         ],
         "repos": matrix_repos,
         "summary": "；".join(summary_parts) if summary_parts else "matrix 未识别到明确主改仓。",
+        "warnings": [],
     }
 
 
@@ -271,7 +272,61 @@ def _normalize_matrix_payload(payload: object, prepared: DesignPreparedInput) ->
         ],
         "repos": repos,
         "summary": str(payload.get("summary") or "").strip(),
+        "warnings": [],
     }
+
+
+def _attach_matrix_warnings(
+    payload: dict[str, object],
+    prepared: DesignPreparedInput,
+    on_log,
+) -> dict[str, object]:
+    warnings = _build_matrix_warnings(payload, prepared)
+    if warnings:
+        on_log(f"design_repo_matrix_warnings: count={len(warnings)}")
+    return {
+        **payload,
+        "warnings": warnings,
+    }
+
+
+def _build_matrix_warnings(payload: dict[str, object], prepared: DesignPreparedInput) -> list[str]:
+    raw_repos = payload.get("repos")
+    if not isinstance(raw_repos, list):
+        return []
+    research_items = prepared.research_payload.get("repos") if isinstance(prepared.research_payload, dict) else []
+    research_by_repo = {
+        str(item.get("repo_id") or "").strip(): item
+        for item in (research_items if isinstance(research_items, list) else [])
+        if isinstance(item, dict) and str(item.get("repo_id") or "").strip()
+    }
+    warnings: list[str] = []
+    for item in raw_repos:
+        if not isinstance(item, dict):
+            continue
+        repo_id = str(item.get("repo_id") or "").strip()
+        if not repo_id:
+            continue
+        research_entry = research_by_repo.get(repo_id, {})
+        levels = [
+            _normalize_level(item.get("state_definition")),
+            _normalize_level(item.get("state_aggregation")),
+            _normalize_level(item.get("adapter_or_transform")),
+            _normalize_level(item.get("presentation_only")),
+            _normalize_level(item.get("config_or_ab")),
+            _normalize_level(item.get("runtime_notification")),
+        ]
+        if (
+            str(research_entry.get("decision") or "").strip() == "in_scope_candidate"
+            and all(level in {"none", "low"} for level in levels)
+        ):
+            warnings.append(f"{repo_id}: research 标记为 in_scope_candidate，但 matrix 信号整体偏弱，建议复核。")
+        if (
+            _normalize_scope_tier(item.get("recommended_scope_tier")) == "must_change"
+            and str(research_entry.get("confidence") or "").strip().lower() == "low"
+        ):
+            warnings.append(f"{repo_id}: matrix 建议 must_change，但 research confidence=low，建议人工复核。")
+    return warnings[:12]
 
 
 def _normalize_level(value: object) -> str:
