@@ -19,6 +19,7 @@ from coco_flow.services.queries.knowledge import KIND_DIRS, KnowledgeStore
 from .models import EXECUTOR_NATIVE, KnowledgeCard, RefineIntent, RefineKnowledgeRead, RefineKnowledgeSelection, RefinePreparedInput
 
 SHORTLIST_CHUNK_SIZE = 8
+SHORTLIST_BATCH_MAX_CARDS = 30
 
 
 def build_refine_query(prepared: RefinePreparedInput, intent: RefineIntent) -> dict[str, object]:
@@ -48,7 +49,19 @@ def shortlist_refine_knowledge(
     ]
     cards = [_to_card(document) for document in candidates]
     scored_cards = _score_cards(cards, candidates, prepared, intent)
+    on_log(f"knowledge_shortlist_card_count: {len(cards)}")
+    if not cards:
+        on_log("knowledge_shortlist_mode: empty")
+        selection = RefineKnowledgeSelection(
+            selected_ids=[],
+            rejected_ids=[],
+            reason="no_approved_refine_knowledge",
+            candidates=[],
+            mode="empty",
+        )
+        return [], selection
     if settings.refine_executor.strip().lower() != EXECUTOR_NATIVE:
+        on_log("knowledge_shortlist_mode: rule")
         selection = _rule_select(cards, scored_cards)
         selected_docs = _selected_documents(candidates, selection.selected_ids)
         return selected_docs, selection
@@ -145,8 +158,66 @@ def _native_select(
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
+    if len(cards) <= SHORTLIST_BATCH_MAX_CARDS:
+        try:
+            on_log("knowledge_shortlist_mode: llm_batch")
+            return _native_select_batch(cards, scored_cards, prepared, intent, settings, client, on_log)
+        except ValueError as error:
+            on_log(f"knowledge_shortlist_batch_fallback: {error}")
+    on_log("knowledge_shortlist_mode: llm_chunked")
+    return _native_select_chunked(cards, scored_cards, prepared, intent, settings, client, on_log)
+
+
+def _native_select_batch(
+    cards: list[KnowledgeCard],
+    scored_cards: list[tuple[int, KnowledgeCard]],
+    prepared: RefinePreparedInput,
+    intent: RefineIntent,
+    settings: Settings,
+    client: CocoACPClient,
+    on_log,
+) -> RefineKnowledgeSelection:
+    template_path = _write_shortlist_template(prepared.task_dir)
+    try:
+        client.run_agent(
+            build_refine_shortlist_agent_prompt(
+                intent_payload=intent.to_payload(),
+                knowledge_cards=_build_compact_card_payloads(cards, scored_cards),
+                template_path=str(template_path),
+            ),
+            settings.native_query_timeout,
+            cwd=str(prepared.task_dir),
+            fresh_session=True,
+        )
+        raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
+        if "__FILL__" in raw:
+            raise ValueError("shortlist_template_unfilled")
+        payload = _parse_shortlist_output(raw, cards)
+        return _finalize_selection(
+            selected_ids=payload["selected_ids"],
+            cards=cards,
+            scored_cards=scored_cards,
+            prepared=prepared,
+            intent=intent,
+            reason=str(payload["reason"] or "").strip() or "llm_batch_shortlist_from_frontmatter",
+            mode="llm_batch",
+            on_log=on_log,
+        )
+    finally:
+        if template_path.exists():
+            template_path.unlink()
+
+
+def _native_select_chunked(
+    cards: list[KnowledgeCard],
+    scored_cards: list[tuple[int, KnowledgeCard]],
+    prepared: RefinePreparedInput,
+    intent: RefineIntent,
+    settings: Settings,
+    client: CocoACPClient,
+    on_log,
+) -> RefineKnowledgeSelection:
     selected_ids: list[str] = []
-    rejected_ids: list[str] = []
     reasons: list[str] = []
     total_chunks = ceil(len(cards) / SHORTLIST_CHUNK_SIZE)
     for index in range(total_chunks):
@@ -156,7 +227,7 @@ def _native_select(
             reply = client.run_agent(
                 build_refine_shortlist_agent_prompt(
                     intent_payload=intent.to_payload(),
-                    knowledge_cards=[card.to_payload() for card in chunk_cards],
+                    knowledge_cards=_build_compact_card_payloads(chunk_cards, scored_cards),
                     template_path=str(template_path),
                 ),
                 settings.native_query_timeout,
@@ -168,7 +239,6 @@ def _native_select(
                 raise ValueError("shortlist_template_unfilled")
             payload = _parse_shortlist_output(raw, chunk_cards)
             selected_ids.extend(payload["selected_ids"])
-            rejected_ids.extend(payload["rejected_ids"])
             if payload["reason"]:
                 reasons.append(str(payload["reason"]))
             _ = reply
@@ -180,26 +250,15 @@ def _native_select(
         finally:
             if template_path.exists():
                 template_path.unlink()
-    selected_ids = _ordered_unique(selected_ids)[:4]
-    guarded_ids, guard_rejections = _guard_selected_ids(selected_ids, cards, scored_cards, prepared, intent)
-    if guard_rejections:
-        on_log(f"knowledge_guard_rejected_ids: {', '.join(guard_rejections)}")
-    selected_ids = guarded_ids
-    if not selected_ids:
-        return RefineKnowledgeSelection(
-            selected_ids=[],
-            rejected_ids=[card.id for card in cards],
-            reason="; ".join(_ordered_unique(reasons)) or "llm_shortlist_empty",
-            candidates=[{"score": score, **card.to_payload()} for score, card in scored_cards],
-            mode="llm_empty",
-        )
-    rejected_ids = [card.id for card in cards if card.id not in set(selected_ids)]
-    return RefineKnowledgeSelection(
+    return _finalize_selection(
         selected_ids=selected_ids,
-        rejected_ids=rejected_ids,
+        cards=cards,
+        scored_cards=scored_cards,
+        prepared=prepared,
+        intent=intent,
         reason="; ".join(_ordered_unique(reasons)) or "llm_shortlist_from_frontmatter",
-        candidates=[{"score": score, **card.to_payload()} for score, card in scored_cards],
-        mode="llm",
+        mode="llm_chunked",
+        on_log=on_log,
     )
 
 
@@ -414,6 +473,70 @@ def _ordered_unique(items: list[str]) -> list[str]:
         seen.add(item)
         ordered.append(item)
     return ordered
+
+
+def _build_compact_card_payloads(
+    cards: list[KnowledgeCard],
+    scored_cards: list[tuple[int, KnowledgeCard]],
+) -> list[dict[str, object]]:
+    allowed_ids = {card.id for card in cards}
+    return [
+        {
+            "id": card.id,
+            "title": card.title,
+            "kind": card.kind,
+            "domain_name": card.domain_name,
+            "summary": _compact_summary(card),
+            "priority": card.priority,
+            "confidence": card.confidence,
+            "heuristic_score": score,
+        }
+        for score, card in scored_cards
+        if card.id in allowed_ids
+    ]
+
+
+def _compact_summary(card: KnowledgeCard, limit: int = 120) -> str:
+    parts = [str(item).strip() for item in [card.desc, card.domain_name] if str(item).strip()]
+    summary = " | ".join(parts) or card.title
+    if len(summary) <= limit:
+        return summary
+    return summary[: limit - 3].rstrip() + "..."
+
+
+def _finalize_selection(
+    *,
+    selected_ids: list[str],
+    cards: list[KnowledgeCard],
+    scored_cards: list[tuple[int, KnowledgeCard]],
+    prepared: RefinePreparedInput,
+    intent: RefineIntent,
+    reason: str,
+    mode: str,
+    on_log,
+) -> RefineKnowledgeSelection:
+    normalized_ids = _ordered_unique(selected_ids)[:4]
+    guarded_ids, guard_rejections = _guard_selected_ids(normalized_ids, cards, scored_cards, prepared, intent)
+    if guard_rejections:
+        on_log(f"knowledge_guard_rejected_ids: {', '.join(guard_rejections)}")
+    if not guarded_ids:
+        return RefineKnowledgeSelection(
+            selected_ids=[],
+            rejected_ids=[card.id for card in cards],
+            reason=reason or "llm_shortlist_empty",
+            candidates=[{"score": score, **card.to_payload()} for score, card in scored_cards],
+            mode="llm_empty" if mode.startswith("llm") else mode,
+        )
+    rejected_ids = [card.id for card in cards if card.id not in set(guarded_ids)]
+    if guard_rejections:
+        rejected_ids = _ordered_unique(rejected_ids + guard_rejections)
+    return RefineKnowledgeSelection(
+        selected_ids=guarded_ids,
+        rejected_ids=rejected_ids,
+        reason=reason,
+        candidates=[{"score": score, **card.to_payload()} for score, card in scored_cards],
+        mode=mode,
+    )
 
 
 def _to_card(document: KnowledgeDocument) -> KnowledgeCard:

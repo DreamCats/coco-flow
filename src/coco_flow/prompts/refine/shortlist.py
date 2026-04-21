@@ -25,11 +25,12 @@ def build_refine_shortlist_agent_prompt(
         intro="你在做 coco-flow Refine 的知识候选筛选。",
         goal="只基于候选知识卡片，编辑指定 JSON 文件，选出最适合当前 refine 使用的 0 到 4 篇知识文档。",
         requirements=[
-            "只基于 frontmatter 卡片判断，不要假设正文内容。",
+            "只基于候选知识卡片判断，不要假设正文内容。",
             "优先选择对术语消歧、稳定规则补充、冲突识别有帮助的文档。",
             "如果某篇文档看起来更像实现背景，而不是 refine 辅助知识，应剔除。",
             "如果没有明显相关的知识文档，selected_ids 必须返回空数组，不要为了凑数强行选择。",
             "只有在 title、desc、domain_name 与当前需求存在明显术语/领域/目标匹配时才允许选中。",
+            "候选卡片可能是压缩摘要格式；`summary` 和 `heuristic_score` 只作为辅助信号，不能覆盖 title / domain / desc 的实际匹配。",
             "selected_ids 只保留当前候选卡片里的 id。",
             "必须直接编辑指定文件，不要只在回复里输出 JSON。",
             "完成后只需简短回复已完成。",
