@@ -17,6 +17,7 @@ from coco_flow.prompts.design import (
 from .models import DesignPreparedInput, EXECUTOR_NATIVE
 
 _HEADING_RE = re.compile(r"(?m)^#\s+Design\s*$")
+_FILE_PATH_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]+")
 
 
 def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_payload: dict[str, object], knowledge_brief_markdown: str) -> dict[str, object]:
@@ -187,8 +188,10 @@ def generate_local_design_markdown(
             change_summary = item.get("change_summary") or []
             if isinstance(change_summary, list):
                 lines.extend(f"  - {str(value)}" for value in change_summary[:4] if str(value).strip())
-            candidate_files = note.get("candidate_files") or item.get("candidate_files") or []
-            if isinstance(candidate_files, list) and candidate_files:
+            candidate_files = _prioritize_candidate_files(
+                note.get("candidate_files") or item.get("candidate_files") or []
+            )
+            if candidate_files:
                 lines.append("- 候选文件：")
                 lines.extend(f"  - {str(value)}" for value in candidate_files[:6] if str(value).strip())
             lines.append("")
@@ -442,6 +445,7 @@ def collect_design_contract_issues(
     sections_payload: dict[str, object],
 ) -> list[str]:
     normalized = design_markdown.lower()
+    file_mentions = _extract_file_path_mentions(design_markdown)
     issues: list[str] = []
     issues.extend(_collect_design_format_issues(design_markdown))
     required_sections = ("## 改造点总览", "## 总体方案", "## 分仓库方案", "## 仓库依赖关系", "## 接口协议变更", "## 风险与待确认项")
@@ -474,9 +478,22 @@ def collect_design_contract_issues(
         if scope_tier == "validate_only":
             validate_repo_ids.append(repo_id)
         if scope_tier in {"must_change", "co_change"} and repo_id.lower() in normalized:
-            candidate_files = (repo_decisions.get(repo_id, {}).get("candidate_files") or item.get("candidate_files") or [])
-            if isinstance(candidate_files, list) and candidate_files and not any(str(value).strip().lower() in normalized for value in candidate_files[:3]):
+            candidate_files = _prioritize_candidate_files(
+                repo_decisions.get(repo_id, {}).get("candidate_files") or item.get("candidate_files") or []
+            )
+            if candidate_files and not any(str(value).strip().lower() in normalized for value in candidate_files[:3]):
                 issues.append(f"design.md 提到了 {repo_id}，但未落候选文件或实现落点")
+            core_candidates = _select_core_candidate_files(candidate_files)
+            if core_candidates:
+                primary_core_candidate = core_candidates[0]
+                if primary_core_candidate.lower() not in normalized:
+                    issues.append(
+                        f"design.md 提到了 {repo_id}，但未体现第一核心实现落点 {primary_core_candidate}"
+                    )
+                elif primary_core_candidate.lower() not in file_mentions[:2]:
+                    issues.append(
+                        f"design.md 提到了 {repo_id}，但第一核心实现落点 {primary_core_candidate} 未排在候选文件前列"
+                    )
     if validate_repo_ids:
         for repo_id in validate_repo_ids:
             if repo_id.lower() in normalized and "验证" not in design_markdown:
@@ -493,6 +510,11 @@ def collect_design_contract_issues(
         ]
         if meaningful_changes and not any(str(item.get("interface") or "").strip().lower() in normalized for item in meaningful_changes[:2]):
             issues.append("design.md 未体现结构化接口变更信息")
+        if meaningful_changes and not _has_explicit_interface_signal(
+            sections_payload.get("repo_decisions") or [],
+            design_markdown,
+        ):
+            issues.append("design.md 将内部实现路径表述为接口协议变更，但缺少明确外部边界信号")
     if sections_payload.get("risk_boundaries") and "风险与待确认项" in design_markdown:
         meaningful_risks = [
             item for item in (sections_payload.get("risk_boundaries") or [])
@@ -520,6 +542,20 @@ def _collect_design_format_issues(design_markdown: str) -> list[str]:
             issues.append("design.md 存在未闭合的中文括号")
             break
     return issues
+
+
+def _extract_file_path_mentions(design_markdown: str) -> list[str]:
+    mentions: list[str] = []
+    seen: set[str] = set()
+    for matched in _FILE_PATH_RE.findall(design_markdown):
+        value = str(matched).strip().lower()
+        if "/" not in value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        mentions.append(value)
+    return mentions
 
 
 def _build_repo_decision_note(
@@ -656,12 +692,19 @@ def _build_critical_flows(
 
 
 def _collect_focus_files(repo_decisions: list[dict[str, object]], *, limit: int) -> list[str]:
-    return _dedupe_non_empty(
-        str(value).strip()
-        for note in repo_decisions
-        if isinstance(note, dict) and str(note.get("scope_tier") or "") in {"must_change", "co_change"}
-        for value in (note.get("candidate_files") or [])
-    )[:limit]
+    prioritized: list[str] = []
+    fallback: list[str] = []
+    for note in repo_decisions:
+        if not isinstance(note, dict) or str(note.get("scope_tier") or "") not in {"must_change", "co_change"}:
+            continue
+        candidate_files = note.get("candidate_files") or []
+        prioritized.extend(_select_core_candidate_files(candidate_files))
+        fallback.extend(
+            str(value).strip()
+            for value in (candidate_files if isinstance(candidate_files, list) else [])
+            if str(value).strip()
+        )
+    return _dedupe_non_empty([*prioritized, *fallback])[:limit]
 
 
 def _collect_focus_dirs(repo_decisions: list[dict[str, object]], *, limit: int) -> list[str]:
@@ -712,12 +755,14 @@ def _infer_dependency_kind(
 
 
 def _build_interface_changes(prepared: DesignPreparedInput, repo_decisions: list[dict[str, object]]) -> list[dict[str, object]]:
+    if not _has_explicit_interface_signal(repo_decisions, prepared.refined_markdown):
+        return []
     candidates = _dedupe_non_empty(
         str(value).strip()
         for note in repo_decisions
         if isinstance(note, dict)
         for value in (note.get("candidate_files") or [])
-        if any(token in str(value).lower() for token in (".proto", ".thrift", "/handler/", "/api/", "converter", "loader"))
+        if _is_interface_boundary_path(str(value))
     )
     if not candidates:
         return []
@@ -768,6 +813,81 @@ def _build_risk_boundaries(prepared: DesignPreparedInput, repo_decisions: list[d
             }
         )
     return items[:5]
+
+
+def _select_core_candidate_files(candidate_files: object) -> list[str]:
+    if not isinstance(candidate_files, list):
+        return []
+    ranked = [
+        str(value).strip()
+        for value in candidate_files
+        if str(value).strip()
+    ]
+    return _dedupe_non_empty(
+        value
+        for value in sorted(
+            ranked,
+            key=lambda value: (
+                _candidate_file_role_priority(value),
+                ranked.index(value),
+            ),
+        )
+        if _candidate_file_role_priority(value) <= 1
+    )
+
+
+def _prioritize_candidate_files(candidate_files: object) -> list[str]:
+    if not isinstance(candidate_files, list):
+        return []
+    normalized = [str(value).strip() for value in candidate_files if str(value).strip()]
+    core_files = _select_core_candidate_files(normalized)
+    return _dedupe_non_empty([*core_files, *normalized])
+
+
+def _candidate_file_role_priority(path: str) -> int:
+    lowered = path.lower()
+    if any(token in lowered for token in ("constdef", "config", "tcc", "schema", "meta", "model", "helper", "helpers")):
+        return 3
+    if any(token in lowered for token in ("status", "state", "policy", "rule", "resolver", "reducer")):
+        return 0
+    if any(token in lowered for token in ("data_loader", "loader", "converter")):
+        return 1
+    if any(token in lowered for token in ("adapter", "assembler", "builder", "transform")):
+        return 2
+    if _is_interface_boundary_path(path):
+        return 2
+    return 3
+
+
+def _is_interface_boundary_path(path: str) -> bool:
+    lowered = path.lower()
+    return any(token in lowered for token in (".proto", ".thrift", "/handler/", "/api/", "/rpc/", "/gateway/", "/idl/"))
+
+
+def _has_explicit_interface_signal(repo_decisions: object, source_text: str) -> bool:
+    signal_text = str(source_text or "").lower()
+    explicit_terms = ("接口", "协议", "字段", "入参", "出参", "请求", "返回", "rpc", "http", "thrift", "proto", "idl", "透传")
+    if any(term in signal_text for term in explicit_terms):
+        return True
+    if not isinstance(repo_decisions, list):
+        return False
+    for note in repo_decisions:
+        if not isinstance(note, dict):
+            continue
+        joined = " ".join(
+            str(value).lower()
+            for value in (
+                *(note.get("candidate_files") or []),
+                *(note.get("candidate_dirs") or []),
+                *(note.get("evidence") or []),
+                note.get("decision_reason"),
+                note.get("repo_summary"),
+            )
+            if str(value).strip()
+        )
+        if any(term in joined for term in (".proto", ".thrift", "/handler/", "/api/", "/rpc/", "/gateway/", "字段", "兼容", "response", "request", "consumer")):
+            return True
+    return False
 
 
 def _preferred_note_paths(primary_values, fallback_values, *, limit: int) -> list[str]:

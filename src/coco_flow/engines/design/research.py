@@ -460,9 +460,11 @@ def _augment_entry_with_local_scan(
         merged["evidence"] = _dedupe_strings(
             [*(str(value) for value in merged.get("evidence", []) if str(value).strip()), *supplement["evidence"]]
         )[:6]
+    context_tokens = _collect_contextual_path_tokens(prepared, merged)
+    preferred_dirs = _collect_preferred_candidate_dirs(merged)
     merged["candidate_files"] = sorted(
         [str(value) for value in merged.get("candidate_files", []) if str(value).strip()],
-        key=lambda value: (-_rank_candidate_file(value), value),
+        key=lambda value: (-_rank_candidate_file(value, context_tokens=context_tokens, preferred_dirs=preferred_dirs), value),
     )[:8]
     merged["candidate_dirs"] = sorted(
         [str(value) for value in merged.get("candidate_dirs", []) if str(value).strip()],
@@ -484,12 +486,14 @@ def _discover_fallback_paths(
         return {"candidate_files": [], "candidate_dirs": [], "evidence": [], "summary": ""}
 
     search_terms = _collect_fallback_search_terms(prepared, local_entry)
+    context_tokens = _collect_contextual_path_tokens(prepared, local_entry)
+    preferred_dirs = _collect_preferred_candidate_dirs(local_entry)
     scored_paths: list[tuple[int, str, Path]] = []
     for path in repo_root.rglob("*.go"):
         relative = path.relative_to(repo_root).as_posix()
         if _should_skip_fallback_path(relative):
             continue
-        score = _score_fallback_path(relative, path, search_terms)
+        score = _score_fallback_path(relative, path, search_terms, context_tokens=context_tokens, preferred_dirs=preferred_dirs)
         if score <= 0:
             continue
         scored_paths.append((score, relative, path))
@@ -521,15 +525,14 @@ def _discover_fallback_paths(
 
 def _collect_fallback_search_terms(prepared: DesignPreparedInput, local_entry: dict[str, object]) -> set[str]:
     tokens = {
-        "auction",
-        "status",
-        "success",
         "loader",
         "converter",
         "engine",
-        "product",
-        "card",
         "state",
+        "status",
+        "adapter",
+        "builder",
+        "handler",
     }
     source_texts = [
         prepared.title,
@@ -552,32 +555,32 @@ def _should_skip_fallback_path(relative: str) -> bool:
     return any(part in lowered for part in ("/vendor/", "/mock/", "/mocks/", "/testdata/", "/.git/"))
 
 
-def _score_fallback_path(relative: str, path: Path, search_terms: set[str]) -> int:
+def _score_fallback_path(
+    relative: str,
+    path: Path,
+    search_terms: set[str],
+    *,
+    context_tokens: set[str] | None = None,
+    preferred_dirs: list[str] | None = None,
+) -> int:
     lowered = relative.lower()
     score = 0
     for token in search_terms:
         if token in lowered:
-            score += 3
-    for token in ("status", "success", "loader", "converter", "engine"):
-        if token in lowered:
-            score += 4
-    if all(token in lowered for token in ("product", "auction", "loader")):
-        score += 10
-    if all(token in lowered for token in ("regular", "auction", "converter")):
-        score += 10
-    for token in ("meta", "model", "helper", "helpers", "list", "refresh", "config", "constdef"):
-        if token in lowered:
-            score -= 5
+            score += 2
+    role_priority, role_score = _candidate_file_role_score(
+        relative,
+        context_tokens=context_tokens,
+        preferred_dirs=preferred_dirs,
+    )
+    score += role_score
+    if role_priority <= 1:
+        score += 6
     try:
         sample = path.read_text(encoding="utf-8", errors="ignore")[:8000].lower()
     except OSError:
         sample = ""
-    for token in search_terms:
-        if token in sample:
-            score += 1
-    for token in ("auctionstatus_success", "getauctionstatussuccess", "auctiontexttype", "auctionstatus"):
-        if token in sample:
-            score += 5
+    score += _content_role_bonus(sample)
     return score
 
 
@@ -612,27 +615,17 @@ def _filter_non_goal_paths(prepared: DesignPreparedInput, paths: list[str]) -> l
     return _dedupe_strings(filtered)
 
 
-def _rank_candidate_file(path: str) -> int:
-    lowered = path.lower()
-    score = 0
-    for token in ("status", "success", "state", "loader", "converter", "engine", "handler"):
-        if token in lowered:
-            score += 6
-    for token in ("product", "auction", "card", "data_loader"):
-        if token in lowered:
-            score += 3
-    if all(token in lowered for token in ("product", "auction", "loader")):
-        score += 10
-    if all(token in lowered for token in ("regular", "auction", "converter")):
-        score += 10
-    for token in ("constdef", "config", "tcc", "schema", "dto_builder", "builder"):
-        if token in lowered:
-            score -= 4
-    for token in ("meta", "model", "helper", "helpers", "list", "refresh"):
-        if token in lowered:
-            score -= 6
-    if lowered.endswith("_test.go"):
-        score -= 10
+def _rank_candidate_file(
+    path: str,
+    *,
+    context_tokens: set[str] | None = None,
+    preferred_dirs: list[str] | None = None,
+) -> int:
+    _, score = _candidate_file_role_score(
+        path,
+        context_tokens=context_tokens,
+        preferred_dirs=preferred_dirs,
+    )
     return score
 
 
@@ -649,6 +642,218 @@ def _rank_candidate_dir(path: str) -> int:
         if token in lowered:
             score -= 3
     return score
+
+
+def _candidate_file_role_score(
+    path: str,
+    *,
+    context_tokens: set[str] | None = None,
+    preferred_dirs: list[str] | None = None,
+) -> tuple[int, int]:
+    lowered = path.lower()
+    role_priority = 3
+    score = 0
+    basename = Path(lowered).name
+    dynamic_context_tokens = context_tokens or set()
+
+    authority_tokens = ("status", "state", "policy", "rule", "resolver", "reducer")
+    assembly_tokens = ("data_loader", "loader", "converter", "adapter", "assembler", "builder", "transform")
+    interface_tokens = (".proto", ".thrift", "/handler/", "/api/", "/rpc/", "/gateway/")
+    context_like_tokens = (
+        "constdef",
+        "config",
+        "tcc",
+        "schema",
+        "meta",
+        "model",
+        "helper",
+        "helpers",
+        "fixture",
+        "mock",
+        "test",
+        "example",
+        "info",
+    )
+    utility_tokens = ("/utils/", "/util/", "/common/", "/base/", "status_code.go", "types.go", "constants.go", "consts.go")
+
+    if any(token in lowered for token in authority_tokens):
+        role_priority = min(role_priority, 0)
+        score += 14
+    if any(token in lowered for token in assembly_tokens):
+        role_priority = min(role_priority, 1)
+        score += 12
+    if any(token in lowered for token in interface_tokens):
+        role_priority = min(role_priority, 2)
+        score += 10
+    if basename.endswith("_test.go"):
+        role_priority = 4
+        score -= 20
+    if any(token in lowered for token in context_like_tokens):
+        role_priority = max(role_priority, 3)
+        score -= 10
+    if any(token in lowered for token in utility_tokens):
+        role_priority = max(role_priority, 3)
+        score -= 12
+    if "config" in basename or "meta" in basename or "model" in basename:
+        score -= 8
+    if "status" in basename or "state" in basename:
+        score += 8
+    if "data_loader" in basename:
+        score += 6
+    if lowered.count("/") <= 3:
+        score += 2
+    matched_context_tokens = _matched_context_tokens(lowered, dynamic_context_tokens)
+    context_bonus = _contextual_path_bonus(lowered, matched_context_tokens, preferred_dirs or [])
+    score += context_bonus
+    if role_priority == 0 and not matched_context_tokens:
+        score -= 14
+    return role_priority, score
+
+
+def _content_role_bonus(sample: str) -> int:
+    if not sample:
+        return 0
+    score = 0
+    authority_markers = (
+        "switch ",
+        "case ",
+        "return ",
+        "status_",
+        "state_",
+        "status ",
+        "state ",
+    )
+    assembly_markers = (
+        "load",
+        "convert",
+        "build",
+        "assemble",
+        "adapter",
+    )
+    context_markers = (
+        "const ",
+        "var default",
+        "config",
+        "schema",
+    )
+    if sum(1 for marker in authority_markers if marker in sample) >= 2:
+        score += 6
+    if sum(1 for marker in assembly_markers if marker in sample) >= 2:
+        score += 4
+    if any(marker in sample for marker in context_markers):
+        score -= 3
+    return score
+
+
+def _collect_contextual_path_tokens(prepared: DesignPreparedInput, local_entry: dict[str, object]) -> set[str]:
+    texts = [
+        prepared.title,
+        prepared.refined_markdown,
+        local_entry.get("summary"),
+        *(local_entry.get("matched_terms") or []),
+        *(local_entry.get("evidence") or []),
+        *(local_entry.get("notes") or []),
+    ]
+    tokens: set[str] = set()
+    for text in texts:
+        tokens.update(_tokenize_context_terms(str(text)))
+    generic_tokens = {
+        "loader",
+        "loaders",
+        "converter",
+        "converters",
+        "engine",
+        "engines",
+        "handler",
+        "adapter",
+        "builder",
+        "builders",
+        "state",
+        "status",
+        "success",
+        "succeed",
+        "complete",
+        "failed",
+        "failure",
+        "data",
+        "info",
+        "code",
+        "utils",
+        "util",
+        "common",
+        "module",
+        "repo",
+        "path",
+        "paths",
+        "dir",
+        "dirs",
+        "file",
+        "files",
+        "change",
+        "point",
+        "points",
+        "system",
+        "task",
+        "live",
+        "pack",
+        "product",
+        "return",
+        "request",
+        "response",
+        "current",
+        "core",
+        "logic",
+        "using",
+        "used",
+        "prefilter",
+        "fallback",
+        "scan",
+        "candidate",
+        "candidates",
+        "refined",
+        "schema",
+        "constdef",
+        "entities",
+        "entry",
+        "notes",
+        "summary",
+        "matched",
+        "terms",
+        "term",
+    }
+    return {token for token in tokens if token not in generic_tokens}
+
+
+def _collect_preferred_candidate_dirs(local_entry: dict[str, object]) -> list[str]:
+    candidate_dirs = local_entry.get("candidate_dirs") or []
+    if not isinstance(candidate_dirs, list):
+        return []
+    return [str(value).strip().lower().rstrip("/") for value in candidate_dirs if str(value).strip()]
+
+
+def _contextual_path_bonus(path: str, matched_context_tokens: set[str], preferred_dirs: list[str]) -> int:
+    score = 0
+    score += min(len(matched_context_tokens) * 4, 12)
+    if len(matched_context_tokens) >= 2:
+        score += 2
+    if preferred_dirs and any(path.startswith(f"{candidate_dir}/") or path == candidate_dir for candidate_dir in preferred_dirs):
+        score += 4
+    if not matched_context_tokens and any(marker in path for marker in ("/utils/", "/util/", "status_code.go")):
+        score -= 6
+    return score
+
+
+def _matched_context_tokens(path: str, context_tokens: set[str]) -> set[str]:
+    return {token for token in context_tokens if token in path}
+
+
+def _tokenize_context_terms(text: str) -> set[str]:
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text.replace("/", " ").replace("_", " ").replace(".", " "))
+    return {
+        token.lower()
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9]{2,}", normalized)
+        if len(token) >= 4
+    }
 
 
 def _format_guided_paths(repo_id: str, local_entry: dict[str, object]) -> str:
