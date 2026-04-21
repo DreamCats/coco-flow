@@ -14,19 +14,13 @@ from .shared import (
 def build_plan_template_markdown() -> str:
     return (
         "# Plan\n\n"
-        "## 实施策略\n"
-        "- 待补充\n\n"
-        "## 任务拆分\n"
+        "## 任务清单\n"
         "- 待补充\n\n"
         "## 执行顺序\n"
         "- 待补充\n\n"
-        "## 并发与协同\n"
+        "## 验证策略\n"
         "- 待补充\n\n"
-        "## 验证计划\n"
-        "- 待补充\n\n"
-        "## 阻塞项与风险\n"
-        "- 待补充\n\n"
-        "## 交付边界\n"
+        "## 风险与阻塞项\n"
         "- 待补充\n"
     )
 
@@ -49,9 +43,10 @@ def build_plan_generate_agent_prompt(
         "必须直接编辑指定模板文件，不要只在回复里输出 Markdown。",
         "保留模板中的一级标题和章节顺序，不要擅自删改章节名。",
         "plan.md 必须是结构化 artifacts 的可读派生结果，不能反向发明新的 repo、任务、依赖或验证方案。",
-        "“任务拆分”只展开 work items 中已有任务，不要把 supporting 背景写成新的主任务。",
-        "“执行顺序”和“并发与协同”必须与 execution graph 保持一致。",
-        "“验证计划”必须与 validation contract 保持一致，优先写最小验证链路。",
+        "“任务清单”只展开 work items 中已有任务，不要把 supporting 背景写成新的主任务。",
+        "每个任务都要写 goal、改动范围、specific_steps、完成标准和依赖。",
+        "“执行顺序”必须与 execution graph 保持一致，只写真正有约束的关系。",
+        "“验证策略”必须与 validation contract 保持一致，优先写最小验证链路和联动验证路径。",
         "内容要像人写的执行方案，但不能偏离结构化结果。",
     ]
     if regeneration_items:

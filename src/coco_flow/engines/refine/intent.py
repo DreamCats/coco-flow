@@ -44,6 +44,7 @@ _STOPWORDS = {
 _RISK_HINTS = ("风险", "兼容", "依赖", "异常", "回退", "失败", "冲突", "影响")
 _QUESTION_HINTS = ("?", "？", "待确认", "TODO", "todo", "确认", "是否", "补充")
 _BOUNDARY_HINTS = ("仅", "不", "除外", "不做", "非目标", "不涉及", "限定", "范围")
+_ACCEPTANCE_HINTS = ("验收", "标准", "应该", "应当", "必须", "当", "如果")
 _BACKGROUND_HINTS = ("背景", "当前", "现状", "目前", "已有", "存在", "有时", "会导致")
 
 
@@ -53,6 +54,7 @@ def extract_refine_intent(prepared: RefinePreparedInput) -> RefineIntent:
     return RefineIntent(
         goal=goal,
         change_points=_extract_change_points(lines),
+        acceptance_criteria=_extract_acceptance_criteria(lines),
         terms=_extract_key_terms("\n".join([prepared.title, prepared.source_content, prepared.supplement])),
         risks_seed=_extract_by_hints(lines, _RISK_HINTS, limit=5),
         discussion_seed=_extract_discussion(lines),
@@ -119,6 +121,7 @@ def parse_native_refine_intent_output(raw: str, prepared: RefinePreparedInput) -
     return RefineIntent(
         goal=str(payload.get("goal") or prepared.title).strip() or prepared.title,
         change_points=_normalized_string_list(payload.get("change_points"))[:6],
+        acceptance_criteria=_normalized_string_list(payload.get("acceptance_criteria"))[:6],
         terms=_normalized_string_list(payload.get("terms"))[:12],
         risks_seed=_normalized_string_list(payload.get("risks_seed"))[:6],
         discussion_seed=_normalized_string_list(payload.get("discussion_seed"))[:8],
@@ -151,6 +154,26 @@ def _normalized_lines(content: str) -> list[str]:
 
 def _extract_change_points(lines: list[str]) -> list[str]:
     return _unique([line[:120] for line in lines if not any(hint in line for hint in _QUESTION_HINTS)][:6])
+
+
+def _extract_acceptance_criteria(lines: list[str]) -> list[str]:
+    extracted: list[str] = []
+    for line in lines:
+        if any(hint in line for hint in _QUESTION_HINTS):
+            continue
+        if "不做" in line or "非目标" in line:
+            continue
+        if "当" in line and "时" in line:
+            extracted.append(line[:120])
+            continue
+        if any(hint in line for hint in _ACCEPTANCE_HINTS):
+            extracted.append(line[:120])
+    if extracted:
+        return _unique(extracted)[:6]
+    derived = []
+    for line in _extract_change_points(lines)[:3]:
+        derived.append(f"当推进「{line}」时，应该满足预期业务结果且不破坏现有主链路。")
+    return _unique(derived)[:6]
 
 
 def _extract_discussion(lines: list[str]) -> list[str]:

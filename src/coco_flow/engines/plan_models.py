@@ -9,11 +9,8 @@ class DesignAISections:
     solution_overview: str = ""
     system_dependencies: str = ""
     critical_flows: str = ""
-    protocol_changes: str = ""
-    storage_config_changes: str = ""
-    experiment_changes: str = ""
-    qa_inputs: str = ""
-    staffing_estimate: str = ""
+    interface_changes: str = ""
+    risk_boundaries: str = ""
 
 
 @dataclass
@@ -128,7 +125,7 @@ class SystemChange:
 class SystemDependency:
     upstream_system_id: str
     downstream_system_id: str
-    dependency_type: str
+    dependency_kind: str
     reason: str
 
 
@@ -142,40 +139,21 @@ class CriticalFlow:
 
 
 @dataclass
-class ProtocolChange:
-    boundary_name: str
-    changed: bool
-    summary: str
-    impacted_systems: list[str]
-    compatibility_notes: list[str]
+class InterfaceChange:
+    interface: str
+    field: str
+    change_type: str
+    consumer: str
+    need_alignment: bool
+    description: str
 
 
 @dataclass
-class StorageConfigChange:
-    category: str
-    changed: bool
-    summary: str
-    affected_items: list[str]
-    rollout_notes: list[str]
-
-
-@dataclass
-class ExperimentChange:
-    changed: bool
-    experiment_name: str
-    traffic_scope: str
-    affected_flows: list[str]
-    rollout_notes: list[str]
-    rollback_notes: list[str]
-
-
-@dataclass
-class StaffingEstimate:
-    summary: str
-    frontend: str
-    backend: str
-    qa: str
-    coordination_notes: list[str]
+class RiskBoundary:
+    title: str
+    level: str
+    mitigation: str
+    blocking: bool = False
 
 
 @dataclass
@@ -185,11 +163,8 @@ class DesignSections:
     system_changes: list[SystemChange] = field(default_factory=list)
     system_dependencies: list[SystemDependency] = field(default_factory=list)
     critical_flows: list[CriticalFlow] = field(default_factory=list)
-    protocol_changes: list[ProtocolChange] = field(default_factory=list)
-    storage_config_changes: list[StorageConfigChange] = field(default_factory=list)
-    experiment_changes: list[ExperimentChange] = field(default_factory=list)
-    qa_inputs: list[str] = field(default_factory=list)
-    staffing_estimate: StaffingEstimate | None = None
+    interface_changes: list[InterfaceChange] = field(default_factory=list)
+    risk_boundaries: list[RiskBoundary] = field(default_factory=list)
 
 
 @dataclass

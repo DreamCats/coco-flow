@@ -46,6 +46,7 @@ class CodeWorkItem:
     id: str
     repo_id: str
     title: str
+    goal: str
     change_scope: list[str]
     done_definition: list[str]
     verification_steps: list[str]

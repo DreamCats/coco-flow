@@ -8,30 +8,17 @@ from .shared import DESIGN_OUTPUT_CONTRACT, build_design_input_section, build_de
 def build_design_template_markdown() -> str:
     return (
         "# Design\n\n"
-        "## 系统改造点\n"
+        "## 改造点总览\n"
         "- 待补充\n\n"
-        "## 方案设计\n\n"
-        "### 总体方案\n"
+        "## 总体方案\n"
         "- 待补充\n\n"
-        "### 分系统改造\n"
+        "## 分仓库方案\n"
         "- 待补充\n\n"
-        "### 联动验证仓库\n"
+        "## 仓库依赖关系\n"
         "- 待补充\n\n"
-        "### 参考链路\n"
+        "## 接口协议变更\n"
         "- 待补充\n\n"
-        "### 系统依赖关系\n"
-        "- 待补充\n\n"
-        "### 关键链路说明\n"
-        "- 待补充\n\n"
-        "## 多端协议是否有变更\n"
-        "- 待补充\n\n"
-        "## 存储&&配置是否有变更\n"
-        "- 待补充\n\n"
-        "## 是否有实验，实验怎么涉及\n"
-        "- 待补充\n\n"
-        "## 给 QA 的输入\n"
-        "- 待补充\n\n"
-        "## 人力评估\n"
+        "## 风险与待确认项\n"
         "- 待补充\n"
     )
 
@@ -52,16 +39,16 @@ def build_design_generate_agent_prompt(
         "必须直接编辑指定模板文件，不要只在回复里输出 Markdown。",
         "保留模板中的一级标题和章节顺序，不要擅自删改章节名。",
         "不得引入当前 repo binding 或 design sections 中没有出现的仓库、系统或文件。",
-        "“分系统改造”只展开 scope_tier=must_change 的仓库。",
-        "每个 in_scope 仓库都必须被明确提及，不能只写主仓。",
-        "scope_tier=validate_only 的仓库必须写进“联动验证仓库”，并解释为什么不作为主改造仓。",
-        "scope_tier=reference_only 的仓库只保留必要背景，不要展开成本次改造项。",
-        "每个 must_change 仓库都必须写清：为什么选它、仓库现状、建议落点或候选文件。",
+        "“分仓库方案”要覆盖所有 in_scope 仓库，通过 scope_tier 区分 must_change / co_change / validate_only。",
+        "scope_tier=reference_only 的仓库不要展开成本次改造项。",
+        "每个 must_change 或 co_change 仓库都必须写清：职责、主要改动、候选文件、改动理由。",
+        "validate_only 仓库要写清验证要点，不能伪装成主改仓。",
         "必须区分 closure_mode 和 selection_basis：single_repo 只表示单仓可闭合，不等于已经证明为什么必须选该仓。",
         "如果 selection_basis=heuristic_tiebreak，文档里必须明确写出“这是默认起始实现仓选择”，不能把它写成唯一正确仓库。",
-        "避免在多个仓库段落里机械重复同一段 selection_note；总体方案说一次即可，分仓只保留和该仓直接相关的说明。",
-        "优先消费 Design Sections 里的 repo_decisions；不要只复述 PRD Refined。",
-        "内容要更像人写的设计文档，但不能偏离结构化结果。",
+        "“总体方案”要同时覆盖核心判断、主链路和关键约束，不要只复述 PRD Refined。",
+        "“接口协议变更”只写对外接口新增或修改；如果没有，明确写“不涉及”。",
+        "“风险与待确认项”只写技术风险和未锁定项，不要重复业务背景。",
+        "优先消费 Design Sections 里的 repo_decisions、critical_flows、risk_boundaries；不要只复述 refined 需求。",
     ]
     if regeneration_items:
         requirements.append("这是修订模式：必须优先修正“需要修正的问题”里的每一项，再补充其他润色。")

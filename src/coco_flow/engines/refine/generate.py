@@ -18,13 +18,13 @@ from coco_flow.prompts.refine import (
 from .models import EXECUTOR_NATIVE, RefineEngineResult, RefineIntent, RefineKnowledgeRead, RefinePreparedInput, STATUS_REFINED
 
 _REQUIRED_SECTIONS = (
-    "核心诉求",
-    "改动范围",
-    "风险提示",
-    "讨论点",
+    "需求概述",
+    "具体变更点",
+    "验收标准",
     "边界与非目标",
+    "待确认项",
 )
-_HEADING_RE = re.compile(r"(?m)^#\s+PRD Refined\s*$")
+_HEADING_RE = re.compile(r"(?m)^#\s+需求确认书\s*$")
 
 
 def generate_refine(
@@ -259,21 +259,29 @@ def build_local_refined_markdown(
     knowledge_read: RefineKnowledgeRead,
 ) -> str:
     change_scope = intent.change_points or [intent.goal]
-    risks = _normalize_risks(intent.risks_seed) or _normalize_risks(_extract_hint_lines(knowledge_read.markdown, "风险")) or ["当前未识别到明确高风险项，建议人工复核。"]
-    discussions = intent.discussion_seed or ["[建议补充] 当前输入信息仍偏少，建议补充业务口径和确认结论。"]
+    acceptance_criteria = (
+        intent.acceptance_criteria
+        or _extract_hint_lines(knowledge_read.markdown, "验收")
+        or [f"当需求「{intent.goal}」落地后，应该满足预期业务行为且不引入额外回归。"]
+    )
     boundaries = intent.boundary_seed or ["仅围绕当前输入明确提到的需求范围推进，不默认扩展到相邻能力。"]
+    open_questions = _build_confirmation_items(
+        discussions=intent.discussion_seed,
+        risks=intent.risks_seed,
+        change_scope=change_scope,
+    )
     return (
-        "# PRD Refined\n\n"
-        "## 核心诉求\n"
-        f"{_render_list([intent.goal])}\n\n"
-        "## 改动范围\n"
-        f"{_render_list(change_scope)}\n\n"
-        "## 风险提示\n"
-        f"{_render_list(risks)}\n\n"
-        "## 讨论点\n"
-        f"{_render_list(_ensure_discussion_tags(discussions))}\n\n"
+        "# 需求确认书\n\n"
+        "## 需求概述\n"
+        f"{_render_paragraph(intent.goal)}\n\n"
+        "## 具体变更点\n"
+        f"{_render_list(_render_change_points(change_scope))}\n\n"
+        "## 验收标准\n"
+        f"{_render_list(_render_acceptance_criteria(acceptance_criteria))}\n\n"
         "## 边界与非目标\n"
-        f"{_render_list(boundaries)}\n"
+        f"{_render_list(boundaries)}\n\n"
+        "## 待确认项\n"
+        f"{_render_list(open_questions)}\n"
     )
 
 
@@ -282,17 +290,51 @@ def _render_list(items: list[str]) -> str:
     return "\n".join(f"- {item}" for item in normalized) if normalized else "- 无"
 
 
-def _ensure_discussion_tags(items: list[str]) -> list[str]:
-    normalized: list[str] = []
+def _render_paragraph(text: str) -> str:
+    normalized = text.strip()
+    return normalized or "当前需求目标待进一步补充。"
+
+
+def _render_change_points(items: list[str]) -> list[str]:
+    rendered: list[str] = []
     for item in items:
-        stripped = item.strip()
-        if not stripped:
+        current = item.strip()
+        if not current:
             continue
-        if stripped.startswith("[待确认]") or stripped.startswith("[建议补充]"):
-            normalized.append(stripped)
-        else:
-            normalized.append(f"[待确认] {stripped}")
-    return normalized
+        if all(tag in current for tag in ("场景：", "当前行为：", "期望行为：")):
+            rendered.append(current)
+            continue
+        rendered.append(f"场景：{current}；当前行为：待结合现有逻辑进一步确认；期望行为：{current}")
+    return rendered
+
+
+def _render_acceptance_criteria(items: list[str]) -> list[str]:
+    rendered: list[str] = []
+    for item in items:
+        current = item.strip()
+        if not current:
+            continue
+        if "当" in current and "时" in current:
+            rendered.append(current)
+            continue
+        rendered.append(f"当执行本次需求时，应该满足：{current}")
+    return rendered
+
+
+def _build_confirmation_items(*, discussions: list[str], risks: list[str], change_scope: list[str]) -> list[str]:
+    seeds = discussions or []
+    if not seeds:
+        seeds = risks[:2]
+    if not seeds:
+        seeds = ["当前输入信息仍偏少，需确认业务口径和最终验收边界。"]
+    impact_hint = change_scope[0].strip() if change_scope else "本次改动范围与验收口径"
+    items: list[str] = []
+    for seed in seeds[:4]:
+        current = seed.strip()
+        if not current:
+            continue
+        items.append(f"问题：{current}；当前假设：待确认后再锁定最终口径；影响范围：{impact_hint}")
+    return items or [f"问题：当前信息不足以完全锁定实现边界；当前假设：先按最小范围推进；影响范围：{impact_hint}"]
 
 
 def _extract_hint_lines(markdown: str, title: str) -> list[str]:
@@ -329,8 +371,7 @@ def _looks_like_refined_markdown(content: str) -> bool:
 def _looks_like_unfilled_template(content: str) -> bool:
     placeholders = (
         "\n- 待补充",
-        "\n- [待确认] 待补充",
-        "\n- [建议补充] 待补充",
+        "\n- 问题：待补充；当前假设：待补充；影响范围：待补充",
     )
     return any(marker in content for marker in placeholders)
 

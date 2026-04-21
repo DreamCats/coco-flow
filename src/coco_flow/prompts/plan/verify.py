@@ -38,6 +38,7 @@ def build_plan_verify_agent_prompt(
         requirements=[
             "必须直接编辑指定 JSON 文件，不要只在回复里输出结果。",
             "重点检查 must_change repo 是否都有对应任务，execution graph 是否存在明显缺边或冲突，validation 是否覆盖关键链路。",
+            "重点检查 plan.md 是否包含任务清单、执行顺序、验证策略、风险与阻塞项四个章节，且任务段落体现 specific_steps。",
             "如果校验通过，ok=true，issues 使用空数组。",
             "不要因为 plan.md 写得更顺而反向覆盖结构化 artifact；发现矛盾时应报 issue。",
             "完成后只需简短回复已完成。",

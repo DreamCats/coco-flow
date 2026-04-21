@@ -21,6 +21,7 @@ def build_plan_task_outline_template_json() -> str:
         '      "task_type": "__FILL__",\n'
         '      "serves_change_points": [1],\n'
         '      "goal": "__FILL__",\n'
+        '      "specific_steps": ["__FILL__"],\n'
         '      "scope_summary": ["__FILL__"],\n'
         '      "inputs": ["__FILL__"],\n'
         '      "outputs": ["__FILL__"],\n'
@@ -52,7 +53,8 @@ def build_plan_task_outline_agent_prompt(
             "task_type 只使用 implementation / coordination / validation / preparation。",
             "优先覆盖所有 in-scope 且 scope_tier=must_change 的 repo；validate_only repo 只有在执行上确有必要时才单独成任务。",
             "每个任务必须是可执行单元，避免把多个 repo 的主改动混成一个模糊大任务。",
-            "不要默认写伪代码；只需要明确 goal、done_definition、validation_focus 和风险边界。",
+            "每个任务必须补充 2-5 条 specific_steps，格式优先使用“在 {模块/文件} 中 {动作} {对象}”。",
+            "不要默认写伪代码；只需要明确 goal、specific_steps、done_definition、validation_focus 和风险边界。",
             "不得引入 Design artifacts 中不存在的仓库、模块、文件或额外需求。",
             "完成后只需简短回复已完成。",
         ],

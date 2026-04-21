@@ -342,6 +342,7 @@ def parse_refined_sections(content: str) -> RefinedSections:
             sections.get("改动范围", ""),
             sections.get("变更范围", ""),
             sections.get("需求概述", ""),
+            sections.get("具体变更点", ""),
             sections.get("功能点", ""),
         ),
         non_goals=_combine_section_items(

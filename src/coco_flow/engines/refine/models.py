@@ -32,6 +32,7 @@ class RefinePreparedInput:
 class RefineIntent:
     goal: str
     change_points: list[str]
+    acceptance_criteria: list[str]
     terms: list[str]
     risks_seed: list[str]
     discussion_seed: list[str]
@@ -41,6 +42,7 @@ class RefineIntent:
         return {
             "goal": self.goal,
             "change_points": self.change_points,
+            "acceptance_criteria": self.acceptance_criteria,
             "terms": self.terms,
             "risks_seed": self.risks_seed,
             "discussion_seed": self.discussion_seed,

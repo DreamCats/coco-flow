@@ -56,6 +56,11 @@ def build_local_plan_verify_payload(
         issues.append("validation contract 未覆盖全部 work items")
     if not plan_markdown.strip().startswith("# Plan"):
         issues.append("plan.md 缺少稳定标题")
+    for section in ("## 任务清单", "## 执行顺序", "## 验证策略", "## 风险与阻塞项"):
+        if section not in plan_markdown:
+            issues.append(f"plan.md 缺少必要章节: {section.removeprefix('## ')}")
+    if any(not item.specific_steps for item in work_items):
+        issues.append("存在 work item 缺少 specific_steps")
     return {
         "ok": not issues,
         "issues": issues,
