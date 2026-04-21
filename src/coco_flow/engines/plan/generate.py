@@ -18,16 +18,16 @@ def generate_plan_markdown(
     validation_payload: dict[str, object],
     settings: Settings,
     on_log,
-) -> str:
+) -> tuple[str, str]:
     if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
             content = generate_native_plan_markdown(prepared, work_items, graph, validation_payload, settings)
             on_log("plan_generate_mode: native")
-            return content
+            return content, "native"
         except Exception as error:
             on_log(f"plan_generate_fallback: {error}")
     on_log("plan_generate_mode: local")
-    return generate_local_plan_markdown(prepared, work_items, graph, validation_payload)
+    return generate_local_plan_markdown(prepared, work_items, graph, validation_payload), "local"
 
 
 def generate_local_plan_markdown(
@@ -114,6 +114,8 @@ def generate_native_plan_markdown(
     graph: PlanExecutionGraph,
     validation_payload: dict[str, object],
     settings: Settings,
+    regeneration_issues: list[str] | None = None,
+    previous_plan_markdown: str = "",
 ) -> str:
     client = CocoACPClient(
         settings.coco_bin,
@@ -132,6 +134,8 @@ def generate_native_plan_markdown(
                 execution_graph_payload=graph.to_payload(),
                 validation_payload=validation_payload,
                 template_path=str(template_path),
+                regeneration_issues=regeneration_issues,
+                previous_plan_markdown=previous_plan_markdown,
             ),
             settings.native_query_timeout,
             cwd=str(prepared.task_dir),

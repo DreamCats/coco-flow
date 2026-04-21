@@ -310,6 +310,79 @@ def generate_native_design_markdown(
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
+    content = _run_design_generation_once(
+        client=client,
+        prepared=prepared,
+        repo_binding_payload=repo_binding_payload,
+        sections_payload=sections_payload,
+        knowledge_brief_markdown=knowledge_brief_markdown,
+        settings=settings,
+    )
+
+    if prepared.is_single_bound_repo:
+        artifacts["design-verify.json"] = {"ok": True, "issues": [], "reason": "single bound repo fast path"}
+        return content
+
+    verify_payload, retry_source, retry_issues = _evaluate_design_output(
+        client=client,
+        prepared=prepared,
+        content=content,
+        repo_binding_payload=repo_binding_payload,
+        sections_payload=sections_payload,
+        settings=settings,
+    )
+    if not retry_issues:
+        artifacts["design-verify.json"] = verify_payload
+        return content
+
+    on_log(f"design_regenerate_start: source={retry_source}, issue_count={len(retry_issues)}")
+    logged_failure = False
+    try:
+        regenerated = _run_design_generation_once(
+            client=client,
+            prepared=prepared,
+            repo_binding_payload=repo_binding_payload,
+            sections_payload=sections_payload,
+            knowledge_brief_markdown=knowledge_brief_markdown,
+            settings=settings,
+            regeneration_issues=retry_issues,
+            previous_design_markdown=content,
+        )
+        final_verify_payload, final_source, final_issues = _evaluate_design_output(
+            client=client,
+            prepared=prepared,
+            content=regenerated,
+            repo_binding_payload=repo_binding_payload,
+            sections_payload=sections_payload,
+            settings=settings,
+        )
+        if final_issues:
+            issue_text = "; ".join(final_issues[:3]) if isinstance(final_issues, list) else "unknown"
+            on_log(f"design_regenerate_failed: source={final_source}, issues={issue_text}")
+            logged_failure = True
+            if final_source == "contract":
+                raise ValueError(f"native_design_contract_failed: {issue_text}")
+            raise ValueError(f"native_design_verify_failed: {issue_text}")
+        on_log("design_regenerate_ok: true")
+        artifacts["design-verify.json"] = final_verify_payload
+        return regenerated
+    except ValueError as error:
+        if not logged_failure:
+            on_log(f"design_regenerate_failed: {error}")
+        raise
+
+
+def _run_design_generation_once(
+    *,
+    client: CocoACPClient,
+    prepared: DesignPreparedInput,
+    repo_binding_payload: dict[str, object],
+    sections_payload: dict[str, object],
+    knowledge_brief_markdown: str,
+    settings: Settings,
+    regeneration_issues: list[str] | None = None,
+    previous_design_markdown: str = "",
+) -> str:
     template_path = _write_design_template(prepared.task_dir)
     try:
         client.run_agent(
@@ -320,6 +393,8 @@ def generate_native_design_markdown(
                 sections_payload=sections_payload,
                 knowledge_brief_markdown=knowledge_brief_markdown,
                 template_path=str(template_path),
+                regeneration_issues=regeneration_issues,
+                previous_design_markdown=previous_design_markdown,
             ),
             settings.native_query_timeout,
             cwd=str(prepared.task_dir),
@@ -332,16 +407,47 @@ def generate_native_design_markdown(
     content = extract_design_content(raw)
     if not content:
         raise ValueError("native_design_agent_did_not_write_valid_template")
+    return content
 
-    if prepared.is_single_bound_repo:
-        artifacts["design-verify.json"] = {"ok": True, "issues": [], "reason": "single bound repo fast path"}
-        return content
 
+def _evaluate_design_output(
+    *,
+    client: CocoACPClient,
+    prepared: DesignPreparedInput,
+    content: str,
+    repo_binding_payload: dict[str, object],
+    sections_payload: dict[str, object],
+    settings: Settings,
+) -> tuple[dict[str, object], str, list[str]]:
     contract_issues = collect_design_contract_issues(content, repo_binding_payload, sections_payload)
     if contract_issues:
-        issue_text = "; ".join(contract_issues[:3])
-        raise ValueError(f"native_design_contract_failed: {issue_text}")
+        return {
+            "ok": False,
+            "issues": contract_issues,
+            "reason": "design contract failed",
+        }, "contract", contract_issues
+    verify_payload = _run_design_verify_once(
+        client=client,
+        prepared=prepared,
+        content=content,
+        repo_binding_payload=repo_binding_payload,
+        sections_payload=sections_payload,
+        settings=settings,
+    )
+    if bool(verify_payload.get("ok")):
+        return verify_payload, "verify", []
+    return verify_payload, "verify", _collect_design_verify_issues(verify_payload)
 
+
+def _run_design_verify_once(
+    *,
+    client: CocoACPClient,
+    prepared: DesignPreparedInput,
+    content: str,
+    repo_binding_payload: dict[str, object],
+    sections_payload: dict[str, object],
+    settings: Settings,
+) -> dict[str, object]:
     verify_template_path = _write_verify_template(prepared.task_dir)
     try:
         client.run_agent(
@@ -360,13 +466,17 @@ def generate_native_design_markdown(
     finally:
         if verify_template_path.exists():
             verify_template_path.unlink()
-    verify_payload = parse_design_verify_output(verify_raw)
-    artifacts["design-verify.json"] = verify_payload
-    if not bool(verify_payload.get("ok")):
-        issues = verify_payload.get("issues") or []
-        issue_text = "; ".join(str(item) for item in issues[:3]) if isinstance(issues, list) else "unknown"
-        raise ValueError(f"native_design_verify_failed: {issue_text}")
-    return content
+    return parse_design_verify_output(verify_raw)
+
+
+def _collect_design_verify_issues(verify_payload: dict[str, object]) -> list[str]:
+    issues = [str(item) for item in (verify_payload.get("issues") or []) if str(item).strip()]
+    if issues:
+        return issues
+    reason = str(verify_payload.get("reason") or "").strip()
+    if reason:
+        return [reason]
+    return ["design verify failed without actionable issues"]
 
 
 def extract_design_content(raw: str) -> str:
