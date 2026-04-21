@@ -39,8 +39,12 @@ def build_design_repo_research_agent_prompt(
     change_points: list[dict[str, object]],
     primary_change_points: list[int],
     secondary_change_points: list[int],
+    candidate_dirs: list[str],
+    candidate_files: list[str],
     template_path: str,
 ) -> str:
+    prefilter_dirs = [str(item).strip() for item in candidate_dirs if str(item).strip()]
+    prefilter_files = [str(item).strip() for item in candidate_files if str(item).strip()]
     document = PromptDocument(
         intro="你在做 coco-flow Design 阶段的单仓库 exploration 子任务。",
         goal="只分析当前 cwd 对应仓库，并直接编辑指定 JSON 模板文件，输出当前仓库对 Design 是否重要的结构化结论。",
@@ -48,6 +52,8 @@ def build_design_repo_research_agent_prompt(
             "必须直接编辑指定 JSON 文件，不要只在回复里输出结果。",
             "只分析当前 cwd 仓库，不要替别的仓库下结论。",
             "可以自由使用搜索、读取、命令等工具，但不要改业务代码。",
+            "先验证 prefilter 给出的 candidate_dirs 和 candidate_files 是否相关，再决定是否沿这些路径继续扩展搜索。",
+            "如果最终输出的 candidate_dirs 或 candidate_files 明显脱离 prefilter 路径，必须在 notes 里写明原因。",
             "candidate_dirs 和 candidate_files 必须使用当前仓库内的相对路径。",
             "decision 只使用 in_scope_candidate / out_of_scope / uncertain。",
             "如果没有明确证据，不要臆造依赖关系；parallelizable_with 只写有明确可并行依据的 repo id。",
@@ -75,6 +81,17 @@ def build_design_repo_research_agent_prompt(
                         f"- secondary_change_points: {secondary_change_points or []}",
                         "- prefilter_reasons:",
                         *(f"  - {item}" for item in prefilter_reasons),
+                    ]
+                ),
+            ),
+            PromptSection(
+                title="Prefilter Candidates",
+                body="\n".join(
+                    [
+                        "- candidate_dirs:",
+                        *((f"  - {item}" for item in prefilter_dirs) if prefilter_dirs else ["  - none"]),
+                        "- candidate_files:",
+                        *((f"  - {item}" for item in prefilter_files) if prefilter_files else ["  - none"]),
                     ]
                 ),
             ),

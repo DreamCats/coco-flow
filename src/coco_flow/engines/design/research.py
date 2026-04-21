@@ -56,18 +56,20 @@ def build_design_research_payload(
     if len(candidate_repo_ids) > 1:
         max_workers = min(len(candidate_repo_ids), 4)
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="design-research") as executor:
-            futures = {
-                executor.submit(
-                    _explore_repo_with_agent,
-                    prepared,
-                    settings,
-                    knowledge_brief_markdown,
-                    client,
-                    repo_id,
-                    local_entries.get(repo_id, {}),
-                ): repo_id
-                for repo_id in candidate_repo_ids
-            }
+            futures = {}
+            for repo_id in candidate_repo_ids:
+                on_log(f"repo_research_guided_paths: {_format_guided_paths(repo_id, local_entries.get(repo_id, {}))}")
+                futures[
+                    executor.submit(
+                        _explore_repo_with_agent,
+                        prepared,
+                        settings,
+                        knowledge_brief_markdown,
+                        client,
+                        repo_id,
+                        local_entries.get(repo_id, {}),
+                    )
+                ] = repo_id
             for future in as_completed(futures):
                 repo_id = futures[future]
                 try:
@@ -79,6 +81,7 @@ def build_design_research_payload(
     else:
         repo_id = candidate_repo_ids[0]
         try:
+            on_log(f"repo_research_guided_paths: {_format_guided_paths(repo_id, local_entries.get(repo_id, {}))}")
             explored_entries[repo_id] = _explore_repo_with_agent(
                 prepared,
                 settings,
@@ -278,6 +281,8 @@ def _explore_repo_with_agent(
                 change_points=[item for item in prepared.change_points_payload.get("change_points", []) if isinstance(item, dict)],
                 primary_change_points=[int(value) for value in assignment.get("primary_change_points", []) if str(value).isdigit()],
                 secondary_change_points=[int(value) for value in assignment.get("secondary_change_points", []) if str(value).isdigit()],
+                candidate_dirs=[str(value) for value in local_entry.get("candidate_dirs", []) if str(value).strip()],
+                candidate_files=[str(value) for value in local_entry.get("candidate_files", []) if str(value).strip()],
                 template_path=str(template_path),
             ),
             settings.native_query_timeout,
@@ -388,6 +393,19 @@ def _mark_entry_fallback(local_entry: dict[str, object], error: str) -> dict[str
     merged["explored"] = True
     merged["selected_for_exploration"] = True
     return merged
+
+
+def _format_guided_paths(repo_id: str, local_entry: dict[str, object]) -> str:
+    candidate_dirs = [str(value) for value in local_entry.get("candidate_dirs", []) if str(value).strip()]
+    candidate_files = [str(value) for value in local_entry.get("candidate_files", []) if str(value).strip()]
+    if not candidate_dirs and not candidate_files:
+        return f"{repo_id}: none"
+    parts: list[str] = [repo_id]
+    if candidate_dirs:
+        parts.append("dirs=" + ", ".join(candidate_dirs[:4]))
+    if candidate_files:
+        parts.append("files=" + ", ".join(candidate_files[:6]))
+    return "; ".join(parts)
 
 
 def _write_repo_research_template(task_dir: Path) -> Path:
