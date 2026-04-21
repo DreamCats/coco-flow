@@ -75,11 +75,11 @@ Day 3:
 
 | 文件 | 改动内容 |
 |------|---------|
-| `prompts/design/generate.py` | 模板从 12 section 大幅裁剪为 5 section |
+| `prompts/design/generate.py` | 模板从 12 section 裁剪为 6 section（含接口协议变更）|
 | `prompts/design/verify.py` | verify 检查项更新到新 section 结构 |
-| `engines/design/generate.py` | `generate_local_design_markdown()` 完全重写（从 ~110 行削减到 ~60 行）；`build_design_sections_payload()` 裁剪 5 个废弃字段，增加 risk_boundaries；`collect_design_contract_issues()` 更新 section 检查 |
+| `engines/design/generate.py` | `generate_local_design_markdown()` 完全重写（从 ~110 行削减到 ~70 行）；`build_design_sections_payload()` 裁剪废弃字段，保留 protocol_changes 用于接口协议变更 section，增加 risk_boundaries；`collect_design_contract_issues()` 更新 section 检查 |
 | `engines/design/models.py` | `DesignEngineResult` 无需改动（产物字段不变，只是 markdown 格式变了）|
-| `engines/plan_models.py` | 删除 `ProtocolChange`, `StorageConfigChange`, `ExperimentChange`, `StaffingEstimate` 四个 dataclass；`DesignAISections` 和 `DesignSections` 裁剪字段 |
+| `engines/plan_models.py` | 删除 `StorageConfigChange`, `ExperimentChange`, `StaffingEstimate` 三个 dataclass；保留 `ProtocolChange`（重命名为 `InterfaceChange`）；`DesignAISections` 和 `DesignSections` 裁剪字段 |
 | `prompts/design/responsibility_matrix.py` | 无改动（矩阵是中间产物，不影响最终文档）|
 
 ### 2.2 关键设计决策
@@ -101,6 +101,21 @@ Day 3:
 - `config` — A 读 B 管理的配置/AB 实验
 
 分类逻辑：优先从 research 结果推断（import 关系 → interface，数据库/缓存共用 → data，config center → config），兜底为 `interface`。
+
+**Q: 接口协议变更 section 的内容怎么来？**
+
+方案：保留现有的 `ProtocolChange` 模型（重命名为 `InterfaceChange`），重新定义字段含义为服务端视角：
+- `interface`：变更的接口名
+- `field`：新增/修改的字段
+- `change_type`：`add` / `modify` / `deprecate`
+- `consumer`：下游消费方（前端 / 其他服务 / 客户端）
+- `need_alignment`：是否需要和下游对齐（bool）
+- `description`：变更说明
+
+数据来源：
+1. Design research 阶段 agent 探索仓库时，识别 proto/thrift/IDL 文件变更 → 自动提取
+2. Change points 中涉及"下发"、"透传"、"新增字段"等关键词 → LLM 判断
+3. 如果都没命中，默认输出"本次需求不涉及对外接口协议变更"
 
 ### 2.3 实施顺序
 
