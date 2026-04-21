@@ -93,7 +93,7 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
                 }
             )
     if must_change_repo_ids:
-        solution_overview = "优先围绕必须改动仓库 " + "、".join(must_change_repo_ids) + " 收敛设计边界。"
+        solution_overview = "优先围绕主改仓 " + "、".join(must_change_repo_ids) + " 收敛设计边界。"
         if any(str(item.get("scope_tier") or "") == "validate_only" for item in repo_decisions):
             solution_overview += " 其它仓库仅作为联动验证对象，不默认纳入主改造面。"
     else:
@@ -162,7 +162,12 @@ def generate_local_design_markdown(
     if isinstance(critical_flows, list) and critical_flows:
         first = critical_flows[0] if isinstance(critical_flows[0], dict) else {}
         trigger = str(first.get("trigger") or "").strip()
-        if trigger:
+        overview_points = [
+            str(value).strip()
+            for value in (sections_payload.get("system_change_points") or [])
+            if str(value).strip()
+        ]
+        if trigger and trigger not in overview_points:
             lines.append(f"- 主链路入口：{trigger}")
         for step in first.get("steps", [])[:4]:
             if str(step).strip():
@@ -175,10 +180,10 @@ def generate_local_design_markdown(
                 [
                     f"#### {str(item.get('system_name') or item.get('repo_id') or 'system')}",
                     f"- 仓库：{str(item.get('repo_id') or '')}",
-                    f"- scope_tier：{str(item.get('scope_tier') or '')}",
-                    f"- 职责：{str(item.get('responsibility') or '')}",
-                    f"- 选择原因：{str(note.get('decision_reason') or item.get('reason') or '承担本次核心改造，因此纳入主改造面。')}",
-                    f"- 仓库现状：{str(note.get('repo_summary') or '当前缺少额外仓库现状摘要。')}",
+                    f"- 角色定位：{str(note.get('display_role') or _scope_tier_label(str(item.get('scope_tier') or '')))}",
+                    f"- 职责：{str(note.get('display_responsibility') or _humanize_responsibility(str(item.get('responsibility') or ''), str(item.get('scope_tier') or ''), str(item.get('repo_id') or '')))}",
+                    f"- 选择原因：{str(note.get('display_reason') or _humanize_decision_reason(str(note.get('decision_reason') or item.get('reason') or ''), str(item.get('scope_tier') or ''), note.get('candidate_files') or item.get('candidate_files') or [], str(note.get('repo_summary') or '')))}",
+                    f"- 仓库现状：{str(note.get('display_repo_summary') or note.get('repo_summary') or '当前缺少额外仓库现状摘要。')}",
                     "- 主要改动：",
                 ]
             )
@@ -191,9 +196,7 @@ def generate_local_design_markdown(
             candidate_files = _prioritize_candidate_files(
                 note.get("candidate_files") or item.get("candidate_files") or []
             )
-            if candidate_files:
-                lines.append("- 候选文件：")
-                lines.extend(f"  - {str(value)}" for value in candidate_files[:6] if str(value).strip())
+            _append_candidate_file_groups(lines, _group_candidate_files(candidate_files))
             lines.append("")
     else:
         lines.append("- 当前未识别到明确的 in_scope 仓库，需要补充设计依据。")
@@ -448,6 +451,7 @@ def collect_design_contract_issues(
     file_mentions = _extract_file_path_mentions(design_markdown)
     issues: list[str] = []
     issues.extend(_collect_design_format_issues(design_markdown))
+    issues.extend(_collect_design_jargon_issues(design_markdown))
     required_sections = ("## 改造点总览", "## 总体方案", "## 分仓库方案", "## 仓库依赖关系", "## 接口协议变更", "## 风险与待确认项")
     for section in required_sections:
         if section not in design_markdown:
@@ -595,6 +599,10 @@ def _build_repo_decision_note(
     selection_context = ""
     if closure_mode == "single_repo" and selection_basis == "heuristic_tiebreak" and selection_note:
         selection_context = selection_note
+    display_role = _scope_tier_label(scope_tier)
+    display_responsibility = _humanize_responsibility(responsibility, scope_tier, repo_id)
+    display_reason = _humanize_decision_reason(decision_reason, scope_tier, candidate_files, repo_summary)
+    display_repo_summary = _humanize_repo_summary(repo_summary, candidate_files, scope_tier)
     return {
         "repo_id": repo_id,
         "system_name": str(binding_item.get("system_name") or repo_id),
@@ -604,7 +612,12 @@ def _build_repo_decision_note(
         "selection_context": selection_context,
         "repo_summary": repo_summary,
         "responsibility": responsibility,
+        "display_role": display_role,
+        "display_responsibility": display_responsibility,
+        "display_reason": display_reason,
+        "display_repo_summary": display_repo_summary,
         "candidate_files": candidate_files,
+        "candidate_file_groups": _group_candidate_files(candidate_files),
         "candidate_dirs": candidate_dirs,
         "evidence": evidence[:4],
     }
@@ -624,14 +637,19 @@ def _build_system_change_points(
         )
         if primary_change:
             primary_repo = str(system_changes[0].get("system_id") or system_changes[0].get("system_name") or "").strip()
+            display_change = _format_primary_change_for_overview(primary_change)
             if primary_repo:
-                lines.append(f"以 {primary_repo} 为主改仓，收敛 {primary_change}")
+                lines.append(f"以 {primary_repo} 为主改仓，本次重点是{display_change}")
             else:
-                lines.append(primary_change)
-    focus_files = _collect_focus_files(repo_decisions, limit=3)
+                lines.append(display_change)
+    focus_groups = _collect_focus_file_groups(repo_decisions, core_limit=2, supporting_limit=2)
+    focus_files = focus_groups["core"]
+    supporting_files = focus_groups["supporting"]
     if focus_files:
-        lines.append(f"优先统一 {', '.join(focus_files)} 等命中路径的状态判定与讲解卡数据装配逻辑。")
-        if len(focus_files) >= 2:
+        lines.append(f"优先确认 {', '.join(focus_files)} 这些核心落点的状态口径与讲解卡装配逻辑。")
+        if supporting_files:
+            lines.append(f"{', '.join(supporting_files)} 等命中路径作为联动检查项，用来核对不同返回路径是否一致，不默认视为本次必须修改。")
+        if len(focus_files) >= 2 or supporting_files:
             lines.append("需要同步收敛主路径和兼容返回路径，避免同一竞拍在不同入口下状态表达不一致。")
     elif prepared.sections.acceptance_criteria:
         lines.append(str(prepared.sections.acceptance_criteria[0]).strip())
@@ -655,19 +673,20 @@ def _build_critical_flows(
     repo_decisions: list[dict[str, object]],
     system_change_points: list[str],
 ) -> list[dict[str, object]]:
-    focus_files = _collect_focus_files(repo_decisions, limit=3)
-    focus_dirs = _collect_focus_dirs(repo_decisions, limit=2)
+    focus_groups = _collect_focus_file_groups(repo_decisions, core_limit=2, supporting_limit=2)
+    focus_files = focus_groups["core"]
+    supporting_files = focus_groups["supporting"]
     steps: list[str] = []
     if focus_files:
         steps.append(f"先确认 {focus_files[0]} 中的核心状态判定口径。")
     if len(focus_files) >= 2:
-        steps.append(f"再同步 {focus_files[1]} 等其它讲解卡返回路径，确保成交态与结束态表达一致。")
-    elif focus_dirs:
-        steps.append(f"再沿 {focus_dirs[0]} 等命中目录补齐相关返回链路。")
+        steps.append(f"再确认 {focus_files[1]} 是否复用了同一套状态定义，避免主链路与兼容链路分叉。")
+    elif supporting_files:
+        steps.append(f"再检查 {supporting_files[0]} 等联动路径，确认不同返回入口下的状态表达是否一致。")
     if prepared.sections.acceptance_criteria:
         acceptance_line = str(prepared.sections.acceptance_criteria[0]).strip()
         if acceptance_line:
-            steps.append(f"最后校验 {acceptance_line}。")
+            steps.append(f"最后校验：{acceptance_line}。")
     state_changes = _dedupe_non_empty(
         [
             "若只修改单一路径，可能导致同一竞拍在不同入口下状态不一致。" if len(focus_files) >= 2 else "",
@@ -691,20 +710,23 @@ def _build_critical_flows(
     ]
 
 
-def _collect_focus_files(repo_decisions: list[dict[str, object]], *, limit: int) -> list[str]:
-    prioritized: list[str] = []
-    fallback: list[str] = []
+def _collect_focus_file_groups(
+    repo_decisions: list[dict[str, object]],
+    *,
+    core_limit: int,
+    supporting_limit: int,
+) -> dict[str, list[str]]:
+    core: list[str] = []
+    supporting: list[str] = []
     for note in repo_decisions:
         if not isinstance(note, dict) or str(note.get("scope_tier") or "") not in {"must_change", "co_change"}:
             continue
-        candidate_files = note.get("candidate_files") or []
-        prioritized.extend(_select_core_candidate_files(candidate_files))
-        fallback.extend(
-            str(value).strip()
-            for value in (candidate_files if isinstance(candidate_files, list) else [])
-            if str(value).strip()
-        )
-    return _dedupe_non_empty([*prioritized, *fallback])[:limit]
+        grouped = note.get("candidate_file_groups") if isinstance(note.get("candidate_file_groups"), dict) else _group_candidate_files(note.get("candidate_files") or [])
+        core.extend(str(value).strip() for value in grouped.get("core", []) if str(value).strip())
+        supporting.extend(str(value).strip() for value in grouped.get("supporting", []) if str(value).strip())
+    deduped_core = _dedupe_non_empty(core)[:core_limit]
+    deduped_supporting = _dedupe_non_empty(value for value in supporting if value not in deduped_core)[:supporting_limit]
+    return {"core": deduped_core, "supporting": deduped_supporting}
 
 
 def _collect_focus_dirs(repo_decisions: list[dict[str, object]], *, limit: int) -> list[str]:
@@ -713,6 +735,7 @@ def _collect_focus_dirs(repo_decisions: list[dict[str, object]], *, limit: int) 
         for note in repo_decisions
         if isinstance(note, dict) and str(note.get("scope_tier") or "") in {"must_change", "co_change"}
         for value in (note.get("candidate_dirs") or [])
+        if not any(token in str(value).lower() for token in ("constdef", "config", "schema", "tcc", "meta", "model", "helpers"))
     )[:limit]
 
 
@@ -729,6 +752,25 @@ def _build_boundary_line(values) -> str:
     if not items:
         return ""
     return "边界保持：" + "；".join(items[:3]) + "。"
+
+
+def _format_primary_change_for_overview(text: str) -> str:
+    normalized = " ".join(str(text).split()).strip().rstrip("。；")
+    if not normalized:
+        return ""
+    replacements = (
+        ("为解决当前", ""),
+        ("需要将", "将"),
+        ("需将", "将"),
+        ("需要统一", "统一"),
+        ("需统一", "统一"),
+        ("需要在", "在"),
+        ("需在", "在"),
+    )
+    for old, new in replacements:
+        normalized = normalized.replace(old, new, 1)
+    normalized = normalized.strip("，,；; ")
+    return normalized or str(text).strip()
 
 
 def _infer_dependency_kind(
@@ -818,50 +860,158 @@ def _build_risk_boundaries(prepared: DesignPreparedInput, repo_decisions: list[d
 def _select_core_candidate_files(candidate_files: object) -> list[str]:
     if not isinstance(candidate_files, list):
         return []
-    ranked = [
-        str(value).strip()
-        for value in candidate_files
-        if str(value).strip()
-    ]
-    return _dedupe_non_empty(
-        value
-        for value in sorted(
-            ranked,
-            key=lambda value: (
-                _candidate_file_role_priority(value),
-                ranked.index(value),
-            ),
-        )
-        if _candidate_file_role_priority(value) <= 1
-    )
+    return _group_candidate_files(candidate_files)["core"]
 
 
 def _prioritize_candidate_files(candidate_files: object) -> list[str]:
     if not isinstance(candidate_files, list):
         return []
     normalized = [str(value).strip() for value in candidate_files if str(value).strip()]
-    core_files = _select_core_candidate_files(normalized)
-    return _dedupe_non_empty([*core_files, *normalized])
+    groups = _group_candidate_files(normalized)
+    return _dedupe_non_empty([*groups["core"], *groups["supporting"], *groups["context"]])
+
+
+def _group_candidate_files(candidate_files: object) -> dict[str, list[str]]:
+    if not isinstance(candidate_files, list):
+        return {"core": [], "supporting": [], "context": []}
+    normalized = [str(value).strip() for value in candidate_files if str(value).strip()]
+    sorted_files = sorted(
+        normalized,
+        key=lambda value: (
+            _candidate_file_role_priority(value),
+            normalized.index(value),
+        ),
+    )
+    groups = {"core": [], "supporting": [], "context": []}
+    for value in sorted_files:
+        groups[_candidate_file_bucket(value)].append(value)
+    return {key: _dedupe_non_empty(values) for key, values in groups.items()}
+
+
+def _candidate_file_bucket(path: str) -> str:
+    lowered = path.lower()
+    if any(token in lowered for token in ("constdef", "config", "tcc", "schema", "meta", "model", "helper", "helpers")):
+        return "context"
+    if any(token in lowered for token in ("status", "state", "policy", "rule", "resolver", "reducer")):
+        return "core"
+    if "data_loader" in lowered:
+        return "core"
+    if any(token in lowered for token in ("loader", "converter", "adapter", "assembler", "builder", "transform")):
+        return "supporting"
+    return "context"
 
 
 def _candidate_file_role_priority(path: str) -> int:
-    lowered = path.lower()
-    if any(token in lowered for token in ("constdef", "config", "tcc", "schema", "meta", "model", "helper", "helpers")):
-        return 3
-    if any(token in lowered for token in ("status", "state", "policy", "rule", "resolver", "reducer")):
+    bucket = _candidate_file_bucket(path)
+    if bucket == "core":
         return 0
-    if any(token in lowered for token in ("data_loader", "loader", "converter")):
+    if bucket == "supporting":
         return 1
-    if any(token in lowered for token in ("adapter", "assembler", "builder", "transform")):
-        return 2
     if _is_interface_boundary_path(path):
         return 2
     return 3
 
 
+def _append_candidate_file_groups(lines: list[str], candidate_groups: dict[str, list[str]]) -> None:
+    if not candidate_groups.get("core") and not candidate_groups.get("supporting") and candidate_groups.get("context"):
+        lines.append("- 补充排查路径：")
+        lines.extend(f"  - {value}" for value in (candidate_groups.get("context") or [])[:3] if str(value).strip())
+        return
+    sections = (
+        ("core", "核心改点"),
+        ("supporting", "联动检查"),
+        ("context", "参考上下文"),
+    )
+    for key, title in sections:
+        values = candidate_groups.get(key) or []
+        if not values:
+            continue
+        lines.append(f"- {title}：")
+        lines.extend(f"  - {value}" for value in values[:3] if str(value).strip())
+
+
 def _is_interface_boundary_path(path: str) -> bool:
     lowered = path.lower()
     return any(token in lowered for token in (".proto", ".thrift", "/handler/", "/api/", "/rpc/", "/gateway/", "/idl/"))
+
+
+def _scope_tier_label(scope_tier: str) -> str:
+    if scope_tier == "must_change":
+        return "本次主改仓"
+    if scope_tier == "co_change":
+        return "需要协同修改的仓库"
+    if scope_tier == "validate_only":
+        return "联动验证仓"
+    if scope_tier == "reference_only":
+        return "参考信息仓"
+    return "待确认"
+
+
+def _humanize_responsibility(responsibility: str, scope_tier: str, repo_id: str) -> str:
+    text = responsibility.strip().replace("change point", "核心改造点")
+    if "状态定义或收敛职责" in text and scope_tier == "must_change":
+        return f"{repo_id} 负责统一本次核心状态口径和主链路收敛。"
+    if text:
+        return text
+    if scope_tier == "must_change":
+        return f"{repo_id} 负责统一本次核心状态口径和主链路收敛。"
+    if scope_tier == "co_change":
+        return f"{repo_id} 需要和主改仓一起完成联动改造。"
+    if scope_tier == "validate_only":
+        return f"{repo_id} 主要用于核对下游适配、展示或兼容链路是否受影响。"
+    if scope_tier == "reference_only":
+        return f"{repo_id} 主要提供背景链路、配置或参考信息，本次默认不直接修改。"
+    return repo_id
+
+
+def _humanize_decision_reason(reason: str, scope_tier: str, candidate_files: object, repo_summary: str) -> str:
+    text = reason.strip().replace("change point", "核心改造点")
+    if _looks_internal_reason(text) or not text:
+        groups = _group_candidate_files(candidate_files)
+        core_text = "、".join(groups["core"][:2])
+        supporting_text = "、".join(groups["supporting"][:2])
+        if scope_tier == "must_change":
+            if core_text and supporting_text:
+                return f"这里同时命中了 {core_text} 等核心状态落点，以及 {supporting_text} 等返回链路，最接近本次改动的真实实现位置。"
+            if core_text:
+                return f"这里命中了 {core_text} 等核心状态落点，最接近本次改动的真实实现位置。"
+            return "这里同时承担状态口径和主链路收敛职责，因此作为本次主改仓。"
+        if scope_tier == "co_change":
+            return "这里和主改仓存在直接联动，需要一起核对并按需修改。"
+        if scope_tier == "validate_only":
+            return "这里更像联动验证或兼容核对位置，不作为默认起始实现仓。"
+        if scope_tier == "reference_only":
+            return "这里主要提供背景链路或配置参考，本次默认不直接修改。"
+    return text or repo_summary or "当前缺少额外决策依据。"
+
+
+def _humanize_repo_summary(summary: str, candidate_files: object, scope_tier: str) -> str:
+    text = summary.strip().replace("change points", "核心改造点")
+    if ("change points" in summary.lower() or "职责画像" in summary or "agent research 失败" in summary.lower()) and scope_tier in {"must_change", "co_change", "validate_only", "reference_only"}:
+        groups = _group_candidate_files(candidate_files)
+        if groups["core"] or groups["supporting"]:
+            items = "、".join([*groups["core"][:2], *groups["supporting"][:2]])
+            return f"当前证据主要落在 {items} 这些状态和返回链路，实现范围基本收敛在该仓库内。"
+        if groups["context"]:
+            return "当前只定位到少量背景路径，真实实现落点还不够收敛，下面这些路径仅作为补充排查线索。"
+    return text or "当前缺少额外仓库现状摘要。"
+
+
+def _looks_internal_reason(text: str) -> bool:
+    lowered = text.lower()
+    return any(
+        token in lowered
+        for token in (
+            "职责画像",
+            "state_definition",
+            "state_aggregation",
+            "adapter_or_transform",
+            "config_or_ab",
+            "must_change",
+            "validate_only",
+            "reference_only",
+        )
+    )
 
 
 def _has_explicit_interface_signal(repo_decisions: object, source_text: str) -> bool:
@@ -910,6 +1060,23 @@ def _dedupe_non_empty(values) -> list[str]:
         seen.add(key)
         result.append(text)
     return result
+
+
+def _collect_design_jargon_issues(design_markdown: str) -> list[str]:
+    lowered = design_markdown.lower()
+    patterns = {
+        "scope_tier": "design.md 暴露了内部标签 scope_tier，需要翻译成自然语言。",
+        "must_change": "design.md 直接输出了 must_change，需要改成用户可理解的角色描述。",
+        "co_change": "design.md 直接输出了 co_change，需要改成用户可理解的角色描述。",
+        "validate_only": "design.md 直接输出了 validate_only，需要改成用户可理解的角色描述。",
+        "reference_only": "design.md 直接输出了 reference_only，需要改成用户可理解的角色描述。",
+        "change point": "design.md 直接输出了 change point，需要改成“核心改造点”等自然语言。",
+        "state_definition=": "design.md 暴露了内部职责画像打分，需要改写成自然语言判断依据。",
+        "state_aggregation=": "design.md 暴露了内部职责画像打分，需要改写成自然语言判断依据。",
+        "adapter_or_transform=": "design.md 暴露了内部职责画像打分，需要改写成自然语言判断依据。",
+        "config_or_ab=": "design.md 暴露了内部职责画像打分，需要改写成自然语言判断依据。",
+    }
+    return [message for token, message in patterns.items() if token in lowered]
 
 
 def _render_solution_overview_lines(sections_payload: dict[str, object], fallback_title: str) -> list[str]:

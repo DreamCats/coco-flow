@@ -254,8 +254,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("选择原因", markdown)
             self.assertIn("live_shopapi", markdown)
             self.assertIn("live_common", markdown)
-            self.assertIn("scope_tier：validate_only", markdown)
-            self.assertIn("scope_tier：reference_only", markdown)
+            self.assertIn("角色定位：联动验证仓", markdown)
+            self.assertIn("角色定位：参考信息仓", markdown)
 
     def test_design_contract_requires_multi_repo_roles_and_candidate_files(self) -> None:
         repo_binding_payload = {
@@ -289,7 +289,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
         }
 
         issues = collect_design_contract_issues(
-            "# Design\n\n## 分仓库方案\n\n#### Demo\n- 仓库：demo\n- scope_tier：must_change\n- 职责：demo 仓负责新增 two sum。\n",
+            "# Design\n\n## 分仓库方案\n\n#### Demo\n- 仓库：demo\n- 角色定位：本次主改仓\n- 职责：demo 仓负责新增 two sum。\n",
             repo_binding_payload,
             sections_payload,
         )
@@ -427,7 +427,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             ]
         }
         issues = collect_design_contract_issues(
-            "# Design\n\n## 改造点总览\n- 统一成功态\n\n## 总体方案\n- 只修改 live_pack。\n\n## 分仓库方案\n\n### live_pack\n- 仓库：live_pack\n- 候选文件：\n  - entities/loaders/product_loaders/product_auction_config_data_loader.go\n\n## 仓库依赖关系\n- 无\n\n## 接口协议变更\n- 本次需求不涉及对外接口协议变更。\n\n## 风险与待确认项\n- 无\n",
+            "# Design\n\n## 改造点总览\n- 统一成功态\n\n## 总体方案\n- 只修改 live_pack。\n\n## 分仓库方案\n\n### live_pack\n- 仓库：live_pack\n- 核心改点：\n  - entities/loaders/product_loaders/product_auction_config_data_loader.go\n\n## 仓库依赖关系\n- 无\n\n## 接口协议变更\n- 本次需求不涉及对外接口协议变更。\n\n## 风险与待确认项\n- 无\n",
             repo_binding_payload,
             sections_payload,
         )
@@ -462,7 +462,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             ]
         }
         issues = collect_design_contract_issues(
-            "# Design\n\n## 改造点总览\n- 优先处理 entities/loaders/product_loaders/product_auction_data_loader.go。\n\n## 总体方案\n- live_pack 单仓闭合。\n\n## 分仓库方案\n\n### live_pack\n- 仓库：live_pack\n- 候选文件：\n  - entities/loaders/product_loaders/product_auction_data_loader.go\n  - entities/converters/auction_converters/regular_auction_converter.go\n- 证据：entities/loaders/auction_loaders/auction_status_loader.go 中存在状态判定。\n\n## 仓库依赖关系\n- 无\n\n## 接口协议变更\n- 本次需求不涉及对外接口协议变更。\n\n## 风险与待确认项\n- 无\n",
+            "# Design\n\n## 改造点总览\n- 优先确认 entities/loaders/product_loaders/product_auction_data_loader.go。\n\n## 总体方案\n- live_pack 单仓闭合。\n\n## 分仓库方案\n\n### live_pack\n- 仓库：live_pack\n- 核心改点：\n  - entities/loaders/product_loaders/product_auction_data_loader.go\n- 联动检查：\n  - entities/converters/auction_converters/regular_auction_converter.go\n- 证据：entities/loaders/auction_loaders/auction_status_loader.go 中存在状态判定。\n\n## 仓库依赖关系\n- 无\n\n## 接口协议变更\n- 本次需求不涉及对外接口协议变更。\n\n## 风险与待确认项\n- 无\n",
             repo_binding_payload,
             sections_payload,
         )
@@ -845,7 +845,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
                     template_path.write_text('{"ok": true, "issues": [], "reason": "verify ok"}\n', encoding="utf-8")
                 else:
                     template_path.write_text(
-                        "# Design\n\n## 改造点总览\n\n- 统一成功态\n\n## 总体方案\n\n- 只修改 live_pack。\n\n## 分仓库方案\n\n#### Live Pack\n- 仓库：live_pack\n- scope_tier：must_change\n- 职责：核心状态收敛\n- 选择原因：只修改 live_pack。\n- 仓库现状：主改仓。\n- 主要改动：\n  - 改成功态逻辑\n- 候选文件：\n  - entities/loaders/auction_loaders/auction_status_loader.go\n\n## 仓库依赖关系\n\n- 当前未识别到明确的强依赖关系。\n\n## 接口协议变更\n\n- 本次需求不涉及对外接口协议变更。\n\n## 风险与待确认项\n\n- 当前未沉淀出额外技术风险或待确认项。\n",
+                        "# Design\n\n## 改造点总览\n\n- 统一成功态\n\n## 总体方案\n\n- 只修改 live_pack。\n\n## 分仓库方案\n\n#### Live Pack\n- 仓库：live_pack\n- 角色定位：本次主改仓\n- 职责：核心状态收敛\n- 选择原因：只修改 live_pack。\n- 仓库现状：主改仓。\n- 主要改动：\n  - 改成功态逻辑\n- 核心改点：\n  - entities/loaders/auction_loaders/auction_status_loader.go\n\n## 仓库依赖关系\n\n- 当前未识别到明确的强依赖关系。\n\n## 接口协议变更\n\n- 本次需求不涉及对外接口协议变更。\n\n## 风险与待确认项\n\n- 当前未沉淀出额外技术风险或待确认项。\n",
                         encoding="utf-8",
                     )
                 return "done"
@@ -2031,7 +2031,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("## 总体方案", design)
             self.assertIn("## 分仓库方案", design)
             self.assertIn("- 仓库：demo_repo", design)
-            self.assertIn("- scope_tier：must_change", design)
+            self.assertIn("- 角色定位：本次主改仓", design)
             self.assertIn("## 任务清单", plan)
             self.assertIn("## 执行顺序", plan)
             self.assertIn("最小范围验证通过", plan)
