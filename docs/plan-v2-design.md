@@ -65,7 +65,7 @@
    - `Code` 难以稳定消费
 
 4. 目录结构不对
-   - 当前 `plan.py / plan_generate.py / plan_render.py / plan_models.py / plan_research.py` 仍是旧时代平铺结构
+   - 当时的 `plan_generate.py / plan_render.py / plan_models.py / plan_research.py` 是旧时代平铺结构
    - 与 `Refine` / `Design` 的 bundle 化、pipeline 化模式不一致
 
 因此 `Plan V2` 的目标不是“在旧 plan 上继续叠逻辑”，而是直接定义新的阶段契约和新的 engine 结构。
@@ -690,7 +690,7 @@ flowchart TD
 - `PlanValidationCheck`
 - `PlanEngineResult`
 
-同时把旧 `plan_models.py` 中混杂的 `DesignAISections`、`ExecutionAISections`、`PlanBuild` 等模型视为待淘汰对象，而不是继续演进。
+同时把旧 `plan_models.py` 中混杂的 `DesignAISections`、`ExecutionAISections`、`PlanBuild` 等模型视为待淘汰对象，而不是继续演进。当前这些共享底座已经迁到 `engines/shared/`，顶层 legacy 文件只保留兼容壳。
 
 ## Migration Strategy
 
@@ -699,8 +699,8 @@ flowchart TD
 1. 新建 `src/coco_flow/engines/plan/`
 2. 新建 `src/coco_flow/prompts/plan/`
 3. 在 workflow 壳接入新的 `run_plan_engine(...)`
-4. 保留旧实现仅作为临时回退，不继续扩展
-5. 新实现稳定后删除旧 `plan.py / plan_generate.py / plan_render.py / plan_models.py / plan_research.py`
+4. 把跨 stage 共用的数据模型和 research 能力收敛到 `src/coco_flow/engines/shared/`
+5. 顶层 legacy 文件只保留兼容壳，纯 legacy render/generate 直接删除
 
 这里的关键原则是：
 

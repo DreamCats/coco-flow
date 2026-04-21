@@ -7,8 +7,8 @@ import subprocess
 
 from coco_flow.config import Settings
 from coco_flow.engines.input.persist import derive_repo_id
-from coco_flow.engines.plan_models import RepoScope
-from coco_flow.engines.plan_research import (
+from coco_flow.engines.shared.models import RepoScope
+from coco_flow.engines.shared.research import (
     build_design_research_signals,
     build_repo_researches,
     parse_refined_sections,

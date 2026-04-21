@@ -6,7 +6,7 @@ import tempfile
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
-from coco_flow.engines.plan_research import qualify_repo_path
+from coco_flow.engines.shared.research import qualify_repo_path
 from coco_flow.prompts.design import build_design_repo_binding_agent_prompt, build_design_repo_binding_template_json
 
 from .models import DesignPreparedInput, DesignRepoBinding, DesignRepoBindingEntry, EXECUTOR_NATIVE

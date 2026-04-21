@@ -8,7 +8,7 @@ from pathlib import Path
 
 from coco_flow.config import Settings
 
-from .plan_models import KnowledgeDocumentLike, RefinedSections, RepoScope
+from .shared.models import KnowledgeDocumentLike, RefinedSections, RepoScope
 
 KNOWLEDGE_KIND_PRIORITY = {"flow": 0, "rule": 1, "domain": 2}
 KNOWLEDGE_KIND_DIRS = {

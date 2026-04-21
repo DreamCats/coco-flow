@@ -483,7 +483,7 @@ class RefineTaskTest(unittest.TestCase):
             self.assertEqual(verify["issues"], ["需要重写"])
 
     def test_plan_research_can_parse_new_refined_sections(self) -> None:
-        from coco_flow.engines.plan_research import parse_refined_sections
+        from coco_flow.engines.shared.research import parse_refined_sections
 
         sections = parse_refined_sections(
             "# PRD Refined\n\n"

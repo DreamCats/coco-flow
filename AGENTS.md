@@ -75,12 +75,12 @@ npm run build
 
 ```bash
 uv run python -m py_compile src/coco_flow/engines/refine/__init__.py
-uv run python -m py_compile src/coco_flow/engines/plan.py
-uv run python -m py_compile src/coco_flow/engines/plan_generate.py
-uv run python -m py_compile src/coco_flow/engines/plan_models.py
+uv run python -m py_compile src/coco_flow/engines/plan/__init__.py
+uv run python -m py_compile src/coco_flow/engines/plan/source.py
+uv run python -m py_compile src/coco_flow/engines/plan/task_outline.py
+uv run python -m py_compile src/coco_flow/engines/shared/models.py
 uv run python -m py_compile src/coco_flow/engines/plan_knowledge.py
-uv run python -m py_compile src/coco_flow/engines/plan_research.py
-uv run python -m py_compile src/coco_flow/engines/plan_render.py
+uv run python -m py_compile src/coco_flow/engines/shared/research.py
 uv run python -m py_compile src/coco_flow/services/tasks/plan.py
 uv run python -m py_compile src/coco_flow/services/tasks/code.py
 uv run python -m unittest discover -s tests -v
@@ -163,12 +163,13 @@ uv run python -m unittest discover -s tests -v
 - `native` 通过 ACP 的 readonly/explorer 模式生成 `design.md` 和 `plan.md`
 - `local` 会基于 refined PRD、本地 context 和代码调研生成本地方案
 - `plan` 当前内部已拆成 orchestrator + 多模块：
-  - `src/coco_flow/engines/plan.py`：主流程编排、native/local 调度、artifact 组织
-  - `src/coco_flow/engines/plan_generate.py`：scope prompt、generator prompt、AI 输出解析、candidate file 归一化
-  - `src/coco_flow/engines/plan_models.py`：数据模型
+  - `src/coco_flow/engines/plan/pipeline.py`：主流程编排、native/local 调度、artifact 组织
+  - `src/coco_flow/engines/plan/source.py`：读取上游产物并准备 plan 输入
+  - `src/coco_flow/engines/plan/task_outline.py`：生成/归一化 `plan-work-items.json`
+  - `src/coco_flow/engines/plan/generate.py`：生成 `plan.md`
+  - `src/coco_flow/engines/plan/graph.py`、`validation.py`、`verify.py`：执行图、验证矩阵与 verify
+  - `src/coco_flow/engines/shared/models.py`、`shared/research.py`：Design / Plan 共用的共享模型与 repo research 能力
   - `src/coco_flow/engines/plan_knowledge.py`：approved knowledge 的规则筛选与 brief 构建
-  - `src/coco_flow/engines/plan_research.py`：repo context / glossary / candidate files 调研
-  - `src/coco_flow/engines/plan_render.py`：`design.md` / `plan.md` 与任务列表渲染
 - `native plan` 当前已升级成三段式 LLM 编排：
   - `scope extractor`
   - `plan generator`

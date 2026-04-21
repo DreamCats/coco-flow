@@ -79,7 +79,7 @@ Day 3:
 | `prompts/design/verify.py` | verify 检查项更新到新 section 结构 |
 | `engines/design/generate.py` | `generate_local_design_markdown()` 完全重写（从 ~110 行削减到 ~70 行）；`build_design_sections_payload()` 裁剪废弃字段，保留 protocol_changes 用于接口协议变更 section，增加 risk_boundaries；`collect_design_contract_issues()` 更新 section 检查 |
 | `engines/design/models.py` | `DesignEngineResult` 无需改动（产物字段不变，只是 markdown 格式变了）|
-| `engines/plan_models.py` | 删除 `StorageConfigChange`, `ExperimentChange`, `StaffingEstimate` 三个 dataclass；保留 `ProtocolChange`（重命名为 `InterfaceChange`）；`DesignAISections` 和 `DesignSections` 裁剪字段 |
+| `engines/shared/models.py` | 删除 `StorageConfigChange`, `ExperimentChange`, `StaffingEstimate` 三个 dataclass；保留 `ProtocolChange`（重命名为 `InterfaceChange`）；`DesignAISections` 和 `DesignSections` 裁剪字段 |
 | `prompts/design/responsibility_matrix.py` | 无改动（矩阵是中间产物，不影响最终文档）|
 
 ### 2.2 关键设计决策
