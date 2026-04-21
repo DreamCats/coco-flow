@@ -113,8 +113,10 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
             solution_overview += " 其它仓库仅作为联动验证对象，不默认纳入主改造面。"
     else:
         solution_overview = f"优先围绕 {repo_binding_payload.get('decision_summary') or prepared.title} 收敛设计边界。"
+    system_change_points = _build_system_change_points(prepared, repo_decisions, system_changes, validate_repos)
+    critical_flows = _build_critical_flows(prepared, repo_decisions, system_change_points)
     return {
-        "system_change_points": prepared.sections.change_scope[:6] or [prepared.title],
+        "system_change_points": system_change_points,
         "solution_overview": solution_overview,
         "closure_mode": closure_mode,
         "selection_basis": selection_basis,
@@ -124,15 +126,7 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
         "repo_decisions": repo_decisions,
         "validate_repos": validate_repos,
         "reference_repos": reference_repos,
-        "critical_flows": [
-            {
-                "name": "主链路",
-                "trigger": prepared.sections.change_scope[0] if prepared.sections.change_scope else prepared.title,
-                "steps": prepared.sections.acceptance_criteria[:4] or prepared.sections.change_scope[:4] or [prepared.title],
-                "state_changes": prepared.sections.key_constraints[:3],
-                "fallback_or_error_handling": prepared.sections.open_questions[:3] or prepared.sections.non_goals[:3],
-            }
-        ],
+        "critical_flows": critical_flows,
         "protocol_changes": [{"boundary_name": "default", "changed": False, "summary": "当前未发现明确协议变更。", "impacted_systems": [], "compatibility_notes": []}],
         "storage_config_changes": [{"category": "config", "changed": False, "summary": "当前未发现明确存储或配置变更。", "affected_items": [], "rollout_notes": []}],
         "experiment_changes": [{"changed": False, "experiment_name": "", "traffic_scope": "", "affected_flows": [], "rollout_notes": [], "rollback_notes": []}],
@@ -212,7 +206,7 @@ def generate_local_design_markdown(
             change_summary = item.get("change_summary") or []
             if isinstance(change_summary, list):
                 lines.extend(f"  - {str(value)}" for value in change_summary[:4] if str(value).strip())
-            candidate_files = item.get("candidate_files") or []
+            candidate_files = note.get("candidate_files") or item.get("candidate_files") or []
             if isinstance(candidate_files, list) and candidate_files:
                 lines.append("- 候选文件：")
                 lines.extend(f"  - {str(value)}" for value in candidate_files[:6] if str(value).strip())
@@ -567,24 +561,16 @@ def _build_repo_decision_note(
     responsibility = str(binding_item.get("responsibility") or "").strip()
     repo_summary = str(research_entry.get("summary") or "").strip()
     evidence = [str(value) for value in research_entry.get("evidence", []) if str(value).strip()] if isinstance(research_entry.get("evidence"), list) else []
-    candidate_files = [
-        str(value)
-        for value in (
-            binding_item.get("candidate_files")
-            if isinstance(binding_item.get("candidate_files"), list)
-            else research_entry.get("candidate_files", [])
-        )[:6]
-        if str(value).strip()
-    ]
-    candidate_dirs = [
-        str(value)
-        for value in (
-            binding_item.get("candidate_dirs")
-            if isinstance(binding_item.get("candidate_dirs"), list)
-            else research_entry.get("candidate_dirs", [])
-        )[:6]
-        if str(value).strip()
-    ]
+    candidate_files = _preferred_note_paths(
+        research_entry.get("candidate_files", []),
+        binding_item.get("candidate_files", []),
+        limit=6,
+    )
+    candidate_dirs = _preferred_note_paths(
+        research_entry.get("candidate_dirs", []),
+        binding_item.get("candidate_dirs", []),
+        limit=6,
+    )
     decision_reason = ""
     if scope_tier in {"must_change", "co_change"}:
         decision_reason = reason or "承担本次核心改造，因此纳入主改造面。"
@@ -611,6 +597,138 @@ def _build_repo_decision_note(
         "candidate_dirs": candidate_dirs,
         "evidence": evidence[:4],
     }
+
+
+def _build_system_change_points(
+    prepared: DesignPreparedInput,
+    repo_decisions: list[dict[str, object]],
+    system_changes: list[dict[str, object]],
+    validate_repos: list[dict[str, object]],
+) -> list[str]:
+    lines: list[str] = []
+    if system_changes:
+        primary_change = _first_meaningful_line(
+            value
+            for change in system_changes
+            for value in (change.get("planned_changes") or [])
+        )
+        if primary_change:
+            primary_repo = str(system_changes[0].get("system_id") or system_changes[0].get("system_name") or "").strip()
+            if primary_repo:
+                lines.append(f"以 {primary_repo} 为主改仓，收敛 {primary_change}")
+            else:
+                lines.append(primary_change)
+    focus_files = _collect_focus_files(repo_decisions, limit=3)
+    if focus_files:
+        lines.append(f"优先统一 {', '.join(focus_files)} 等命中路径的状态判定与讲解卡数据装配逻辑。")
+        if len(focus_files) >= 2:
+            lines.append("需要同步收敛主路径和兼容返回路径，避免同一竞拍在不同入口下状态表达不一致。")
+    elif prepared.sections.acceptance_criteria:
+        lines.append(str(prepared.sections.acceptance_criteria[0]).strip())
+    if validate_repos:
+        repo_text = "、".join(str(item.get("repo_id") or "").strip() for item in validate_repos if str(item.get("repo_id") or "").strip())
+        if repo_text:
+            lines.append(f"{repo_text} 仅作为联动验证仓库，不纳入本次主改造面。")
+    boundary_line = _build_boundary_line(prepared.sections.non_goals[:3])
+    if boundary_line:
+        lines.append(boundary_line)
+    return _dedupe_non_empty(lines)[:6] or [prepared.title]
+
+
+def _build_critical_flows(
+    prepared: DesignPreparedInput,
+    repo_decisions: list[dict[str, object]],
+    system_change_points: list[str],
+) -> list[dict[str, object]]:
+    focus_files = _collect_focus_files(repo_decisions, limit=3)
+    focus_dirs = _collect_focus_dirs(repo_decisions, limit=2)
+    steps: list[str] = []
+    if focus_files:
+        steps.append(f"先确认 {focus_files[0]} 中的核心状态判定口径。")
+    if len(focus_files) >= 2:
+        steps.append(f"再同步 {focus_files[1]} 等其它讲解卡返回路径，确保成交态与结束态表达一致。")
+    elif focus_dirs:
+        steps.append(f"再沿 {focus_dirs[0]} 等命中目录补齐相关返回链路。")
+    if prepared.sections.acceptance_criteria:
+        acceptance_line = str(prepared.sections.acceptance_criteria[0]).strip()
+        if acceptance_line:
+            steps.append(f"最后校验 {acceptance_line}。")
+    state_changes = _dedupe_non_empty(
+        [
+            "若只修改单一路径，可能导致同一竞拍在不同入口下状态不一致。" if len(focus_files) >= 2 else "",
+            *[str(item).strip() for item in prepared.sections.key_constraints[:2] if str(item).strip()],
+        ]
+    )
+    fallback_or_error_handling = _dedupe_non_empty(
+        [
+            _build_boundary_line(prepared.sections.non_goals[:3]),
+            *[str(item).strip() for item in prepared.sections.open_questions[:2] if str(item).strip()],
+        ]
+    )
+    return [
+        {
+            "name": "主链路",
+            "trigger": system_change_points[0] if system_change_points else prepared.title,
+            "steps": _dedupe_non_empty(steps)[:4] or [prepared.title],
+            "state_changes": state_changes[:3],
+            "fallback_or_error_handling": fallback_or_error_handling[:3],
+        }
+    ]
+
+
+def _collect_focus_files(repo_decisions: list[dict[str, object]], *, limit: int) -> list[str]:
+    return _dedupe_non_empty(
+        str(value).strip()
+        for note in repo_decisions
+        if isinstance(note, dict) and str(note.get("scope_tier") or "") in {"must_change", "co_change"}
+        for value in (note.get("candidate_files") or [])
+    )[:limit]
+
+
+def _collect_focus_dirs(repo_decisions: list[dict[str, object]], *, limit: int) -> list[str]:
+    return _dedupe_non_empty(
+        str(value).strip()
+        for note in repo_decisions
+        if isinstance(note, dict) and str(note.get("scope_tier") or "") in {"must_change", "co_change"}
+        for value in (note.get("candidate_dirs") or [])
+    )[:limit]
+
+
+def _first_meaningful_line(values) -> str:
+    for raw in values:
+        text = str(raw).strip()
+        if text:
+            return text
+    return ""
+
+
+def _build_boundary_line(values) -> str:
+    items = [str(value).strip() for value in values if str(value).strip()]
+    if not items:
+        return ""
+    return "边界保持：" + "；".join(items[:3]) + "。"
+
+
+def _preferred_note_paths(primary_values, fallback_values, *, limit: int) -> list[str]:
+    primary = _dedupe_non_empty(str(value).strip() for value in (primary_values if isinstance(primary_values, list) else []) if str(value).strip())
+    if primary:
+        return primary[:limit]
+    return _dedupe_non_empty(str(value).strip() for value in (fallback_values if isinstance(fallback_values, list) else []) if str(value).strip())[:limit]
+
+
+def _dedupe_non_empty(values) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        text = str(raw).strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return result
 
 
 def _render_solution_overview_lines(sections_payload: dict[str, object], fallback_title: str) -> list[str]:

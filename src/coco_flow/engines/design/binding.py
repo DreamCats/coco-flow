@@ -37,8 +37,20 @@ def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding
         tier = str(matrix_entry.get("recommended_scope_tier") or "reference_only")
         decision = "in_scope" if tier in {"must_change", "co_change", "validate_only", "reference_only"} else "out_of_scope"
         system_name = repo.finding.matched_terms[0].business if repo.finding.matched_terms else repo.repo_id
-        candidate_dirs = [qualify_repo_path(repo.repo_id, item, repo_count) for item in repo.finding.candidate_dirs[:6]]
-        candidate_files = [qualify_repo_path(repo.repo_id, item, repo_count) for item in repo.finding.candidate_files[:8]]
+        candidate_dirs = _preferred_repo_paths(
+            repo.repo_id,
+            repo_count,
+            research_entry.get("candidate_dirs", []),
+            repo.finding.candidate_dirs,
+            limit=6,
+        )
+        candidate_files = _preferred_repo_paths(
+            repo.repo_id,
+            repo_count,
+            research_entry.get("candidate_files", []),
+            repo.finding.candidate_files,
+            limit=8,
+        )
         entry = DesignRepoBindingEntry(
             repo_id=repo.repo_id,
             repo_path=repo.repo_path,
@@ -274,6 +286,39 @@ def _priority_from_scope_tier(scope_tier: str) -> int:
     if scope_tier == "reference_only":
         return 1
     return 0
+
+
+def _preferred_repo_paths(
+    repo_id: str,
+    repo_count: int,
+    primary_values,
+    fallback_values,
+    *,
+    limit: int,
+) -> list[str]:
+    preferred = _qualified_repo_paths(repo_id, repo_count, primary_values, limit=limit)
+    if preferred:
+        return preferred
+    return _qualified_repo_paths(repo_id, repo_count, fallback_values, limit=limit)
+
+
+def _qualified_repo_paths(repo_id: str, repo_count: int, values, *, limit: int) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        text = str(raw).strip()
+        if not text:
+            continue
+        qualified = qualify_repo_path(repo_id, text, repo_count)
+        if qualified in seen:
+            continue
+        seen.add(qualified)
+        result.append(qualified)
+        if len(result) >= limit:
+            break
+    return result
 
 
 def _responsibility_from_matrix_or_summary(
