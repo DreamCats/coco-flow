@@ -88,10 +88,8 @@ class DesignResearchSignals:
     system_summaries: list[str] = field(default_factory=list)
     system_dependencies: list[str] = field(default_factory=list)
     critical_flows: list[str] = field(default_factory=list)
-    protocol_changes: list[str] = field(default_factory=list)
-    storage_config_changes: list[str] = field(default_factory=list)
-    experiment_changes: list[str] = field(default_factory=list)
-    qa_inputs: list[str] = field(default_factory=list)
+    interface_changes: list[str] = field(default_factory=list)
+    risk_boundaries: list[str] = field(default_factory=list)
 
 
 @dataclass

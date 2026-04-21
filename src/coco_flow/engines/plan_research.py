@@ -173,10 +173,8 @@ def build_design_research_signals(repo_researches: list[RepoResearch], sections:
     system_summaries: list[str] = []
     system_dependencies: list[str] = []
     critical_flows: list[str] = []
-    protocol_changes: list[str] = []
-    storage_config_changes: list[str] = []
-    experiment_changes: list[str] = []
-    qa_inputs: list[str] = []
+    interface_changes: list[str] = []
+    risk_boundaries: list[str] = []
 
     previous_repo = ""
     for repo in repo_researches:
@@ -210,55 +208,29 @@ def build_design_research_signals(repo_researches: list[RepoResearch], sections:
             if file_path.endswith((".proto", ".thrift")) or "/handler/" in file_path or "/api/" in file_path
         ]
         if protocol_candidates:
-            protocol_changes.append(
+            interface_changes.append(
                 f"{repo.repo_id} 检测到接口或协议边界变更信号，重点确认 {', '.join(protocol_candidates[:3])} 的上下游兼容性。"
             )
 
-        storage_candidates = [
-            file_path
-            for file_path in candidate_files
-            if any(keyword in file_path.lower() for keyword in ("config", "dao", "repo", "model", "store", "cache"))
-        ]
-        if storage_candidates:
-            storage_config_changes.append(
-                f"{repo.repo_id} 检测到存储或配置变更信号，重点确认 {', '.join(storage_candidates[:3])} 的默认行为和回滚方式。"
-            )
-
-        experiment_candidates = [
-            file_path
-            for file_path in candidate_files
-            if any(keyword in file_path.lower() for keyword in ("ab", "experiment", "grey", "gray", "feature", "switch"))
-        ]
-        if experiment_candidates:
-            experiment_changes.append(
-                f"{repo.repo_id} 检测到实验或开关变更信号，重点确认 {', '.join(experiment_candidates[:3])} 的生效范围。"
-            )
-
     joined_sections = "\n".join([*sections.change_scope, *sections.key_constraints, *sections.open_questions])
-    if contains_any(joined_sections, "协议", "接口", "rpc", "字段", "请求", "返回") and not protocol_changes:
-        protocol_changes.append("需求描述中存在协议或字段变更信号，需要重点确认上下游兼容性。")
-    if contains_any(joined_sections, "数据库", "配置", "缓存", "tcc", "持久化", "状态") and not storage_config_changes:
-        storage_config_changes.append("需求描述中存在存储或配置层变更信号，需要确认上线和回滚策略。")
-    if contains_any(joined_sections, "实验", "灰度", "开关", "ab", "bucket") and not experiment_changes:
-        experiment_changes.append("需求描述中存在实验或灰度开关信号，需要确认流量范围和回滚策略。")
+    if contains_any(joined_sections, "协议", "接口", "rpc", "字段", "请求", "返回") and not interface_changes:
+        interface_changes.append("需求描述中存在协议或字段变更信号，需要重点确认上下游兼容性。")
 
-    if sections.acceptance_criteria:
-        qa_inputs.extend(f"主链路验证：{item}" for item in sections.acceptance_criteria[:4])
     if sections.key_constraints:
-        qa_inputs.extend(f"关键约束校验：{item}" for item in sections.key_constraints[:4])
+        risk_boundaries.extend(f"关键约束：{item}" for item in sections.key_constraints[:4])
     if sections.non_goals:
-        qa_inputs.extend(f"非目标回归：重点确认 {item}" for item in sections.non_goals[:3])
+        risk_boundaries.extend(f"边界保持：{item}" for item in sections.non_goals[:3])
     if sections.open_questions:
-        qa_inputs.extend(f"待确认项：{item}" for item in sections.open_questions[:4])
+        risk_boundaries.extend(f"待确认项：{item}" for item in sections.open_questions[:4])
+    if sections.acceptance_criteria and not risk_boundaries:
+        risk_boundaries.extend(f"验收校验：{item}" for item in sections.acceptance_criteria[:3])
 
     return DesignResearchSignals(
         system_summaries=dedupe_terms(system_summaries),
         system_dependencies=dedupe_terms(system_dependencies),
         critical_flows=dedupe_terms(critical_flows),
-        protocol_changes=dedupe_terms(protocol_changes),
-        storage_config_changes=dedupe_terms(storage_config_changes),
-        experiment_changes=dedupe_terms(experiment_changes),
-        qa_inputs=dedupe_terms(qa_inputs),
+        interface_changes=dedupe_terms(interface_changes),
+        risk_boundaries=dedupe_terms(risk_boundaries),
     )
 
 

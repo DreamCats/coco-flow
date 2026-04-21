@@ -21,11 +21,8 @@ DESIGN_SECTION_MARKERS = {
     "solution_overview": "=== SOLUTION OVERVIEW ===",
     "system_dependencies": "=== SYSTEM DEPENDENCIES ===",
     "critical_flows": "=== CRITICAL FLOWS ===",
-    "protocol_changes": "=== PROTOCOL CHANGES ===",
-    "storage_config_changes": "=== STORAGE CONFIG CHANGES ===",
-    "experiment_changes": "=== EXPERIMENT CHANGES ===",
-    "qa_inputs": "=== QA INPUTS ===",
-    "staffing_estimate": "=== STAFFING ESTIMATE ===",
+    "interface_changes": "=== INTERFACE CHANGES ===",
+    "risk_boundaries": "=== RISK BOUNDARIES ===",
 }
 
 EXECUTION_SECTION_MARKERS = {
@@ -47,7 +44,7 @@ def build_design_prompt(build: PlanBuild) -> str:
     return f"""你是一名资深技术设计助手。基于提供的 refined PRD、本地 context 和代码调研结果，输出面向研发的 design 内容。
 
 要求：
-1. 只能基于提供的信息工作，不要编造未出现的模块、文件、协议或实验。
+1. 只能基于提供的信息工作，不要编造未出现的模块、文件、接口或风险结论。
 2. 重点服务 design.md，不要写成执行任务列表。
 3. 输出必须严格使用下面的标记格式：
 {DESIGN_SECTION_MARKERS["system_change_points"]}
@@ -58,15 +55,9 @@ def build_design_prompt(build: PlanBuild) -> str:
 - ...
 {DESIGN_SECTION_MARKERS["critical_flows"]}
 - ...
-{DESIGN_SECTION_MARKERS["protocol_changes"]}
+{DESIGN_SECTION_MARKERS["interface_changes"]}
 - ...
-{DESIGN_SECTION_MARKERS["storage_config_changes"]}
-- ...
-{DESIGN_SECTION_MARKERS["experiment_changes"]}
-- ...
-{DESIGN_SECTION_MARKERS["qa_inputs"]}
-- ...
-{DESIGN_SECTION_MARKERS["staffing_estimate"]}
+{DESIGN_SECTION_MARKERS["risk_boundaries"]}
 - ...
 4. 不要输出其它前言或解释。
 
@@ -115,7 +106,8 @@ def validate_design_outputs(build: PlanBuild, ai: DesignAISections) -> None:
             ai.solution_overview,
             ai.system_dependencies,
             ai.critical_flows,
-            ai.qa_inputs,
+            ai.interface_changes,
+            ai.risk_boundaries,
         ]
     )
     for marker in ("(待生成)", "(待确认)", "未初始化"):
@@ -145,7 +137,7 @@ def build_design_verify_prompt(build: PlanBuild, ai: DesignAISections) -> str:
 3. 重点检查：
    - 系统改造点是否清楚
    - 总体方案和系统依赖关系是否完整
-   - 是否把协议、配置、实验、QA 等专项项至少给出明确结论
+   - 是否把接口变更与风险边界至少给出明确结论
    - 是否明显脱离当前候选文件和调研范围
 
 ## Scope
@@ -167,20 +159,11 @@ system_dependencies:
 critical_flows:
 {ai.critical_flows}
 
-protocol_changes:
-{ai.protocol_changes}
+interface_changes:
+{ai.interface_changes}
 
-storage_config_changes:
-{ai.storage_config_changes}
-
-experiment_changes:
-{ai.experiment_changes}
-
-qa_inputs:
-{ai.qa_inputs}
-
-staffing_estimate:
-{ai.staffing_estimate}
+risk_boundaries:
+{ai.risk_boundaries}
 """
 
 
@@ -227,8 +210,11 @@ system_dependencies:
 critical_flows:
 {ai_list_or_default(design_ai.critical_flows)}
 
-qa_inputs:
-{ai_list_or_default(design_ai.qa_inputs)}
+interface_changes:
+{ai_list_or_default(design_ai.interface_changes)}
+
+risk_boundaries:
+{ai_list_or_default(design_ai.risk_boundaries)}
 
 ## Plan Scope
 {render_plan_scope_summary(build.llm_scope)}

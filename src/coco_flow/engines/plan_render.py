@@ -26,36 +26,23 @@ def build_design(build: PlanBuild, ai: PlanAISections | None) -> str:
         "# Design\n\n",
         f"- task_id: {build.task_id}\n",
         f"- title: {build.title}\n\n",
-        "## 系统改造点\n\n",
+        "## 改造点总览\n\n",
         render_system_change_points(build.sections, ai),
         "\n\n",
-        "## 方案设计\n\n",
-        "### 总体方案\n\n",
+        "## 总体方案\n\n",
         render_solution_overview(build, ai),
         "\n\n",
-        "### 分系统改造\n\n",
+        "## 分仓库方案\n\n",
         render_system_change_details(build, tasks, ai),
         "\n\n",
-        "### 系统依赖关系\n\n",
+        "## 仓库依赖关系\n\n",
         render_system_dependencies(build, tasks, ai),
         "\n\n",
-        "### 关键链路说明\n\n",
-        render_critical_flows(build, ai),
+        "## 接口协议变更\n\n",
+        render_interface_changes(build, ai),
         "\n\n",
-        "## 多端协议是否有变更\n\n",
-        render_protocol_changes(build, ai),
-        "\n\n",
-        "## 存储&&配置是否有变更\n\n",
-        render_storage_config_changes(build, ai),
-        "\n\n",
-        "## 是否有实验，实验怎么涉及\n\n",
-        render_experiment_changes(build, ai),
-        "\n\n",
-        "## 给 QA 的输入\n\n",
-        render_qa_inputs(build, ai),
-        "\n\n",
-        "## 人力评估\n\n",
-        render_staffing_estimate(build, tasks, ai),
+        "## 风险与待确认项\n\n",
+        render_risk_boundaries(build, ai),
         "\n",
     ]
     return "".join(parts)
@@ -68,19 +55,16 @@ def build_plan(build: PlanBuild, ai: PlanAISections | None) -> str:
         f"- task_id: {build.task_id}\n",
         f"- title: {build.title}\n",
         f"- complexity: {build.assessment.level} ({build.assessment.total})\n\n",
-        "## 实施策略\n\n",
-        render_execution_strategy(build, execution.tasks, ai),
-        "\n\n",
-        "## 任务拆分\n\n",
+        "## 任务清单\n\n",
         render_plan_tasks(execution.tasks),
         "\n\n",
         "## 执行顺序\n\n",
         render_execution_order(execution.tasks),
         "\n\n",
-        "## 验证计划\n\n",
+        "## 验证策略\n\n",
         render_validation_plan(execution.tasks, build.finding.notes, ai),
         "\n\n",
-        "## 阻塞项与风险\n\n",
+        "## 风险与阻塞项\n\n",
         render_blockers_and_risks(build, ai),
         "\n",
     ]
@@ -448,12 +432,12 @@ def render_critical_flows(build: PlanBuild, ai: PlanAISections | None) -> str:
     return "\n".join(lines) if lines else "- 当前未沉淀出额外的关键链路说明。"
 
 
-def render_protocol_changes(build: PlanBuild, ai: PlanAISections | None = None) -> str:
+def render_interface_changes(build: PlanBuild, ai: PlanAISections | None = None) -> str:
     lines: list[str] = []
-    if build.research_signals.protocol_changes:
-        lines.extend(build.research_signals.protocol_changes)
-    if ai and ai.design.protocol_changes.strip():
-        lines.extend(parse_markdown_items(ai.design.protocol_changes))
+    if build.research_signals.interface_changes:
+        lines.extend(build.research_signals.interface_changes)
+    if ai and ai.design.interface_changes.strip():
+        lines.extend(parse_markdown_items(ai.design.interface_changes))
     if lines:
         return "\n".join(f"- {item}" for item in unique_items(lines))
     matched_files = [
@@ -461,107 +445,34 @@ def render_protocol_changes(build: PlanBuild, ai: PlanAISections | None = None) 
     ]
     signal_text = "\n".join([*build.sections.change_scope, *build.sections.key_constraints, *build.sections.acceptance_criteria])
     if matched_files or contains_keywords(signal_text, "协议", "接口", "rpc", "字段", "请求", "返回"):
-        lines = ["- 检测到可能存在多端协议或接口边界调整，需要重点确认上下游字段兼容性。"]
+        lines = ["- 检测到可能存在接口或协议边界调整，需要重点确认上下游字段兼容性。"]
         if matched_files:
             lines.append("- 候选影响文件：")
             lines.extend(f"  - {file_path}" for file_path in matched_files[:6])
         return "\n".join(lines)
-    return "- 当前未发现明确的多端协议变更信号。"
+    return "- 当前未发现明确的接口协议变更信号。"
 
 
-def render_storage_config_changes(build: PlanBuild, ai: PlanAISections | None = None) -> str:
+def render_risk_boundaries(build: PlanBuild, ai: PlanAISections | None = None) -> str:
     lines: list[str] = []
-    if build.research_signals.storage_config_changes:
-        lines.extend(build.research_signals.storage_config_changes)
-    if ai and ai.design.storage_config_changes.strip():
-        lines.extend(parse_markdown_items(ai.design.storage_config_changes))
+    if build.research_signals.risk_boundaries:
+        lines.extend(build.research_signals.risk_boundaries)
+    if ai and ai.design.risk_boundaries.strip():
+        lines.extend(parse_markdown_items(ai.design.risk_boundaries))
     if lines:
         return "\n".join(f"- {item}" for item in unique_items(lines))
-    matched_files = [
-        file_path
-        for file_path in build.finding.candidate_files
-        if any(keyword in file_path.lower() for keyword in ("config", "dao", "repo", "model", "store"))
-    ]
-    signal_text = "\n".join([*build.sections.change_scope, *build.sections.key_constraints, *build.sections.non_goals])
-    if matched_files or contains_keywords(signal_text, "数据库", "配置", "缓存", "tcc", "状态", "持久化"):
-        lines = ["- 检测到可能存在存储或配置层变更，需要确认上线、回滚和默认行为。"]
-        if matched_files:
-            lines.append("- 候选影响文件：")
-            lines.extend(f"  - {file_path}" for file_path in matched_files[:6])
-        return "\n".join(lines)
-    return "- 当前未发现明确的存储或配置变更信号。"
-
-
-def render_experiment_changes(build: PlanBuild, ai: PlanAISections | None = None) -> str:
-    lines: list[str] = []
-    if build.research_signals.experiment_changes:
-        lines.extend(build.research_signals.experiment_changes)
-    if ai and ai.design.experiment_changes.strip():
-        lines.extend(parse_markdown_items(ai.design.experiment_changes))
-    if lines:
-        return "\n".join(f"- {item}" for item in unique_items(lines))
-    signal_text = "\n".join([*build.sections.change_scope, *build.sections.key_constraints, *build.sections.open_questions])
-    if contains_keywords(signal_text, "实验", "灰度", "开关", "ab", "bucket"):
-        return "\n".join(
-            [
-                "- 检测到可能存在实验或灰度开关影响，需要确认实验入口、流量范围和回滚策略。",
-                "- 建议在进入 code 前补齐实验开关位置和生效链路。",
-            ]
-        )
-    return "- 当前未发现明确的实验设计变更信号。"
-
-
-def render_qa_inputs(build: PlanBuild, ai: PlanAISections | None) -> str:
-    lines: list[str] = []
-    if build.research_signals.qa_inputs:
-        lines.extend(f"- {item}" for item in build.research_signals.qa_inputs[:8])
-    if ai and ai.design.qa_inputs.strip():
-        lines.extend(f"- {item}" for item in parse_markdown_items(ai.design.qa_inputs))
-    if build.sections.acceptance_criteria:
-        lines.append("- 主链路测试建议：")
-        lines.extend(f"  - {item}" for item in build.sections.acceptance_criteria[:4])
     if build.sections.key_constraints:
-        lines.append("- 关键约束校验：")
-        lines.extend(f"  - {item}" for item in build.sections.key_constraints[:4])
+        lines.extend(f"- 关键约束：{item}" for item in build.sections.key_constraints[:3])
     if build.sections.non_goals:
-        lines.append("- 非目标回归：")
-        lines.extend(f"  - 重点确认 {item}" for item in build.sections.non_goals[:3])
+        lines.extend(f"- 边界保持：{item}" for item in build.sections.non_goals[:3])
     if build.sections.open_questions:
-        lines.append("- 待确认项：")
-        lines.extend(f"  - {item}" for item in build.sections.open_questions[:4])
-    return "\n".join(lines) if lines else "- 当前未生成额外 QA 输入。"
-
-
-def render_staffing_estimate(build: PlanBuild, tasks: list[PlanTaskSpec], ai: PlanAISections | None = None) -> str:
-    if ai and ai.design.staffing_estimate.strip():
-        return ensure_markdown_list(ai.design.staffing_estimate)
-    lines = [
-        f"- 当前复杂度评估：{build.assessment.level} ({build.assessment.total})。",
-        f"- 涉及仓库数：{len(build.repo_scopes)}。",
-        f"- 当前任务拆分数：{len(tasks)}。",
-        "- 当前未生成精确人天估算，建议在任务拆分评审后补齐具体人力安排。",
-    ]
-    return "\n".join(lines)
-
-
-def render_execution_strategy(build: PlanBuild, tasks: list[PlanTaskSpec], ai: PlanAISections | None) -> str:
-    lines = ["- 优先围绕受影响系统/仓库收敛最小改动范围，再按依赖顺序推进实现。"]
-    if ai and ai.execution.execution_strategy.strip():
-        lines.extend(parse_markdown_items(ai.execution.execution_strategy))
-    if tasks:
-        lines.append(f"- 建议从 {tasks[0].id} 开始执行，并按任务依赖逐步收口。")
-    if build.llm_scope.summary:
-        lines.append(f"- 范围摘要：{build.llm_scope.summary}")
-    if build.llm_scope.priorities:
-        lines.extend(f"- 优先事项：{item}" for item in build.llm_scope.priorities[:3])
-    if build.assessment.total > 6:
-        lines.append("- 当前复杂度偏高，建议先人工确认关键依赖，再决定是否进入自动 code。")
-    return ensure_markdown_list("\n".join(lines))
+        lines.extend(f"- 待确认项：{item}" for item in build.sections.open_questions[:3])
+    return "\n".join(lines) if lines else "- 当前未发现额外风险与待确认项。"
 
 
 def render_plan_tasks(tasks: list[PlanTaskSpec]) -> str:
     if not tasks:
-        return "- 暂未生成任务拆分，需要先收敛候选改动范围。"
+        return "- 暂未生成任务清单，需要先收敛候选改动范围。"
     blocks: list[str] = []
     for task in tasks:
         blocks.extend(
@@ -569,17 +480,15 @@ def render_plan_tasks(tasks: list[PlanTaskSpec]) -> str:
                 f"### {task.id} {task.title}",
                 "",
                 f"- 目标系统/仓库：{task.target_system_or_repo}",
-                f"- 服务改造点：{', '.join(str(item) for item in task.serves_change_points) if task.serves_change_points else '无'}",
                 f"- 目标：{task.goal}",
                 f"- 依赖：{', '.join(task.depends_on) if task.depends_on else '无'}",
-                f"- 可并行任务：{', '.join(task.parallelizable_with) if task.parallelizable_with else '无'}",
-                "- 修改范围：",
+                "- 改动范围：",
             ]
         )
         blocks.extend(f"  - {item}" for item in task.change_scope)
-        blocks.append("- 实施动作：")
+        blocks.append("- 具体做什么：")
         blocks.extend(f"  - {item}" for item in task.actions)
-        blocks.append("- 完成定义：")
+        blocks.append("- 完成标准：")
         blocks.extend(f"  - {item}" for item in task.done_definition)
         blocks.append("- 验证方式：")
         blocks.extend(f"  - {item}" for item in task.verify_rule)
