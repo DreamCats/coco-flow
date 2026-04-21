@@ -76,11 +76,13 @@ function buildStageActions(task: TaskRecord, stage: TaskStage, stages: TaskStage
   if (stage.id === 'refine') {
     const disabledByInput = task.status === 'input_processing' || task.status === 'input_failed'
     const refining = task.status === 'refining'
+    const downstreamRunning = new Set(['designing', 'planning', 'coding']).has(task.status)
+    const canRestart = stage.status === 'done' || new Set(['designed', 'planned', 'partially_coded', 'coded', 'failed']).has(task.status)
     return [
       {
-        label: busyAction === 'refine' || refining ? '提炼中...' : '开始提炼',
+        label: busyAction === 'refine' || refining ? '提炼中...' : downstreamRunning ? '等待当前阶段完成' : canRestart ? '重新提炼' : '开始提炼',
         onClick: handlers.onStartRefine,
-        disabled: refining || disabledByInput || (busyAction !== '' && busyAction !== 'refine'),
+        disabled: refining || disabledByInput || downstreamRunning || (busyAction !== '' && busyAction !== 'refine'),
         tone: 'primary' as const,
       },
     ]

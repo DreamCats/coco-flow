@@ -85,13 +85,23 @@ def start_refining_task(task_id: str, settings: Settings | None = None) -> str:
         raise ValueError(f"task metadata missing: {task_id}")
 
     status = str(task_meta.get("status") or "")
-    if status not in {STATUS_INITIALIZED, STATUS_INPUT_READY, STATUS_REFINED}:
+    if status not in {
+        STATUS_INITIALIZED,
+        STATUS_INPUT_READY,
+        STATUS_REFINED,
+        "designed",
+        "planned",
+        "partially_coded",
+        "coded",
+        "failed",
+    }:
         raise ValueError(f"task status {status} does not allow refine")
 
     _reset_refine_outputs(task_dir)
     task_meta["status"] = STATUS_REFINING
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
     (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _sync_repo_status(task_dir, STATUS_INITIALIZED)
     return STATUS_REFINING
 
 
@@ -164,3 +174,19 @@ def _reset_refine_outputs(task_dir: Path) -> None:
         path = task_dir / directory
         if path.exists():
             shutil.rmtree(path)
+
+
+def _sync_repo_status(task_dir: Path, status: str) -> None:
+    repos_path = task_dir / "repos.json"
+    repos_meta = read_json_file(repos_path)
+    raw_repos = repos_meta.get("repos")
+    if not isinstance(raw_repos, list):
+        return
+    changed = False
+    for item in raw_repos:
+        if not isinstance(item, dict):
+            continue
+        item["status"] = status
+        changed = True
+    if changed:
+        repos_path.write_text(json.dumps(repos_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

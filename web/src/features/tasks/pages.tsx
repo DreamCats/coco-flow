@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
+import { ConfirmationModal } from '../../components/confirmation-modal'
 import { PanelMessage } from '../../components/ui-primitives'
 import { useAppData } from '../../hooks/use-app-data'
 import { defaultStageForTask, buildTaskStages, truncateTaskTitle, type TaskStageID } from './model'
@@ -62,46 +63,61 @@ export function TaskDetailPage() {
   }
 
   return (
-    <div className="space-y-4 lg:h-full lg:overflow-y-auto lg:pr-1">
-      <header className="rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0 flex-1">
-            <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Current Task</div>
-            <h3 className="mt-2 truncate text-[30px] leading-[1.08] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]" title={detail.task.title}>
-              {truncateTaskTitle(detail.task.title, 18)}
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">右侧先看 6 阶段流水线，再进入单阶段详情。</p>
+    <>
+      <div className="space-y-4 lg:h-full lg:overflow-y-auto lg:pr-1">
+        <header className="rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Current Task</div>
+              <h3 className="mt-2 truncate text-[30px] leading-[1.08] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]" title={detail.task.title}>
+                {truncateTaskTitle(detail.task.title, 18)}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">右侧先看 6 阶段流水线，再进入单阶段详情。</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 self-start whitespace-nowrap">
+              <TaskStatusBadge status={detail.task.status} />
+              <span className="whitespace-nowrap rounded-full border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-1.5 text-xs text-[#5e5d59] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
+                {detail.task.id}
+              </span>
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2 self-start whitespace-nowrap">
-            <TaskStatusBadge status={detail.task.status} />
-            <span className="whitespace-nowrap rounded-full border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-1.5 text-xs text-[#5e5d59] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
-              {detail.task.id}
-            </span>
-          </div>
-        </div>
 
-        <TaskStageTimeline activeStageID={activeStageID} onSelect={setActiveStageID} stages={stages} />
-      </header>
+          <TaskStageTimeline activeStageID={activeStageID} onSelect={setActiveStageID} stages={stages} />
+        </header>
 
-      <TaskStageDetailPanel
-        actionError={detail.actionError}
-        busyAction={detail.busyAction}
-        handlers={{
-          onStartRefine: detail.startRefineAction,
-          onStartDesign: detail.startDesignAction,
-          onStartPlan: detail.startPlanAction,
-          onStartCode: detail.startCodeAction,
-          onResetCode: detail.resetCodeAction,
-          onArchive: detail.archiveAction,
-        }}
-        onTaskUpdated={async () => {
-          await detail.refresh()
-          await reload()
-        }}
-        stage={activeStage}
-        stages={stages}
-        task={detail.task}
+        <TaskStageDetailPanel
+          actionError={detail.actionError}
+          busyAction={detail.busyAction}
+          handlers={{
+            onStartRefine: detail.startRefineAction,
+            onStartDesign: detail.startDesignAction,
+            onStartPlan: detail.startPlanAction,
+            onStartCode: detail.startCodeAction,
+            onResetCode: detail.resetCodeAction,
+            onArchive: detail.archiveAction,
+          }}
+          onTaskUpdated={async () => {
+            await detail.refresh()
+            await reload()
+          }}
+          stage={activeStage}
+          stages={stages}
+          task={detail.task}
+        />
+      </div>
+
+      <ConfirmationModal
+        busy={detail.busyAction === detail.pendingConfirmation?.actionKey}
+        confirmLabel={detail.pendingConfirmation?.confirmLabel ?? '确认'}
+        description={detail.pendingConfirmation?.description ?? ''}
+        impacts={detail.pendingConfirmation?.impacts ?? []}
+        eyebrow={detail.pendingConfirmation?.eyebrow ?? 'Confirm Action'}
+        onClose={detail.closePendingConfirmation}
+        onConfirm={() => void detail.confirmPendingAction()}
+        open={Boolean(detail.pendingConfirmation)}
+        title={detail.pendingConfirmation?.title ?? ''}
+        tone={detail.pendingConfirmation?.tone ?? 'warning'}
       />
-    </div>
+    </>
   )
 }
