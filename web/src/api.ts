@@ -160,7 +160,6 @@ export type WorkspaceSummary = {
   repoRoot: string
   tasksRoot: string
   knowledgeRoot: string
-  contextRoot: string
   worktreeRoot: string
   reposInvolved: string[]
   taskCount: number

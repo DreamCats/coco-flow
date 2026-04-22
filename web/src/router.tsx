@@ -1,4 +1,5 @@
 import {
+  Link,
   Navigate,
   Outlet,
   RouterProvider,
@@ -15,8 +16,14 @@ import { TasksIndexPage, TasksLayout, TaskDetailPage } from './routes/tasks'
 import { WorkspacePage } from './routes/workspace'
 
 const themeStorageKey = 'coco-ext-ui-theme'
+const executionContextStorageKey = 'coco-flow-ui-execution-context'
 
 type ThemeMode = 'system' | 'light' | 'dark'
+type ExecutionContext = {
+  mode: 'local' | 'remote'
+  remoteName: string
+  remoteHost: string
+}
 
 function isThemeMode(value: string | null): value is ThemeMode {
   return value === 'system' || value === 'light' || value === 'dark'
@@ -33,6 +40,27 @@ function resolveTheme(mode: ThemeMode) {
   return mode === 'system' ? systemTheme() : mode
 }
 
+function readExecutionContext(): ExecutionContext {
+  if (typeof window === 'undefined') {
+    return { mode: 'local', remoteName: '', remoteHost: '' }
+  }
+  const raw = window.sessionStorage.getItem(executionContextStorageKey)
+  if (!raw) {
+    return { mode: 'local', remoteName: '', remoteHost: '' }
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<ExecutionContext>
+    if (parsed.mode === 'remote') {
+      return {
+        mode: 'remote',
+        remoteName: typeof parsed.remoteName === 'string' ? parsed.remoteName : '',
+        remoteHost: typeof parsed.remoteHost === 'string' ? parsed.remoteHost : '',
+      }
+    }
+  } catch {}
+  return { mode: 'local', remoteName: '', remoteHost: '' }
+}
+
 function AppShell() {
   const location = useLocation()
   const { error } = useAppData()
@@ -44,6 +72,7 @@ function AppShell() {
     return isThemeMode(stored) ? stored : 'system'
   })
   const [activeTheme, setActiveTheme] = useState<'light' | 'dark'>(() => resolveTheme(themeMode))
+  const [executionContext, setExecutionContext] = useState<ExecutionContext>(() => readExecutionContext())
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -65,6 +94,29 @@ function AppShell() {
     }
   }, [themeMode])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const url = new URL(window.location.href)
+    const mode = url.searchParams.get('coco_flow_context')
+    if (mode !== 'remote') {
+      setExecutionContext(readExecutionContext())
+      return
+    }
+    const nextContext: ExecutionContext = {
+      mode: 'remote',
+      remoteName: url.searchParams.get('remote_name') || '',
+      remoteHost: url.searchParams.get('remote_host') || '',
+    }
+    window.sessionStorage.setItem(executionContextStorageKey, JSON.stringify(nextContext))
+    url.searchParams.delete('coco_flow_context')
+    url.searchParams.delete('remote_name')
+    url.searchParams.delete('remote_host')
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+    setExecutionContext(nextContext)
+  }, [location.pathname, location.search, location.href])
+
   return (
     <div className="min-h-screen bg-[#f5f4ed] text-[#141413] transition-colors dark:bg-[#141413] dark:text-[#faf9f5]">
       <div className="mx-auto flex min-h-screen max-w-[1280px] flex-col px-4 py-4 md:px-6 lg:px-8">
@@ -82,6 +134,7 @@ function AppShell() {
               <div className="flex flex-col gap-2 lg:items-end">
                 <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">菜单</div>
                 <div className="flex flex-wrap items-center gap-3">
+                  <ExecutionContextChip context={executionContext} />
                   <span className="text-sm text-[#5e5d59] dark:text-[#b0aea5]">主题</span>
                   <div className="inline-flex rounded-[16px] bg-[#e8e6dc] p-1 shadow-[0_0_0_1px_rgba(209,207,197,0.9)] dark:bg-[#30302e] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]">
                     {(['system', 'light', 'dark'] as ThemeMode[]).map((mode) => {
@@ -132,6 +185,33 @@ function AppShell() {
         </main>
       </div>
     </div>
+  )
+}
+
+function ExecutionContextChip({ context }: { context: ExecutionContext }) {
+  const isRemote = context.mode === 'remote'
+  const label = isRemote ? `Remote · ${context.remoteName || context.remoteHost || 'Connected'}` : 'Local'
+  const title = isRemote
+    ? `Remote execution\nRemote: ${context.remoteName || '-'}\nHost: ${context.remoteHost || '-'}`
+    : 'Local execution\nTasks, repos, and worktrees run on this machine'
+
+  return (
+    <Link
+      className={`inline-flex items-center gap-2 rounded-[14px] border px-3 py-2 text-[12px] leading-none transition ${
+        isRemote
+          ? 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.92)] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)] dark:hover:text-[#faf9f5]'
+          : 'border-[#e8e6dc] bg-[#f5f4ed] text-[#87867f] shadow-[0_0_0_1px_rgba(240,238,230,0.88)] hover:text-[#5e5d59] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#8f8a82] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.94)] dark:hover:text-[#b0aea5]'
+      }`}
+      title={title}
+      to="/workspace"
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          isRemote ? 'bg-[#c96442] dark:bg-[#d97757]' : 'bg-[#b0aea5] dark:bg-[#5e5d59]'
+        }`}
+      />
+      <span className="whitespace-nowrap">{label}</span>
+    </Link>
   )
 }
 

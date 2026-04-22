@@ -56,7 +56,13 @@ class RemoteRuntimeTest(unittest.TestCase):
         self.assertFalse(result["remote_started"])
         self.assertFalse(result["tunnel_started"])
         self.assertEqual(result["host"], "10.0.0.8")
-        open_mock.assert_called_once_with("http://127.0.0.1:4318")
+        self.assertEqual(
+            result["local_url"],
+            "http://127.0.0.1:4318?coco_flow_context=remote&remote_name=dev&remote_host=10.0.0.8",
+        )
+        open_mock.assert_called_once_with(
+            "http://127.0.0.1:4318?coco_flow_context=remote&remote_name=dev&remote_host=10.0.0.8"
+        )
 
     def test_connect_starts_remote_and_tunnel_when_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,7 +84,13 @@ class RemoteRuntimeTest(unittest.TestCase):
             start_remote_mock.assert_called_once()
             ensure_port_mock.assert_called_once_with(4318)
             start_tunnel_mock.assert_called_once()
-            open_mock.assert_called_once_with("http://127.0.0.1:4318")
+            self.assertEqual(
+                result["local_url"],
+                "http://127.0.0.1:4318?coco_flow_context=remote&remote_name=10.0.0.8&remote_host=10.0.0.8",
+            )
+            open_mock.assert_called_once_with(
+                "http://127.0.0.1:4318?coco_flow_context=remote&remote_name=10.0.0.8&remote_host=10.0.0.8"
+            )
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["target"], "10.0.0.8")
             self.assertEqual(records[0]["host"], "10.0.0.8")
