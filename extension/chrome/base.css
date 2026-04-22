@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light dark;
   --bg: #f5f4ed;
   --surface: #faf9f5;
   --surface-strong: rgba(255, 255, 255, 0.82);
@@ -13,6 +14,23 @@
   --border: #e8e6dc;
   --shadow-card: 0 18px 40px rgba(20, 20, 19, 0.08);
   --shadow-ring: 0 0 0 1px rgba(209, 207, 197, 0.9);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171714;
+    --surface: #22211e;
+    --surface-strong: rgba(39, 38, 34, 0.92);
+    --text: #f5f4ed;
+    --text-soft: #c7c3b6;
+    --text-muted: #9c978a;
+    --healthy: #5f9974;
+    --warning: #c07b32;
+    --danger: #d46a6a;
+    --border: #3a3833;
+    --shadow-card: 0 18px 40px rgba(0, 0, 0, 0.28);
+    --shadow-ring: 0 0 0 1px rgba(74, 70, 63, 0.95);
+  }
 }
 
 * {
@@ -85,7 +103,7 @@ code,
 
 .status-badge--checking {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--surface-strong);
   box-shadow: var(--shadow-ring);
 }
 
@@ -135,7 +153,7 @@ code,
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface-strong);
   color: var(--text-soft);
   line-height: 1.5;
 }
@@ -187,13 +205,13 @@ code,
 
 .button--secondary {
   color: var(--text);
-  background: #e8e3d7;
+  background: rgba(232, 227, 215, 0.9);
   box-shadow: var(--shadow-ring);
 }
 
 .button--ghost {
   color: var(--text-soft);
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--surface-strong);
   box-shadow: var(--shadow-ring);
 }
 
@@ -234,7 +252,7 @@ code,
   min-height: 36px;
   padding: 0 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--surface-strong);
   box-shadow: var(--shadow-ring);
   color: var(--text-soft);
 }
@@ -279,8 +297,15 @@ code,
   padding: 0 14px;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.96);
   color: var(--text);
+}
+
+.select:focus,
+.input:focus {
+  outline: none;
+  border-color: var(--brand-soft);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.16);
 }
 
 .step-list {
@@ -294,7 +319,7 @@ code,
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface-strong);
 }
 
 .step__head {
@@ -389,6 +414,23 @@ code,
 
 .is-busy {
   pointer-events: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .button--secondary {
+    background: rgba(68, 66, 60, 0.96);
+  }
+
+  .select,
+  .input {
+    background: #2b2a27;
+    color: var(--text);
+  }
+
+  .command-block {
+    background: #11110f;
+    color: #f5f4ed;
+  }
 }
 
 @media (max-width: 760px) {
