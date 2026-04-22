@@ -313,6 +313,13 @@ code,
   gap: 10px;
 }
 
+#operation-panel[data-operation-kind="local.start"],
+#operation-panel[data-operation-kind="local.stop"],
+#operation-panel[data-operation-kind="remote.connect"],
+#operation-panel[data-operation-kind="remote.disconnect"] {
+  gap: 10px;
+}
+
 .step {
   display: grid;
   gap: 4px;
@@ -338,6 +345,16 @@ code,
   color: var(--text-soft);
   font-size: 0.88rem;
   line-height: 1.45;
+}
+
+#operation-panel[data-operation-kind^="local"] .step,
+#operation-panel[data-operation-kind^="remote"] .step {
+  padding: 10px 12px;
+}
+
+#operation-panel[data-operation-kind^="local"] .step__state,
+#operation-panel[data-operation-kind^="remote"] .step__state {
+  text-transform: capitalize;
 }
 
 .link-button {

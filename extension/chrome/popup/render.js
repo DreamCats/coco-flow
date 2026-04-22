@@ -6,6 +6,8 @@ export function renderLocal(elements, state) {
   elements.localHealth.textContent = status?.healthy ? "Healthy" : "Unhealthy";
   elements.localUrl.textContent = status?.url || "-";
   elements.localPid.textContent = status?.pid ? String(status.pid) : "-";
+  elements.localStart.textContent = state.activeOperationKind === "local.start" ? "Starting..." : "Start";
+  elements.localStop.textContent = state.activeOperationKind === "local.stop" ? "Stopping..." : "Stop";
 }
 
 export function renderRemote(elements, state) {
@@ -16,6 +18,8 @@ export function renderRemote(elements, state) {
   elements.remoteSsh.textContent = connection?.ssh_target || (selected ? `${selected.user ? `${selected.user}@` : ""}${selected.host}` : "-");
   elements.remoteUrl.textContent = connection?.local_url || "-";
   elements.remoteHealth.textContent = connection?.local_healthy ? "Healthy" : "Unknown";
+  elements.remoteConnect.textContent = state.activeOperationKind === "remote.connect" ? "Connecting..." : "Connect";
+  elements.remoteDisconnect.textContent = state.activeOperationKind === "remote.disconnect" ? "Disconnecting..." : "Disconnect";
   paintChip(elements.remoteConnectedChip, connection?.local_healthy ? "Connected" : "Idle", connection?.local_healthy ? "ready" : "checking");
   paintChip(elements.remoteTunnelChip, connection?.tunnel_alive ? "Tunnel alive" : "Tunnel idle", connection?.tunnel_alive ? "ready" : "checking");
   const fingerprintState = connection?.fingerprint_match;
@@ -56,6 +60,7 @@ export function setMode(elements, state, mode) {
 export function renderOperation(elements, operation) {
   elements.operationTitle.textContent = humanizeKind(operation.kind || "operation");
   elements.operationMessage.textContent = operation.message || "Working…";
+  elements.operationPanel.dataset.operationKind = operation.kind || "";
   elements.operationSteps.innerHTML = "";
   for (const step of operation.steps || []) {
     const item = document.createElement("div");
@@ -93,6 +98,16 @@ export function showOperationPanel(elements) {
   show(elements.operationPanel);
 }
 
+export function autoHideOperationPanel(elements) {
+  elements.operationPanel.dataset.autohide = "true";
+  globalThis.setTimeout(() => {
+    if (elements.operationPanel.dataset.autohide !== "true") {
+      return;
+    }
+    hide(elements.operationPanel);
+  }, 1400);
+}
+
 export function showNotice(elements, message, tone = "") {
   showNoticeEl(elements.notice, message, tone);
 }
@@ -115,6 +130,10 @@ export function setBusy(elements, state, busy) {
   elements.remoteOpen.disabled = busy || !state.selectedRemoteStatus?.connections?.[0]?.local_url;
   elements.remoteRefresh.disabled = busy || !hasRemote;
   elements.retryGateway.disabled = busy;
+}
+
+export function cancelOperationAutohide(elements) {
+  elements.operationPanel.dataset.autohide = "false";
 }
 
 function paintChip(element, label, stateName) {

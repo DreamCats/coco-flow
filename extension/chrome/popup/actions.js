@@ -2,6 +2,8 @@ import { INSTALL_COMMAND, START_COMMAND } from "../lib/constants.js";
 import { gatewayFetch } from "../lib/gateway-client.js";
 import { loadPopupPrefs, savePopupMode, saveSelectedRemoteName } from "../lib/storage.js";
 import {
+  autoHideOperationPanel,
+  cancelOperationAutohide,
   clearNotice,
   hideOperationPanel,
   renderLocal,
@@ -30,6 +32,7 @@ export function createPopupActions(state, elements) {
       setBusy(elements, state, true)
       clearNotice(elements)
       setGatewayState(elements, "checking", "Checking...")
+      cancelOperationAutohide(elements)
       hideOperationPanel(elements)
       try {
         await gatewayFetch("/healthz")
@@ -109,6 +112,10 @@ export function createPopupActions(state, elements) {
           throw new Error("missing operation_id")
         }
         state.activeOperationId = payload.operation_id
+        state.activeOperationKind = inferOperationKind(path)
+        renderLocal(elements, state)
+        renderRemote(elements, state)
+        cancelOperationAutohide(elements)
         showOperationPanel(elements)
         await this.pollOperation(payload.operation_id)
       } catch (error) {
@@ -120,6 +127,10 @@ export function createPopupActions(state, elements) {
         })
         showNotice(elements, error.message, "error")
       } finally {
+        state.activeOperationId = ""
+        state.activeOperationKind = ""
+        renderLocal(elements, state)
+        renderRemote(elements, state)
         setBusy(elements, state, false)
       }
     },
@@ -132,6 +143,14 @@ export function createPopupActions(state, elements) {
           await Promise.all([this.loadLocalStatus(), this.loadRemoteList()])
           const result = operation.result || {}
           showNotice(elements, operation.message || "Done", "success")
+          if (
+            operation.kind === "local.start" ||
+            operation.kind === "local.stop" ||
+            operation.kind === "remote.connect" ||
+            operation.kind === "remote.disconnect"
+          ) {
+            autoHideOperationPanel(elements)
+          }
           if ((operation.kind === "local.start" && result.url) || (operation.kind === "remote.connect" && result.local_url)) {
             void this.openUrl(result.local_url || result.url)
           }
@@ -166,4 +185,12 @@ export function createPopupActions(state, elements) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function inferOperationKind(path) {
+  if (path === "/local/start") return "local.start"
+  if (path === "/local/stop") return "local.stop"
+  if (path.includes("/connect")) return "remote.connect"
+  if (path.includes("/disconnect")) return "remote.disconnect"
+  return ""
 }

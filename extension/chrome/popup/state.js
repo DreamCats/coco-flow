@@ -7,6 +7,7 @@ export function createPopupState() {
     selectedRemoteName: "",
     selectedRemoteStatus: null,
     activeOperationId: "",
+    activeOperationKind: "",
     busy: false,
   };
 }
