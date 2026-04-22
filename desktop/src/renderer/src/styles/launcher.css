@@ -1,13 +1,12 @@
 .app-shell {
   min-height: 100vh;
-  padding: 28px;
+  padding: 22px;
 }
 
 .topbar,
 .layout,
 .logs-panel,
 .banner,
-.mode-picker,
 .mode-switch {
   width: min(1240px, 100%);
   margin: 0 auto;
@@ -18,7 +17,7 @@
   justify-content: space-between;
   align-items: end;
   gap: 20px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .topbar__title h1,
@@ -31,8 +30,8 @@
 }
 
 .topbar__title h1 {
-  font-size: 2.15rem;
-  line-height: 1.05;
+  font-size: 1.7rem;
+  line-height: 1.02;
 }
 
 .topbar__meta {
@@ -109,20 +108,33 @@
 }
 
 .mode-picker {
+  width: min(760px, 100%);
+  margin: 42px auto 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  gap: 14px;
 }
 
 .mode-card {
   display: grid;
-  gap: 10px;
-  padding: 28px;
+  align-content: start;
+  gap: 8px;
+  min-height: 184px;
+  padding: 22px;
   text-align: left;
   transition:
     transform 140ms ease,
     box-shadow 140ms ease,
     border-color 140ms ease;
+}
+
+.mode-card h2 {
+  margin: 2px 0 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.45rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
 }
 
 .mode-card:hover {
@@ -131,9 +143,11 @@
 }
 
 .mode-card__copy {
-  margin: 0;
+  max-width: 24ch;
+  margin: 10px 0 0;
   color: var(--text-muted);
-  line-height: 1.6;
+  font-size: 0.96rem;
+  line-height: 1.55;
 }
 
 .panel {
