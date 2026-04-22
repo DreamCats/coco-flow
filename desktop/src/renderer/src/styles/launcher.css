@@ -124,6 +124,15 @@
   display: grid;
   gap: 10px;
   padding: 16px;
+  transition:
+    transform 180ms ease,
+    opacity 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.home-shell--transitioning {
+  opacity: 0.84;
+  transform: scale(0.985);
 }
 
 .home-shell__intro h2 {
@@ -146,13 +155,24 @@
   transition:
     transform 140ms ease,
     box-shadow 140ms ease,
-    border-color 140ms ease;
+    border-color 140ms ease,
+    background-color 140ms ease,
+    opacity 140ms ease;
 }
 
 .mode-option:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-ring);
   border-color: rgba(201, 100, 66, 0.3);
+}
+
+.mode-option--selected {
+  border-color: rgba(201, 100, 66, 0.38);
+  background: rgba(201, 100, 66, 0.08);
+}
+
+.mode-option:disabled {
+  cursor: default;
 }
 
 .mode-option__title {

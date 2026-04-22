@@ -14,6 +14,7 @@ import type { LauncherMode } from './lib/launcher'
 
 export function App() {
   const [mode, setMode] = useState<LauncherMode>('picker')
+  const [transitioningMode, setTransitioningMode] = useState<Exclude<LauncherMode, 'picker'> | null>(null)
   const launcher = useLauncherState()
   const localLauncher = useLocalLauncherState(Boolean(launcher.preflight?.ok))
   const modeError = mode === 'local' ? localLauncher.errorMessage : mode === 'remote' ? launcher.errorMessage : ''
@@ -22,6 +23,14 @@ export function App() {
   useEffect(() => {
     void globalThis.window?.cocoFlowDesktop?.setWindowMode(mode)
   }, [mode])
+
+  const handleSelectMode = (nextMode: Exclude<LauncherMode, 'picker'>) => {
+    setTransitioningMode(nextMode)
+    globalThis.window?.setTimeout(() => {
+      setMode(nextMode)
+      setTransitioningMode(null)
+    }, 140)
+  }
 
   return (
     <div className="app-shell">
@@ -35,7 +44,7 @@ export function App() {
         </div>
       ) : null}
 
-      {mode === 'picker' ? <ModePicker onSelectMode={setMode} /> : null}
+      {mode === 'picker' ? <ModePicker transitioningMode={transitioningMode} onSelectMode={handleSelectMode} /> : null}
 
       {mode === 'remote' ? (
         <main className="layout">
