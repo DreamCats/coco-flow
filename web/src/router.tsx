@@ -1,5 +1,4 @@
 import {
-  Link,
   Navigate,
   Outlet,
   RouterProvider,
@@ -71,7 +70,6 @@ function AppShell() {
     const stored = window.localStorage.getItem(themeStorageKey)
     return isThemeMode(stored) ? stored : 'system'
   })
-  const [activeTheme, setActiveTheme] = useState<'light' | 'dark'>(() => resolveTheme(themeMode))
   const [executionContext, setExecutionContext] = useState<ExecutionContext>(() => readExecutionContext())
 
   useEffect(() => {
@@ -83,7 +81,6 @@ function AppShell() {
     const applyTheme = () => {
       const nextTheme = resolveTheme(themeMode)
       document.documentElement.dataset.theme = nextTheme
-      setActiveTheme(nextTheme)
     }
 
     applyTheme()
@@ -135,7 +132,6 @@ function AppShell() {
                 <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">菜单</div>
                 <div className="flex flex-wrap items-center gap-3">
                   <ExecutionContextChip context={executionContext} />
-                  <span className="text-sm text-[#5e5d59] dark:text-[#b0aea5]">主题</span>
                   <div className="inline-flex rounded-[16px] bg-[#e8e6dc] p-1 shadow-[0_0_0_1px_rgba(209,207,197,0.9)] dark:bg-[#30302e] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]">
                     {(['system', 'light', 'dark'] as ThemeMode[]).map((mode) => {
                       const active = themeMode === mode
@@ -155,7 +151,6 @@ function AppShell() {
                       )
                     })}
                   </div>
-                  <span className="text-sm text-[#87867f] dark:text-[#b0aea5]">当前主题：{activeTheme === 'dark' ? '暗色' : '浅色'}</span>
                 </div>
               </div>
             </div>
@@ -196,14 +191,13 @@ function ExecutionContextChip({ context }: { context: ExecutionContext }) {
     : 'Local execution\nTasks, repos, and worktrees run on this machine'
 
   return (
-    <Link
-      className={`inline-flex items-center gap-2 rounded-[14px] border px-3 py-2 text-[12px] leading-none transition ${
+    <div
+      className={`inline-flex items-center gap-2 rounded-[14px] border px-3 py-2 text-[12px] leading-none ${
         isRemote
-          ? 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.92)] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)] dark:hover:text-[#faf9f5]'
-          : 'border-[#e8e6dc] bg-[#f5f4ed] text-[#87867f] shadow-[0_0_0_1px_rgba(240,238,230,0.88)] hover:text-[#5e5d59] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#8f8a82] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.94)] dark:hover:text-[#b0aea5]'
+          ? 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]'
+          : 'border-[#e8e6dc] bg-[#f5f4ed] text-[#87867f] shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#8f8a82] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.94)]'
       }`}
       title={title}
-      to="/workspace"
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${
@@ -211,7 +205,7 @@ function ExecutionContextChip({ context }: { context: ExecutionContext }) {
         }`}
       />
       <span className="whitespace-nowrap">{label}</span>
-    </Link>
+    </div>
   )
 }
 
