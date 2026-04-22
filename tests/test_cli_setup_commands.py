@@ -13,8 +13,8 @@ from coco_flow.config import Settings
 
 
 def make_project_root(root: Path, with_git: bool = True, with_web: bool = True) -> Path:
-    (root / "src" / "coco_flow").mkdir(parents=True, exist_ok=True)
-    (root / "src" / "coco_flow" / "cli.py").write_text("app = None\n")
+    (root / "src" / "coco_flow" / "cli").mkdir(parents=True, exist_ok=True)
+    (root / "src" / "coco_flow" / "cli" / "__init__.py").write_text("app = None\n")
     (root / "pyproject.toml").write_text("[project]\nname='coco-flow'\n")
     if with_git:
         (root / ".git").write_text("gitdir: /tmp/fake\n")
@@ -60,7 +60,7 @@ class CliSetupCommandsTest(unittest.TestCase):
             project_root = make_project_root(Path(tmp))
             completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
             dir_completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="/tmp/bin\n", stderr="")
-            with patch("coco_flow.cli.subprocess.run", side_effect=[completed, completed, completed, completed, dir_completed]) as run_mock:
+            with patch("coco_flow.cli.project.subprocess.run", side_effect=[completed, completed, completed, completed, dir_completed]) as run_mock:
                 result = runner.invoke(
                     app,
                     ["install", "--path", str(project_root)],
@@ -86,7 +86,7 @@ class CliSetupCommandsTest(unittest.TestCase):
             project_root = make_project_root(Path(tmp))
             completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
             dir_completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="/tmp/bin\n", stderr="")
-            with patch("coco_flow.cli.subprocess.run", side_effect=[completed, completed, completed, completed, completed, dir_completed]) as run_mock:
+            with patch("coco_flow.cli.project.subprocess.run", side_effect=[completed, completed, completed, completed, completed, dir_completed]) as run_mock:
                 result = runner.invoke(app, ["update", "--path", str(project_root)])
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
@@ -111,8 +111,8 @@ class CliSetupCommandsTest(unittest.TestCase):
             completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
             dir_completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="/tmp/bin\n", stderr="")
             with (
-                patch("coco_flow.cli.installed_repo_root", return_value=project_root),
-                patch("coco_flow.cli.subprocess.run", side_effect=[completed, completed, completed, completed, completed, dir_completed]) as run_mock,
+                patch("coco_flow.cli.project.installed_repo_root", return_value=project_root),
+                patch("coco_flow.cli.project.subprocess.run", side_effect=[completed, completed, completed, completed, completed, dir_completed]) as run_mock,
             ):
                 result = runner.invoke(app, ["update"])
 
@@ -122,7 +122,7 @@ class CliSetupCommandsTest(unittest.TestCase):
 
     def test_start_delegates_to_ui_serve(self) -> None:
         runner = CliRunner()
-        with patch("coco_flow.cli.serve_ui") as serve_ui_mock:
+        with patch("coco_flow.cli.server.serve_ui") as serve_ui_mock:
             result = runner.invoke(app, ["start", "--no-build"])
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
@@ -137,9 +137,9 @@ class CliSetupCommandsTest(unittest.TestCase):
             proc.pid = 12345
             proc.poll.return_value = None
             with (
-                patch("coco_flow.cli.load_settings", return_value=settings),
-                patch("coco_flow.cli.server_status", return_value={"running": False, "pid": None, "pid_file": "", "log_file": ""}),
-                patch("coco_flow.cli.subprocess.Popen", return_value=proc) as popen_mock,
+                patch("coco_flow.cli.server.load_settings", return_value=settings),
+                patch("coco_flow.cli.server.server_status", return_value={"running": False, "pid": None, "pid_file": "", "log_file": ""}),
+                patch("coco_flow.cli.server.subprocess.Popen", return_value=proc) as popen_mock,
             ):
                 result = runner.invoke(app, ["start", "--detach", "--no-build"])
                 pid_text = (config_root / "server.pid").read_text().strip()
@@ -155,7 +155,7 @@ class CliSetupCommandsTest(unittest.TestCase):
     def test_status_prints_server_state(self) -> None:
         runner = CliRunner()
         with patch(
-            "coco_flow.cli.server_status",
+            "coco_flow.cli.server.server_status",
             return_value={"running": True, "pid": 123, "pid_file": "/tmp/server.pid", "log_file": "/tmp/server.log"},
         ):
             result = runner.invoke(app, ["status"])
@@ -169,12 +169,12 @@ class CliSetupCommandsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             settings = self.make_settings(Path(tmp))
             with (
-                patch("coco_flow.cli.load_settings", return_value=settings),
+                patch("coco_flow.cli.commands.core.load_settings", return_value=settings),
                 patch(
-                    "coco_flow.cli.server_status",
+                    "coco_flow.cli.server.server_status",
                     return_value={"running": True, "pid": 123, "pid_file": "/tmp/server.pid", "log_file": "/tmp/server.log"},
                 ),
-                patch("coco_flow.cli.stop_server") as stop_server_mock,
+                patch("coco_flow.cli.server.stop_server") as stop_server_mock,
             ):
                 result = runner.invoke(app, ["stop"])
 
@@ -187,7 +187,7 @@ class CliSetupCommandsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             dist_dir = Path(tmp)
             (dist_dir / "index.html").write_text("<html></html>")
-            with patch("coco_flow.cli.uvicorn.run") as uvicorn_run_mock:
+            with patch("coco_flow.cli.server.uvicorn.run") as uvicorn_run_mock:
                 result = runner.invoke(app, ["ui", "serve", "--no-build", "--web-dir", str(dist_dir)])
 
         self.assertEqual(result.exit_code, 0, msg=result.output)

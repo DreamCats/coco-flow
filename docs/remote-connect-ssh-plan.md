@@ -8,7 +8,7 @@
 
 当前相关实现：
 
-- CLI 启动入口：`src/coco_flow/cli.py`
+- CLI 启动入口：`src/coco_flow/cli/__init__.py`
 - Web API 入口：`src/coco_flow/api/app.py`
 - 文件系统浏览：`src/coco_flow/services/runtime/fs_tools.py`
 - repo 校验：`src/coco_flow/services/queries/repos.py`
