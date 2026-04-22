@@ -10,7 +10,7 @@
 - Python 包名：`coco-flow`
 - Python 版本：`>=3.13`
 - 维护人：Maifeng `<maifeng@bytedance.com>`
-- CLI 入口：[`src/coco_flow/cli.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/cli.py)
+- CLI 入口：[`src/coco_flow/cli/__init__.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/cli/__init__.py)
 - Web API 入口：[`src/coco_flow/api/app.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/api/app.py)
 - 技术栈：Python + `uv`、Typer、FastAPI、Vite/React
 - 交互语言：默认中文
@@ -21,7 +21,7 @@
 
 - [`README.md`](/Users/bytedance/Work/tools/bytedance/coco-flow/README.md)
 - [`pyproject.toml`](/Users/bytedance/Work/tools/bytedance/coco-flow/pyproject.toml)
-- [`src/coco_flow/cli.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/cli.py)
+- [`src/coco_flow/cli/__init__.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/cli/__init__.py)
 - 与当前改动直接相关的 `src/coco_flow/services/`、`src/coco_flow/api/`、`web/src/` 文件
 
 如果发现本文过时，修代码时顺手修正文档，不要把错误上下文继续传给下一个 agent。
@@ -88,7 +88,7 @@ uv run python -m unittest discover -s tests -v
 
 ## 目录与架构
 
-当前建议按四层理解：CLI / API 层 `src/coco_flow/cli.py`、`src/coco_flow/api/` → workflow 壳 `src/coco_flow/services/tasks/` → 推理引擎 `src/coco_flow/engines/` → 外部依赖与运行时（`clients/`、`daemon/`、`services/runtime/`、git、`lark-cli`）。
+当前建议按四层理解：CLI / API 层 `src/coco_flow/cli/`、`src/coco_flow/api/` → workflow 壳 `src/coco_flow/services/tasks/` → 推理引擎 `src/coco_flow/engines/` → 外部依赖与运行时（`clients/`、`daemon/`、`services/runtime/`、git、`lark-cli`）。
 
 关键目录：
 

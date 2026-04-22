@@ -76,6 +76,12 @@ coco-flow tasks archive <task_id>
 coco-flow daemon start
 coco-flow daemon status
 coco-flow daemon stop
+
+coco-flow remote add dev --host 10.37.122.5 --user maifeng
+coco-flow remote list
+coco-flow remote connect dev
+coco-flow remote status
+coco-flow remote disconnect dev
 ```
 
 远程机安装脚本：
@@ -84,6 +90,60 @@ coco-flow daemon stop
 source ./install.sh
 curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash
 ```
+
+## 远程开发机连接
+
+现在 `coco-flow` 已支持把“远程开发机启动服务，本地电脑通过 SSH 隧道访问”的流程包装成正式 CLI。
+
+常见用法：
+
+```bash
+# 先保存一个远程开发机配置
+coco-flow remote add dev --host 10.37.122.5 --user maifeng
+
+# 查看已保存的远程配置
+coco-flow remote list
+
+# 在本地电脑连接远程开发机
+coco-flow remote connect dev
+
+# 查看当前由 coco-flow 管理的隧道状态
+coco-flow remote status
+
+# 断开本地隧道
+coco-flow remote disconnect dev
+```
+
+如果你不想先保存配置，也可以直接按 SSH alias 或 IP 连接：
+
+```bash
+coco-flow remote connect dev
+coco-flow remote connect 10.37.122.5 --user maifeng
+```
+
+`remote connect` 的行为是：
+
+- 尽量复用已经健康的本地隧道
+- 先检查远程 `coco-flow` 是否已经可用
+- 只有在远程服务不健康时才启动远程 `coco-flow`
+- 只有在本地隧道缺失或失效时才重建 SSH 隧道
+- 默认自动在本地打开 `http://127.0.0.1:<local-port>`，可用 `--no-open` 关闭
+
+常用选项：
+
+```bash
+coco-flow remote connect dev --no-open
+coco-flow remote connect dev --restart
+coco-flow remote connect dev --reconnect-tunnel
+coco-flow remote status dev --json
+coco-flow remote disconnect
+```
+
+说明：
+
+- 如果你的 `~/.ssh/config` 已经配置了 `User`，通常不需要再显式传 `--user`
+- `remote disconnect` 目前只会断开本地 SSH 隧道，不会停止远程开发机上的 `coco-flow`
+- 已保存的 remote 配置会落在 `~/.config/coco-flow/remote/`
 
 ## 工作流行为
 
@@ -239,7 +299,7 @@ src/coco_flow/
 ├── engines/        # Input / Refine / Design / Plan / Code 引擎
 ├── models/         # 共享响应模型
 ├── services/       # workflow 壳、查询拼装、runtime helper
-└── cli.py          # Typer 入口
+└── cli/            # Typer 入口与命令模块
 
 web/
 ├── src/App.tsx
