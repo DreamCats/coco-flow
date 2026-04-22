@@ -2,7 +2,7 @@ import { startTransition, useDeferredValue, useEffect, useEffectEvent, useState 
 
 import type { CommandLogEvent, PreflightStatus, RemoteConnection, RemoteProfile } from '@shared/types'
 
-import { DEFAULT_FORM, connectionLabel, connectionTone, type FormState } from '../lib/launcher'
+import { DEFAULT_FORM, connectionLabel, connectionTone, newRequestId, type FormState } from '../lib/launcher'
 import { useRemoteActions } from './useRemoteActions'
 import { useRemoteSelection } from './useRemoteSelection'
 
@@ -20,6 +20,7 @@ export function useLauncherState() {
   const [activeRequestId, setActiveRequestId] = useState('')
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
+  const [installBusyAction, setInstallBusyAction] = useState('')
   const { selectedRemoteName, selectedRemote, setSelectedRemoteName, selectPreferredRemote } = useRemoteSelection(remotes)
 
   const deferredLogText = useDeferredValue(logText)
@@ -83,6 +84,7 @@ export function useLauncherState() {
   const statusTone = connectionTone(selectedConnection)
   const statusLabel = connectionLabel(selectedConnection)
   const canAddRemote = Boolean(preflight?.ok) && !busyAction
+  const isInstallingCli = Boolean(installBusyAction)
 
   const handleCommandLog = useEffectEvent((event: CommandLogEvent) => {
     if (!activeRequestId || event.requestId !== activeRequestId) {
@@ -169,6 +171,43 @@ export function useLauncherState() {
     }
   }, [preflight?.ok, selectedRemoteName, statusKey])
 
+  const handleInstallCli = async () => {
+    if (!desktopApi || isInstallingCli) {
+      return
+    }
+    const requestId = newRequestId()
+    setInstallBusyAction('Installing coco-flow...')
+    setErrorMessage('')
+    setActiveRequestId(requestId)
+    setShowLogs(true)
+    setLogText('Installing coco-flow...\n')
+    setPreflight({
+      state: 'checking',
+      ok: false,
+    })
+    try {
+      const nextPreflight = await desktopApi.installCli({ requestId })
+      setPreflight(nextPreflight)
+      if (!nextPreflight.ok) {
+        throw new Error(nextPreflight.error || 'coco-flow installation finished, but the CLI is still unavailable.')
+      }
+      appendLog('cli_ready: coco-flow is now available.\n')
+      await refreshRemotes()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      appendLog(`error: ${message}\n`)
+      setErrorMessage(message)
+      setPreflight({
+        state: 'missing',
+        ok: false,
+        error: message,
+      })
+    } finally {
+      setInstallBusyAction('')
+      setActiveRequestId('')
+    }
+  }
+
   return {
     preflight,
     remotes,
@@ -179,8 +218,10 @@ export function useLauncherState() {
     busyAction,
     errorMessage,
     isBootstrapping,
+    isInstallingCli,
     isAddModalOpen,
     showLogs,
+    installBusyAction,
     deferredLogText,
     openWebUrl,
     statusTone,
@@ -191,6 +232,7 @@ export function useLauncherState() {
     setIsAddModalOpen,
     setShowLogs,
     setLogText,
+    handleInstallCli,
     handleAddRemote,
     handleConnect,
     handleDisconnect,

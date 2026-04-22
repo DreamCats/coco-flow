@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -12,6 +13,7 @@ import type {
   ConnectRemoteResult,
   DisconnectRemoteInput,
   DisconnectRemoteResult,
+  InstallCliInput,
   LocalStartInput,
   LocalStatusResponse,
   LocalStopInput,
@@ -38,6 +40,7 @@ const WINDOW_SIZES: Record<WindowMode, { width: number; height: number; minWidth
 
 let mainWindow: BrowserWindow | null = null
 let cachedBinaryPath: string | null = null
+const REMOTE_INSTALL_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash'
 
 type ShellResult = {
   stdout: string
@@ -109,6 +112,26 @@ function currentShell(): string {
     return '/bin/zsh'
   }
   return process.env.SHELL || '/bin/sh'
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function findRepoInstallScript(): string | null {
+  let current = __dirname
+  while (true) {
+    const installScriptPath = join(current, 'install.sh')
+    const pyprojectPath = join(current, 'pyproject.toml')
+    if (existsSync(installScriptPath) && existsSync(pyprojectPath)) {
+      return installScriptPath
+    }
+    const parent = dirname(current)
+    if (parent === current) {
+      return null
+    }
+    current = parent
+  }
 }
 
 function shellArguments(command: string): string[] {
@@ -228,6 +251,37 @@ async function runStreamingCommand(requestId: string, args: string[]): Promise<S
   })
 }
 
+function runStreamingShellCommand(requestId: string, label: string, command: string): Promise<StreamingCommandResult> {
+  emitCommandLog(requestId, `$ ${label}\n`)
+  return new Promise((resolve, reject) => {
+    const child = spawn(currentShell(), shellArguments(command), {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: process.env,
+    })
+    let stdout = ''
+    let stderr = ''
+
+    child.stdout.on('data', (chunk) => {
+      const message = chunk.toString()
+      stdout += message
+      emitCommandLog(requestId, message)
+    })
+    child.stderr.on('data', (chunk) => {
+      const message = chunk.toString()
+      stderr += message
+      emitCommandLog(requestId, message)
+    })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || stdout.trim() || `shell command exited with code ${code ?? 'unknown'}`))
+        return
+      }
+      resolve({ stdout, stderr })
+    })
+  })
+}
+
 async function runStreamingJsonCommand<T>(requestId: string, args: string[]): Promise<T> {
   const binaryPath = await ensureBinaryPath()
   emitCommandLog(requestId, `$ ${['coco-flow', ...args].join(' ')}\n`)
@@ -313,8 +367,20 @@ async function preflight(): Promise<PreflightStatus> {
   }
 }
 
+async function installCli(requestId: string): Promise<PreflightStatus> {
+  cachedBinaryPath = null
+  const localInstallScript = findRepoInstallScript()
+  const installCommand = localInstallScript ? `bash ${shellQuote(localInstallScript)}` : REMOTE_INSTALL_COMMAND
+  const installLabel = localInstallScript ? `bash ${localInstallScript}` : REMOTE_INSTALL_COMMAND
+  emitCommandLog(requestId, localInstallScript ? 'install_source: workspace install.sh\n' : 'install_source: remote bootstrap script\n')
+  await runStreamingShellCommand(requestId, installLabel, installCommand)
+  cachedBinaryPath = null
+  return preflight()
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle('desktop:preflight', () => preflight())
+  ipcMain.handle('desktop:install-cli', (_event, input: InstallCliInput) => installCli(input.requestId || randomUUID()))
   ipcMain.handle('desktop:get-local-status', () => getLocalStatus())
   ipcMain.handle('desktop:start-local', async (_event, input: LocalStartInput) => {
     const requestId = input.requestId || randomUUID()

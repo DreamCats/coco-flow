@@ -6,6 +6,7 @@ import type {
   ConnectRemoteInput,
   DesktopApi,
   DisconnectRemoteInput,
+  InstallCliInput,
   LocalStartInput,
   LocalStopInput,
   WindowMode,
@@ -13,6 +14,7 @@ import type {
 
 const api: DesktopApi = {
   preflight: () => ipcRenderer.invoke('desktop:preflight'),
+  installCli: (input: InstallCliInput) => ipcRenderer.invoke('desktop:install-cli', input),
   getLocalStatus: () => ipcRenderer.invoke('desktop:get-local-status'),
   startLocal: (input: LocalStartInput) => ipcRenderer.invoke('desktop:start-local', input),
   stopLocal: (input: LocalStopInput) => ipcRenderer.invoke('desktop:stop-local', input),

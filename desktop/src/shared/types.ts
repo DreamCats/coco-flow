@@ -123,6 +123,10 @@ export type LocalStopResult = {
   url: string
 }
 
+export type InstallCliInput = {
+  requestId: string
+}
+
 export type WindowMode = 'picker' | 'local' | 'remote'
 
 export type CommandLogEvent = {
@@ -132,6 +136,7 @@ export type CommandLogEvent = {
 
 export type DesktopApi = {
   preflight: () => Promise<PreflightStatus>
+  installCli: (input: InstallCliInput) => Promise<PreflightStatus>
   getLocalStatus: () => Promise<LocalStatusResponse>
   startLocal: (input: LocalStartInput) => Promise<LocalStatusResponse>
   stopLocal: (input: LocalStopInput) => Promise<LocalStopResult>

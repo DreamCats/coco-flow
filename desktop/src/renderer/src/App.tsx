@@ -39,8 +39,18 @@ export function App() {
       {mode !== 'picker' ? <ModeSwitch mode={mode} onChangeMode={setMode} /> : null}
       {modeError ? <div className="banner banner--error">{modeError}</div> : null}
       {launcher.preflight?.state === 'missing' ? (
-        <div className="banner banner--warning">
-          需要先在本机安装并让 shell 可见 <code>coco-flow</code>。
+        <div className="banner banner--warning banner--action">
+          <div>
+            需要先在本机安装并让 shell 可见 <code>coco-flow</code>。
+          </div>
+          <button
+            className="button button--primary"
+            type="button"
+            onClick={() => void launcher.handleInstallCli()}
+            disabled={launcher.isInstallingCli}
+          >
+            {launcher.installBusyAction || 'Install coco-flow'}
+          </button>
         </div>
       ) : null}
 
@@ -89,7 +99,7 @@ export function App() {
         </main>
       ) : null}
 
-      {mode !== 'picker' ? (
+      {mode !== 'picker' || launcher.showLogs ? (
         <LogsPanel
           showLogs={currentLogs.showLogs}
           logText={currentLogs.deferredLogText}
