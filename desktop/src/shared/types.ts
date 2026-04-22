@@ -122,6 +122,8 @@ export type LocalStopResult = {
   url: string
 }
 
+export type WindowMode = 'picker' | 'local' | 'remote'
+
 export type CommandLogEvent = {
   requestId: string
   message: string
@@ -139,5 +141,6 @@ export type DesktopApi = {
   connectRemote: (input: ConnectRemoteInput) => Promise<ConnectRemoteResult>
   disconnectRemote: (input: DisconnectRemoteInput) => Promise<DisconnectRemoteResult>
   openWeb: (url: string) => Promise<void>
+  setWindowMode: (mode: WindowMode) => Promise<void>
   onCommandLog: (listener: (event: CommandLogEvent) => void) => () => void
 }

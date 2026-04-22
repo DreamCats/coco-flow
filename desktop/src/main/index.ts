@@ -19,6 +19,7 @@ import type {
   PreflightStatus,
   RemoteListResponse,
   RemoteStatusResponse,
+  WindowMode,
 } from '@shared/types'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -29,6 +30,11 @@ const IS_DEV = Boolean(ELECTRON_RENDERER_URL)
 const LOCAL_PORT = 4318
 const LOCAL_URL = `http://127.0.0.1:${LOCAL_PORT}`
 const LOCAL_HEALTH_URL = `${LOCAL_URL}/healthz`
+const WINDOW_SIZES: Record<WindowMode, { width: number; height: number; minWidth: number; minHeight: number }> = {
+  picker: { width: 680, height: 500, minWidth: 640, minHeight: 460 },
+  local: { width: 980, height: 700, minWidth: 820, minHeight: 580 },
+  remote: { width: 1040, height: 720, minWidth: 900, minHeight: 620 },
+}
 
 let mainWindow: BrowserWindow | null = null
 let cachedBinaryPath: string | null = null
@@ -40,11 +46,12 @@ type ShellResult = {
 }
 
 function createWindow(): void {
+  const pickerWindow = WINDOW_SIZES.picker
   const window = new BrowserWindow({
-    width: 1380,
-    height: 920,
-    minWidth: 1120,
-    minHeight: 760,
+    width: pickerWindow.width,
+    height: pickerWindow.height,
+    minWidth: pickerWindow.minWidth,
+    minHeight: pickerWindow.minHeight,
     show: false,
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#f5f4ed',
@@ -85,6 +92,16 @@ function createWindow(): void {
   if (IS_DEV) {
     window.webContents.openDevTools({ mode: 'detach' })
   }
+}
+
+function applyWindowMode(mode: WindowMode): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return
+  }
+  const target = WINDOW_SIZES[mode]
+  mainWindow.setMinimumSize(target.minWidth, target.minHeight)
+  mainWindow.setSize(target.width, target.height, true)
+  mainWindow.center()
 }
 
 function currentShell(): string {
@@ -365,6 +382,9 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle('desktop:open-web', async (_event, url: string) => {
     await shell.openExternal(url)
+  })
+  ipcMain.handle('desktop:set-window-mode', (_event, mode: WindowMode) => {
+    applyWindowMode(mode)
   })
 }
 

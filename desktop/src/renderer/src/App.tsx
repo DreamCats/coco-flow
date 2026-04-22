@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { AddRemoteModal } from './components/AddRemoteModal'
 import { LocalDetails } from './components/LocalDetails'
@@ -13,15 +13,19 @@ import { useLauncherState } from './hooks/useLauncherState'
 import type { LauncherMode } from './lib/launcher'
 
 export function App() {
+  const [mode, setMode] = useState<LauncherMode>('picker')
   const launcher = useLauncherState()
   const localLauncher = useLocalLauncherState(Boolean(launcher.preflight?.ok))
-  const [mode, setMode] = useState<LauncherMode>('picker')
   const modeError = mode === 'local' ? localLauncher.errorMessage : mode === 'remote' ? launcher.errorMessage : ''
   const currentLogs = mode === 'local' ? localLauncher : launcher
 
+  useEffect(() => {
+    void globalThis.window?.cocoFlowDesktop?.setWindowMode(mode)
+  }, [mode])
+
   return (
     <div className="app-shell">
-      <Topbar preflight={launcher.preflight} />
+      <Topbar preflight={launcher.preflight} compact={mode === 'picker'} />
 
       {mode !== 'picker' ? <ModeSwitch mode={mode} onChangeMode={setMode} /> : null}
       {modeError ? <div className="banner banner--error">{modeError}</div> : null}

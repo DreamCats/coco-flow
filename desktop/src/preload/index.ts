@@ -8,6 +8,7 @@ import type {
   DisconnectRemoteInput,
   LocalStartInput,
   LocalStopInput,
+  WindowMode,
 } from '@shared/types'
 
 const api: DesktopApi = {
@@ -22,6 +23,7 @@ const api: DesktopApi = {
   connectRemote: (input: ConnectRemoteInput) => ipcRenderer.invoke('desktop:connect-remote', input),
   disconnectRemote: (input: DisconnectRemoteInput) => ipcRenderer.invoke('desktop:disconnect-remote', input),
   openWeb: (url: string) => ipcRenderer.invoke('desktop:open-web', url),
+  setWindowMode: (mode: WindowMode) => ipcRenderer.invoke('desktop:set-window-mode', mode),
   onCommandLog: (listener: (event: CommandLogEvent) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: CommandLogEvent) => {
       listener(payload)
