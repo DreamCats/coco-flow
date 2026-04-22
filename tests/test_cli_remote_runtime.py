@@ -30,12 +30,13 @@ class RemoteRuntimeTest(unittest.TestCase):
     def test_connect_reuses_matching_healthy_local_tunnel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = self.make_settings(Path(tmp))
+            remote_runtime.add_remote("dev", host="10.0.0.8", user="maifeng", settings=settings)
             remote_runtime._save_remote_records(
                 settings,
                 [
                     {
                         "target": "dev",
-                        "host": "dev",
+                        "host": "10.0.0.8",
                         "user": "maifeng",
                         "local_port": 4318,
                         "remote_port": 4318,
@@ -54,6 +55,7 @@ class RemoteRuntimeTest(unittest.TestCase):
         self.assertTrue(result["reused_local"])
         self.assertFalse(result["remote_started"])
         self.assertFalse(result["tunnel_started"])
+        self.assertEqual(result["host"], "10.0.0.8")
         open_mock.assert_called_once_with("http://127.0.0.1:4318")
 
     def test_connect_starts_remote_and_tunnel_when_missing(self) -> None:
@@ -79,6 +81,7 @@ class RemoteRuntimeTest(unittest.TestCase):
             open_mock.assert_called_once_with("http://127.0.0.1:4318")
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["target"], "10.0.0.8")
+            self.assertEqual(records[0]["host"], "10.0.0.8")
             self.assertEqual(records[0]["ssh_pid"], 24680)
 
     def test_disconnect_removes_matching_record(self) -> None:
@@ -117,6 +120,57 @@ class RemoteRuntimeTest(unittest.TestCase):
             terminate_mock.assert_called_once_with(123)
             self.assertEqual(len(remaining), 1)
             self.assertEqual(remaining[0]["target"], "sgdev")
+
+    def test_add_list_remove_remote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = self.make_settings(Path(tmp))
+            created = remote_runtime.add_remote(
+                "dev",
+                host="10.0.0.8",
+                user="maifeng",
+                local_port=4318,
+                remote_port=5318,
+                settings=settings,
+            )
+            listing = remote_runtime.list_remotes(settings=settings)
+            removed = remote_runtime.remove_remote("dev", settings=settings)
+            after = remote_runtime.list_remotes(settings=settings)
+
+        self.assertFalse(created["updated"])
+        self.assertEqual(created["name"], "dev")
+        self.assertEqual(created["host"], "10.0.0.8")
+        self.assertEqual(len(listing["remotes"]), 1)
+        self.assertEqual(listing["remotes"][0]["name"], "dev")
+        self.assertEqual(removed["removed"], "dev")
+        self.assertEqual(after["remotes"], [])
+
+    def test_connect_uses_saved_remote_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = self.make_settings(Path(tmp))
+            remote_runtime.add_remote(
+                "dev",
+                host="10.0.0.8",
+                user="maifeng",
+                local_port=5318,
+                remote_port=6318,
+                settings=settings,
+            )
+            health_states = iter([False, False, True, True])
+            with (
+                patch("coco_flow.cli.remote_runtime._probe_health", side_effect=lambda *_args, **_kwargs: next(health_states)),
+                patch("coco_flow.cli.remote_runtime._probe_remote_health", side_effect=[False, True]),
+                patch("coco_flow.cli.remote_runtime._start_remote_service") as start_remote_mock,
+                patch("coco_flow.cli.remote_runtime._ensure_local_port_available") as ensure_port_mock,
+                patch("coco_flow.cli.remote_runtime._start_tunnel", return_value=24680) as start_tunnel_mock,
+                patch("coco_flow.cli.remote_runtime.webbrowser.open"),
+            ):
+                result = remote_runtime.connect_remote("dev", settings=settings)
+
+        self.assertEqual(result["target"], "dev")
+        self.assertEqual(result["host"], "10.0.0.8")
+        start_remote_mock.assert_called_once_with("10.0.0.8", "maifeng", remote_port=6318, build_web=True)
+        ensure_port_mock.assert_called_once_with(5318)
+        start_tunnel_mock.assert_called_once_with("10.0.0.8", "maifeng", local_port=5318, remote_port=6318)
 
 
 if __name__ == "__main__":

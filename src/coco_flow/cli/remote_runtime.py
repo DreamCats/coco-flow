@@ -40,9 +40,9 @@ raise SystemExit(0 if ok else 1)
 def connect_remote(
     host_or_ip: str,
     *,
-    user: str = "",
-    local_port: int = 4318,
-    remote_port: int = 4318,
+    user: str | None = None,
+    local_port: int | None = None,
+    remote_port: int | None = None,
     restart: bool = False,
     reconnect_tunnel: bool = False,
     open_browser: bool = True,
@@ -52,31 +52,45 @@ def connect_remote(
 ) -> dict[str, Any]:
     cfg = settings or load_settings()
     logger = on_log or (lambda _: None)
-    target = host_or_ip.strip()
-    if not target:
+    raw_target = host_or_ip.strip()
+    if not raw_target:
         raise ValueError("remote host is required")
+    remote_config = _find_saved_remote(cfg, raw_target)
+    target = str(remote_config.get("name") or raw_target) if remote_config else raw_target
+    host = str(remote_config.get("host") or raw_target) if remote_config else raw_target
+    resolved_user = user.strip() if isinstance(user, str) and user.strip() else str(remote_config.get("user") or "") if remote_config else ""
+    resolved_local_port = int(local_port) if local_port is not None else int(remote_config.get("local_port") or 4318) if remote_config else 4318
+    resolved_remote_port = int(remote_port) if remote_port is not None else int(remote_config.get("remote_port") or 4318) if remote_config else 4318
 
     records = _load_remote_records(cfg)
-    matching_record = _find_matching_record(records, target=target, user=user, local_port=local_port, remote_port=remote_port)
-    local_health_url = _health_url(local_port)
-    local_url = _app_url(local_port)
+    matching_record = _find_matching_record(
+        records,
+        target=target,
+        host=host,
+        user=resolved_user,
+        local_port=resolved_local_port,
+        remote_port=resolved_remote_port,
+    )
+    local_health_url = _health_url(resolved_local_port)
+    local_url = _app_url(resolved_local_port)
 
     if not restart and not reconnect_tunnel:
         if _probe_health(local_health_url):
             if matching_record is None:
                 raise ValueError(
-                    f"local port {local_port} already serves a healthy endpoint, "
+                    f"local port {resolved_local_port} already serves a healthy endpoint, "
                     "but it does not match the requested remote; use --local-port or disconnect the existing tunnel"
                 )
             logger(f"local_reuse: {local_health_url}")
-            _touch_remote_record(records, matching_record, target=target, user=user)
+            _touch_remote_record(records, matching_record, target=target, host=host, user=resolved_user)
             _save_remote_records(cfg, records)
             if open_browser:
                 logger(f"open_browser: {local_url}")
                 webbrowser.open(local_url)
             return {
                 "target": target,
-                "ssh_target": _build_ssh_target(target, user),
+                "host": host,
+                "ssh_target": _build_ssh_target(host, resolved_user),
                 "local_url": local_url,
                 "remote_started": False,
                 "tunnel_started": False,
@@ -85,48 +99,49 @@ def connect_remote(
             }
 
     if restart:
-        logger(f"remote_stop: {_build_ssh_target(target, user)}")
-        _stop_remote_service(target, user)
+        logger(f"remote_stop: {_build_ssh_target(host, resolved_user)}")
+        _stop_remote_service(host, resolved_user)
         reconnect_tunnel = True
 
-    remote_healthy = False if restart else _probe_remote_health(target, user, remote_port)
+    remote_healthy = False if restart else _probe_remote_health(host, resolved_user, resolved_remote_port)
     remote_started = False
     if remote_healthy:
-        logger(f"remote_reuse: {_build_ssh_target(target, user)}:{remote_port}")
+        logger(f"remote_reuse: {_build_ssh_target(host, resolved_user)}:{resolved_remote_port}")
     else:
-        logger(f"remote_start: {_build_ssh_target(target, user)}:{remote_port}")
-        _start_remote_service(target, user, remote_port=remote_port, build_web=build_web)
+        logger(f"remote_start: {_build_ssh_target(host, resolved_user)}:{resolved_remote_port}")
+        _start_remote_service(host, resolved_user, remote_port=resolved_remote_port, build_web=build_web)
         remote_started = True
-        if not _probe_remote_health(target, user, remote_port):
-            raise ValueError(f"remote coco-flow did not become healthy on {target}:{remote_port}")
+        if not _probe_remote_health(host, resolved_user, resolved_remote_port):
+            raise ValueError(f"remote coco-flow did not become healthy on {host}:{resolved_remote_port}")
 
     local_healthy = _probe_health(local_health_url)
     if reconnect_tunnel or not local_healthy:
-        logger(f"tunnel_prepare: 127.0.0.1:{local_port} -> {_build_ssh_target(target, user)}:{remote_port}")
+        logger(f"tunnel_prepare: 127.0.0.1:{resolved_local_port} -> {_build_ssh_target(host, resolved_user)}:{resolved_remote_port}")
         records = _disconnect_records(
             records,
             [
                 record
                 for record in records
-                if int(record.get("local_port") or 0) == local_port
+                if int(record.get("local_port") or 0) == resolved_local_port
             ],
         )
-        _ensure_local_port_available(local_port)
-        pid = _start_tunnel(target, user, local_port=local_port, remote_port=remote_port)
-        logger(f"tunnel_start: pid={pid} local={local_port} remote={remote_port}")
+        _ensure_local_port_available(resolved_local_port)
+        pid = _start_tunnel(host, resolved_user, local_port=resolved_local_port, remote_port=resolved_remote_port)
+        logger(f"tunnel_start: pid={pid} local={resolved_local_port} remote={resolved_remote_port}")
         records = _upsert_remote_record(
             records,
             target=target,
-            user=user,
-            local_port=local_port,
-            remote_port=remote_port,
+            host=host,
+            user=resolved_user,
+            local_port=resolved_local_port,
+            remote_port=resolved_remote_port,
             ssh_pid=pid,
         )
         _save_remote_records(cfg, records)
     else:
         logger(f"tunnel_reuse: {local_url}")
         if matching_record is not None:
-            _touch_remote_record(records, matching_record, target=target, user=user)
+            _touch_remote_record(records, matching_record, target=target, host=host, user=resolved_user)
             _save_remote_records(cfg, records)
 
     if not _probe_health(local_health_url):
@@ -138,7 +153,8 @@ def connect_remote(
 
     return {
         "target": target,
-        "ssh_target": _build_ssh_target(target, user),
+        "host": host,
+        "ssh_target": _build_ssh_target(host, resolved_user),
         "local_url": local_url,
         "remote_started": remote_started,
         "tunnel_started": True if reconnect_tunnel or not local_healthy else False,
@@ -173,7 +189,7 @@ def disconnect_remote(
 def remote_status(
     host_or_ip: str = "",
     *,
-    user: str = "",
+    user: str | None = None,
     settings: Settings | None = None,
 ) -> dict[str, Any]:
     cfg = settings or load_settings()
@@ -184,14 +200,16 @@ def remote_status(
     for record in filtered:
         local_port = int(record.get("local_port") or 0)
         remote_port = int(record.get("remote_port") or 0)
-        resolved_user = user.strip() or str(record.get("user") or "")
-        current_target = str(record.get("target") or record.get("host") or "")
+        resolved_user = user.strip() if isinstance(user, str) and user.strip() else str(record.get("user") or "")
+        current_target = str(record.get("target") or "")
+        current_host = str(record.get("host") or current_target or "")
         local_health_url = _health_url(local_port)
         local_healthy = _probe_health(local_health_url)
         ssh_pid = int(record.get("ssh_pid") or 0)
         connection: dict[str, Any] = {
             "target": current_target,
-            "ssh_target": _build_ssh_target(current_target, resolved_user),
+            "host": current_host,
+            "ssh_target": _build_ssh_target(current_host, resolved_user),
             "local_port": local_port,
             "remote_port": remote_port,
             "local_url": _app_url(local_port),
@@ -202,12 +220,97 @@ def remote_status(
             "updated_at": str(record.get("updated_at") or ""),
         }
         if target:
-            connection["remote_healthy"] = _probe_remote_health(current_target, resolved_user, remote_port)
+            connection["remote_healthy"] = _probe_remote_health(current_host, resolved_user, remote_port)
         connections.append(connection)
     return {
         "connections": connections,
         "config_path": str(_remote_state_path(cfg)),
+        "remotes": list_remotes(settings=cfg)["remotes"],
     }
+
+
+def add_remote(
+    name: str,
+    *,
+    host: str,
+    user: str = "",
+    local_port: int = 4318,
+    remote_port: int = 4318,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    cfg = settings or load_settings()
+    normalized_name = name.strip()
+    normalized_host = host.strip()
+    normalized_user = user.strip()
+    if not normalized_name:
+        raise ValueError("remote name is required")
+    if not normalized_host:
+        raise ValueError("remote host is required")
+
+    remotes = _load_saved_remotes(cfg)
+    now = _now_iso()
+    updated = False
+    for remote in remotes:
+        if str(remote.get("name") or "").strip() != normalized_name:
+            continue
+        remote.update(
+            {
+                "name": normalized_name,
+                "host": normalized_host,
+                "user": normalized_user,
+                "local_port": int(local_port),
+                "remote_port": int(remote_port),
+                "updated_at": now,
+            }
+        )
+        if not str(remote.get("created_at") or "").strip():
+            remote["created_at"] = now
+        updated = True
+        break
+    if not updated:
+        remotes.append(
+            {
+                "name": normalized_name,
+                "host": normalized_host,
+                "user": normalized_user,
+                "local_port": int(local_port),
+                "remote_port": int(remote_port),
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    _save_saved_remotes(cfg, remotes)
+    return {
+        "name": normalized_name,
+        "host": normalized_host,
+        "user": normalized_user,
+        "local_port": int(local_port),
+        "remote_port": int(remote_port),
+        "updated": updated,
+    }
+
+
+def list_remotes(*, settings: Settings | None = None) -> dict[str, Any]:
+    cfg = settings or load_settings()
+    remotes = _load_saved_remotes(cfg)
+    remotes.sort(key=lambda item: str(item.get("name") or ""))
+    return {
+        "remotes": remotes,
+        "config_path": str(_saved_remotes_path(cfg)),
+    }
+
+
+def remove_remote(name: str, *, settings: Settings | None = None) -> dict[str, Any]:
+    cfg = settings or load_settings()
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise ValueError("remote name is required")
+    remotes = _load_saved_remotes(cfg)
+    remaining = [remote for remote in remotes if str(remote.get("name") or "").strip() != normalized_name]
+    if len(remaining) == len(remotes):
+        raise ValueError(f"saved remote not found: {normalized_name}")
+    _save_saved_remotes(cfg, remaining)
+    return {"removed": normalized_name}
 
 
 def _health_url(port: int) -> str:
@@ -323,6 +426,10 @@ def _remote_state_path(settings: Settings) -> Path:
     return settings.config_root / "remote" / "connections.json"
 
 
+def _saved_remotes_path(settings: Settings) -> Path:
+    return settings.config_root / "remote" / "remotes.json"
+
+
 def _load_remote_records(settings: Settings) -> list[dict[str, Any]]:
     path = _remote_state_path(settings)
     if not path.exists():
@@ -348,16 +455,38 @@ def _save_remote_records(settings: Settings, records: list[dict[str, Any]]) -> N
     path.write_text(json.dumps({"connections": records}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _load_saved_remotes(settings: Settings) -> list[dict[str, Any]]:
+    path = _saved_remotes_path(settings)
+    if not path.exists():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    entries = payload.get("remotes")
+    if not isinstance(entries, list):
+        return []
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def _save_saved_remotes(settings: Settings, remotes: list[dict[str, Any]]) -> None:
+    path = _saved_remotes_path(settings)
+    if not remotes:
+        path.unlink(missing_ok=True)
+        _cleanup_remote_dir_if_empty(path.parent)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"remotes": remotes}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def _find_matching_record(
     records: list[dict[str, Any]],
     *,
     target: str,
+    host: str,
     user: str,
     local_port: int,
     remote_port: int,
 ) -> dict[str, Any] | None:
     for record in records:
-        if not _record_matches_target(record, target):
+        if not _record_matches_request(record, target, host):
             continue
         record_user = str(record.get("user") or "").strip()
         if user.strip() and user.strip() != record_user:
@@ -380,10 +509,36 @@ def _record_matches_target(record: dict[str, Any], target: str) -> bool:
     }
 
 
+def _record_matches_request(record: dict[str, Any], target: str, host: str) -> bool:
+    normalized_target = target.strip()
+    normalized_host = host.strip()
+    return normalized_target in {
+        str(record.get("target") or "").strip(),
+        str(record.get("host") or "").strip(),
+    } or normalized_host in {
+        str(record.get("target") or "").strip(),
+        str(record.get("host") or "").strip(),
+    }
+
+
+def _find_saved_remote(settings: Settings, target: str) -> dict[str, Any] | None:
+    normalized = target.strip()
+    if not normalized:
+        return None
+    for remote in _load_saved_remotes(settings):
+        if normalized in {
+            str(remote.get("name") or "").strip(),
+            str(remote.get("host") or "").strip(),
+        }:
+            return remote
+    return None
+
+
 def _upsert_remote_record(
     records: list[dict[str, Any]],
     *,
     target: str,
+    host: str,
     user: str,
     local_port: int,
     remote_port: int,
@@ -394,7 +549,7 @@ def _upsert_remote_record(
     next_records.append(
         {
             "target": target,
-            "host": target,
+            "host": host,
             "user": user.strip(),
             "local_port": local_port,
             "remote_port": remote_port,
@@ -411,10 +566,11 @@ def _touch_remote_record(
     record: dict[str, Any],
     *,
     target: str,
+    host: str,
     user: str,
 ) -> None:
     record["target"] = target
-    record["host"] = target
+    record["host"] = host
     if user.strip():
         record["user"] = user.strip()
     record["updated_at"] = _now_iso()
@@ -430,6 +586,17 @@ def _disconnect_records(
         if pid > 0:
             _terminate_process(pid)
     return [record for record in records if id(record) not in matched_ids]
+
+
+def _cleanup_remote_dir_if_empty(path: Path) -> None:
+    if not path.exists():
+        return
+    try:
+        next(path.iterdir())
+    except StopIteration:
+        path.rmdir()
+    except OSError:
+        return
 
 
 def _terminate_process(pid: int) -> None:
