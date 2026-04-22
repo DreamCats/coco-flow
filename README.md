@@ -76,6 +76,12 @@ coco-flow tasks archive <task_id>
 coco-flow daemon start
 coco-flow daemon status
 coco-flow daemon stop
+
+coco-flow remote add dev --host 10.37.122.5 --user maifeng
+coco-flow remote list
+coco-flow remote connect dev
+coco-flow remote status
+coco-flow remote disconnect dev
 ```
 
 Remote install script:
@@ -84,6 +90,60 @@ Remote install script:
 source ./install.sh
 curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash
 ```
+
+## Remote Development Machines
+
+`coco-flow` can now manage the common “run on a remote development machine, open from the local laptop” flow over SSH.
+
+Typical usage:
+
+```bash
+# save a remote once
+coco-flow remote add dev --host 10.37.122.5 --user maifeng
+
+# inspect saved remotes
+coco-flow remote list
+
+# connect from the local laptop
+coco-flow remote connect dev
+
+# inspect managed tunnels
+coco-flow remote status
+
+# disconnect the local tunnel
+coco-flow remote disconnect dev
+```
+
+You can also connect directly by SSH alias or IP without saving a profile first:
+
+```bash
+coco-flow remote connect dev
+coco-flow remote connect 10.37.122.5 --user maifeng
+```
+
+What `remote connect` does:
+
+- reuse an existing healthy local tunnel when possible
+- check whether the remote `coco-flow` service is already healthy
+- start remote `coco-flow` only when needed
+- create or recreate the local SSH tunnel only when needed
+- open `http://127.0.0.1:<local-port>` locally unless `--no-open` is set
+
+Useful options:
+
+```bash
+coco-flow remote connect dev --no-open
+coco-flow remote connect dev --restart
+coco-flow remote connect dev --reconnect-tunnel
+coco-flow remote status dev --json
+coco-flow remote disconnect
+```
+
+Notes:
+
+- if your SSH config already defines `User`, you usually do not need `--user`
+- `remote disconnect` currently stops the local tunnel only; it does not stop the remote `coco-flow` service
+- saved remote profiles live under `~/.config/coco-flow/remote/`
 
 ## Workflow Behavior
 
@@ -236,7 +296,7 @@ src/coco_flow/
 ├── engines/        # Input / Refine / Design / Plan / Code engines
 ├── models/         # Shared response models
 ├── services/       # Workflow shells, queries, runtime helpers
-└── cli.py          # Typer entrypoint
+└── cli/            # Typer entrypoint and command modules
 
 web/
 ├── src/App.tsx
