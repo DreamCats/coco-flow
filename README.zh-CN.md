@@ -142,6 +142,7 @@ coco-flow remote disconnect
 说明：
 
 - 如果你的 `~/.ssh/config` 已经配置了 `User`，通常不需要再显式传 `--user`
+- `remote connect` 现在会对比本地 build fingerprint 和远程运行中服务的 fingerprint；如果不一致，会明确提示并建议 `--restart`
 - `remote disconnect` 目前只会断开本地 SSH 隧道，不会停止远程开发机上的 `coco-flow`
 - 已保存的 remote 配置会落在 `~/.config/coco-flow/remote/`
 
@@ -263,6 +264,7 @@ export COCO_FLOW_ACP_IDLE_TIMEOUT_SECONDS=86400
 
 - `GET /`
 - `GET /healthz`
+- `GET /api/meta`
 - `GET /api/workspace`
 - `GET /api/knowledge`
 - `POST /api/knowledge`

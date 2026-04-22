@@ -17,6 +17,7 @@ from urllib.request import urlopen
 import webbrowser
 
 from coco_flow.config import Settings, load_settings
+from coco_flow.services.runtime.build_meta import current_build_meta
 
 LogHandler = Callable[[str], None]
 _REMOTE_HEALTH_SCRIPT = """
@@ -35,6 +36,24 @@ except Exception:
     ok = False
 
 raise SystemExit(0 if ok else 1)
+""".strip()
+_REMOTE_META_SCRIPT = """
+import json
+import sys
+import urllib.request
+
+url = sys.argv[1]
+
+try:
+    with urllib.request.urlopen(url, timeout=1.0) as response:
+        status = getattr(response, "status", 0) or 0
+        if status != 200:
+            raise SystemExit(1)
+        payload = json.loads(response.read().decode("utf-8", "ignore"))
+except Exception:
+    raise SystemExit(1)
+
+print(json.dumps(payload))
 """.strip()
 
 
@@ -74,30 +93,14 @@ def connect_remote(
     )
     local_health_url = _health_url(resolved_local_port)
     local_url = _remote_ui_url(_app_url(resolved_local_port), target=target, host=host)
+    local_build = current_build_meta()
+    initial_local_healthy = _probe_health(local_health_url)
 
-    if not restart and not reconnect_tunnel:
-        if _probe_health(local_health_url):
-            if matching_record is None:
-                raise ValueError(
-                    f"local port {resolved_local_port} already serves a healthy endpoint, "
-                    "but it does not match the requested remote; use --local-port or disconnect the existing tunnel"
-                )
-            logger(f"local_reuse: {local_health_url}")
-            _touch_remote_record(records, matching_record, target=target, host=host, user=resolved_user)
-            _save_remote_records(cfg, records)
-            if open_browser:
-                logger(f"open_browser: {local_url}")
-                webbrowser.open(local_url)
-            return {
-                "target": target,
-                "host": host,
-                "ssh_target": _build_ssh_target(host, resolved_user),
-                "local_url": local_url,
-                "remote_started": False,
-                "tunnel_started": False,
-                "reused_local": True,
-                "reused_remote": True,
-            }
+    if not restart and not reconnect_tunnel and initial_local_healthy and matching_record is None:
+        raise ValueError(
+            f"local port {resolved_local_port} already serves a healthy endpoint, "
+            "but it does not match the requested remote; use --local-port or disconnect the existing tunnel"
+        )
 
     if restart:
         logger(f"remote_stop: {_build_ssh_target(host, resolved_user)}")
@@ -106,14 +109,34 @@ def connect_remote(
 
     remote_healthy = False if restart else _probe_remote_health(host, resolved_user, resolved_remote_port)
     remote_started = False
+    remote_build: dict[str, Any] | None = None
+    fingerprint_match: bool | None = None
     if remote_healthy:
+        remote_build = _fetch_remote_meta(host, resolved_user, resolved_remote_port)
+        fingerprint_match = _fingerprints_match(local_build, remote_build)
         logger(f"remote_reuse: {_build_ssh_target(host, resolved_user)}:{resolved_remote_port}")
+        _log_fingerprint_status(
+            logger,
+            local_build=local_build,
+            remote_build=remote_build,
+            fingerprint_match=fingerprint_match,
+            remote_started=False,
+        )
     else:
         logger(f"remote_start: {_build_ssh_target(host, resolved_user)}:{resolved_remote_port}")
         _start_remote_service(host, resolved_user, remote_port=resolved_remote_port, build_web=build_web)
         remote_started = True
         if not _probe_remote_health(host, resolved_user, resolved_remote_port):
             raise ValueError(f"remote coco-flow did not become healthy on {host}:{resolved_remote_port}")
+        remote_build = _fetch_remote_meta(host, resolved_user, resolved_remote_port)
+        fingerprint_match = _fingerprints_match(local_build, remote_build)
+        _log_fingerprint_status(
+            logger,
+            local_build=local_build,
+            remote_build=remote_build,
+            fingerprint_match=fingerprint_match,
+            remote_started=True,
+        )
 
     local_healthy = _probe_health(local_health_url)
     if reconnect_tunnel or not local_healthy:
@@ -157,9 +180,12 @@ def connect_remote(
         "host": host,
         "ssh_target": _build_ssh_target(host, resolved_user),
         "local_url": local_url,
+        "local_build": local_build,
+        "remote_build": remote_build,
+        "fingerprint_match": fingerprint_match,
         "remote_started": remote_started,
         "tunnel_started": True if reconnect_tunnel or not local_healthy else False,
-        "reused_local": False,
+        "reused_local": initial_local_healthy and not reconnect_tunnel,
         "reused_remote": not remote_started,
     }
 
@@ -197,6 +223,7 @@ def remote_status(
     target = host_or_ip.strip()
     records = _load_remote_records(cfg)
     filtered = [record for record in records if _record_matches_target(record, target)] if target else records
+    local_build = current_build_meta()
     connections: list[dict[str, Any]] = []
     for record in filtered:
         local_port = int(record.get("local_port") or 0)
@@ -222,10 +249,14 @@ def remote_status(
         }
         if target:
             connection["remote_healthy"] = _probe_remote_health(current_host, resolved_user, remote_port)
+            if connection["remote_healthy"]:
+                connection["remote_build"] = _fetch_remote_meta(current_host, resolved_user, remote_port)
+                connection["fingerprint_match"] = _fingerprints_match(local_build, connection.get("remote_build"))
         connections.append(connection)
     return {
         "connections": connections,
         "config_path": str(_remote_state_path(cfg)),
+        "local_build": local_build,
         "remotes": list_remotes(settings=cfg)["remotes"],
     }
 
@@ -318,6 +349,10 @@ def _health_url(port: int) -> str:
     return f"http://127.0.0.1:{port}/healthz"
 
 
+def _meta_url(port: int) -> str:
+    return f"http://127.0.0.1:{port}/api/meta"
+
+
 def _app_url(port: int) -> str:
     return f"http://127.0.0.1:{port}"
 
@@ -348,6 +383,19 @@ def _probe_remote_health(target: str, user: str, remote_port: int) -> bool:
     command = f"python3 -c {shlex.quote(_REMOTE_HEALTH_SCRIPT)} {shlex.quote(url)}"
     result = _run_ssh_command(target, user, command)
     return result.returncode == 0
+
+
+def _fetch_remote_meta(target: str, user: str, remote_port: int) -> dict[str, Any] | None:
+    url = _meta_url(remote_port)
+    command = f"python3 -c {shlex.quote(_REMOTE_META_SCRIPT)} {shlex.quote(url)}"
+    result = _run_ssh_command(target, user, command)
+    if result.returncode != 0:
+        return None
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _start_remote_service(target: str, user: str, *, remote_port: int, build_web: bool) -> None:
@@ -417,7 +465,10 @@ def _run_ssh_command(target: str, user: str, command: str) -> subprocess.Complet
 
 
 def _ensure_local_port_available(port: int) -> None:
+    if _has_local_listener(port):
+        raise ValueError(f"local port {port} is already in use")
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         probe.bind(("127.0.0.1", port))
     except OSError as error:
@@ -426,8 +477,53 @@ def _ensure_local_port_available(port: int) -> None:
         probe.close()
 
 
+def _has_local_listener(port: int) -> bool:
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.settimeout(0.2)
+    try:
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+    finally:
+        probe.close()
+
+
 def _build_ssh_target(target: str, user: str) -> str:
     return f"{user.strip()}@{target}" if user.strip() else target
+
+
+def _fingerprints_match(local_build: dict[str, Any], remote_build: dict[str, Any] | None) -> bool | None:
+    if not remote_build:
+        return None
+    local_fingerprint = str(local_build.get("fingerprint") or "").strip()
+    remote_fingerprint = str(remote_build.get("fingerprint") or "").strip()
+    if not local_fingerprint or not remote_fingerprint:
+        return None
+    return local_fingerprint == remote_fingerprint
+
+
+def _log_fingerprint_status(
+    logger: LogHandler,
+    *,
+    local_build: dict[str, Any],
+    remote_build: dict[str, Any] | None,
+    fingerprint_match: bool | None,
+    remote_started: bool,
+) -> None:
+    local_fingerprint = str(local_build.get("fingerprint") or "")
+    if remote_build is None:
+        logger("remote_meta_unavailable")
+        return
+    remote_fingerprint = str(remote_build.get("fingerprint") or "")
+    if fingerprint_match is None:
+        logger(f"remote_meta_unavailable: local={local_fingerprint} remote={remote_fingerprint or 'unknown'}")
+        return
+    if fingerprint_match:
+        logger(f"remote_version_ok: local={local_fingerprint} remote={remote_fingerprint}")
+        return
+    logger(f"remote_version_mismatch: local={local_fingerprint} remote={remote_fingerprint}")
+    if remote_started:
+        logger("remote_version_action: remote service restarted, but the remote machine is still running a different coco-flow build")
+        return
+    logger("remote_version_action: rerun with --restart after the remote machine has been updated")
 
 
 def _shell_join(parts: list[str]) -> str:
