@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -30,6 +31,7 @@ from coco_flow.services.tasks.background import start_background_code, start_bac
 from coco_flow.services.tasks.input import create_task
 from coco_flow.services.tasks.edit import update_artifact
 from coco_flow.services.runtime.fs_tools import list_fs_entries, list_fs_roots
+from coco_flow.services.runtime.build_meta import current_build_meta
 from coco_flow.services.tasks.lifecycle import archive_task, reset_task
 from coco_flow.services.tasks.code import start_coding_task
 from coco_flow.services.tasks.design import start_designing_task
@@ -52,6 +54,8 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         summary="Workflow product layer for PRD, task, and worktree orchestration.",
         version="0.1.0",
     )
+    app.state.started_at = datetime.now().astimezone().isoformat()
+    app.state.build_meta = current_build_meta(started_at=app.state.started_at)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -77,6 +81,10 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/meta")
+    def app_meta() -> dict[str, object]:
+        return dict(app.state.build_meta)
 
     @app.get("/api/workspace")
     def workspace():
