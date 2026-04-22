@@ -298,6 +298,7 @@ async function preflight(): Promise<PreflightStatus> {
     const binaryPath = await ensureBinaryPath()
     const versionResult = await runJsonCommand<{ version?: string }>(['version', '--json'])
     return {
+      state: 'ready',
       ok: true,
       binaryPath,
       version: versionResult.version,
@@ -305,6 +306,7 @@ async function preflight(): Promise<PreflightStatus> {
   } catch (error) {
     cachedBinaryPath = null
     return {
+      state: 'missing',
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     }

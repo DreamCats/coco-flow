@@ -8,7 +8,10 @@ import { useRemoteSelection } from './useRemoteSelection'
 
 export function useLauncherState() {
   const desktopApi = globalThis.window?.cocoFlowDesktop
-  const [preflight, setPreflight] = useState<PreflightStatus | null>(null)
+  const [preflight, setPreflight] = useState<PreflightStatus>({
+    state: 'checking',
+    ok: false,
+  })
   const [remotes, setRemotes] = useState<RemoteProfile[]>([])
   const [selectedConnection, setSelectedConnection] = useState<RemoteConnection | null>(null)
   const [form, setForm] = useState<FormState>(DEFAULT_FORM)
@@ -103,11 +106,21 @@ export function useLauncherState() {
       setIsBootstrapping(true)
       setErrorMessage('')
       if (!desktopApi) {
+        setPreflight({
+          state: 'missing',
+          ok: false,
+          error: 'Desktop preload API is unavailable. Restart the Electron app after the preload fix is applied.',
+        })
         setErrorMessage('Desktop preload API is unavailable. Restart the Electron app after the preload fix is applied.')
         setIsBootstrapping(false)
         return
       }
+      const startTime = Date.now()
       const nextPreflight = await desktopApi.preflight()
+      const elapsed = Date.now() - startTime
+      if (elapsed < 280) {
+        await new Promise((resolve) => globalThis.window.setTimeout(resolve, 280 - elapsed))
+      }
       if (cancelled) {
         return
       }

@@ -5,6 +5,7 @@ export type BuildMeta = {
 }
 
 export type PreflightStatus = {
+  state?: 'checking' | 'ready' | 'missing'
   ok: boolean
   binaryPath?: string
   version?: string

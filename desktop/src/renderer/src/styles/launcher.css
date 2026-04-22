@@ -307,6 +307,12 @@
   background: var(--warning);
 }
 
+.status-badge--checking {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: var(--shadow-ring);
+}
+
 .fact-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

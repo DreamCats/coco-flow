@@ -38,7 +38,7 @@ export function App() {
 
       {mode !== 'picker' ? <ModeSwitch mode={mode} onChangeMode={setMode} /> : null}
       {modeError ? <div className="banner banner--error">{modeError}</div> : null}
-      {!launcher.preflight?.ok ? (
+      {launcher.preflight?.state === 'missing' ? (
         <div className="banner banner--warning">
           需要先在本机安装并让 shell 可见 <code>coco-flow</code>。
         </div>

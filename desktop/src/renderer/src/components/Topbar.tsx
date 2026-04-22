@@ -6,19 +6,27 @@ type TopbarProps = {
 }
 
 export function Topbar({ preflight, compact = false }: TopbarProps) {
+  const state = preflight?.state || 'checking'
+  const label = state === 'ready' ? 'CLI Ready' : state === 'missing' ? 'CLI Missing' : 'Checking CLI...'
+  const tone = state === 'ready' ? 'healthy' : state === 'missing' ? 'warning' : 'checking'
+  const hint =
+    state === 'ready'
+      ? preflight?.binaryPath
+      : state === 'missing'
+        ? preflight?.error || 'coco-flow not found in PATH'
+        : 'Looking for coco-flow in your shell environment...'
+
   return (
     <header className={`topbar${compact ? ' topbar--compact' : ''}`}>
       <div className="topbar__title">
         <h1>coco-flow</h1>
       </div>
       <div className="topbar__meta">
-        <span className={`status-badge status-badge--${preflight?.ok ? 'healthy' : 'warning'}`}>
-          {preflight?.ok ? 'CLI Ready' : 'CLI Missing'}
+        <span className={`status-badge status-badge--${tone}`}>
+          {label}
         </span>
         {!compact ? (
-          <span className="topbar__hint">
-            {preflight?.ok ? preflight.binaryPath : preflight?.error || 'Checking environment...'}
-          </span>
+          <span className="topbar__hint">{hint}</span>
         ) : null}
       </div>
     </header>
