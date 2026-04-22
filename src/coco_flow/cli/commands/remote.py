@@ -30,7 +30,7 @@ def remote_connect_cmd(
             reconnect_tunnel=reconnect_tunnel,
             open_browser=not no_open,
             build_web=build_web,
-            on_log=lambda line: None if as_json else typer.echo(line),
+            on_log=lambda line: typer.echo(line, err=as_json),
         )
     except ValueError as error:
         typer.echo(str(error), err=True)
@@ -117,7 +117,7 @@ def remote_disconnect_cmd(
     try:
         result = remote_runtime.disconnect_remote(
             host_or_ip,
-            on_log=lambda line: None if as_json else typer.echo(line),
+            on_log=lambda line: typer.echo(line, err=as_json),
         )
     except ValueError as error:
         typer.echo(str(error), err=True)

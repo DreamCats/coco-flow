@@ -9,7 +9,7 @@
 - Product: `coco-flow`
 - Package: `coco-flow`
 - Python: `>=3.13`
-- Stack: Python, `uv`, Typer, FastAPI, Vite/React
+- Stack: Python, `uv`, Typer, FastAPI, Vite/React, Electron
 - Default interaction language: Chinese
 
 Current task flow:
@@ -231,6 +231,32 @@ Current UI capabilities:
 - browse and edit knowledge documents
 - edit `prd.source.md`, `prd-refined.md`, `design.md`, and `plan.md`
 - reset, archive, and inspect task artifacts
+
+## Desktop Launcher
+
+The Electron launcher MVP lives in [`desktop/`](desktop/).
+
+It now exposes two lightweight entry modes:
+
+- `Local`: start or stop local `coco-flow`, inspect local status, and open the local Web UI
+- `Remote`: list saved remotes, add or remove profiles, connect or disconnect, inspect status, and open the forwarded Web UI
+
+Both modes stream CLI logs into the same desktop log panel.
+
+Current constraints:
+
+- the desktop app still requires a locally installed `coco-flow` binary
+- it does not bundle the Python runtime or reimplement SSH/auth flows
+- it does not embed the full Web UI yet; successful local or remote launches still open the browser
+
+Local development:
+
+```bash
+cd /Users/bytedance/Work/tools/bytedance/coco-flow/desktop
+npm install
+npm run dev
+npm run build
+```
 
 ## Execution Modes
 
