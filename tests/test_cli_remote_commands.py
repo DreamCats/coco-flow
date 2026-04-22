@@ -57,7 +57,7 @@ class CliRemoteCommandsTest(unittest.TestCase):
                 "target": "dev",
                 "host": "10.0.0.8",
                 "ssh_target": "maifeng@10.0.0.8",
-                "local_url": "http://127.0.0.1:4318",
+                "local_url": "http://127.0.0.1:4318?coco_flow_context=remote&remote_name=dev&remote_host=10.0.0.8",
                 "remote_started": False,
                 "tunnel_started": False,
                 "reused_local": True,
@@ -69,7 +69,10 @@ class CliRemoteCommandsTest(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, msg=result.output)
         connect_mock.assert_called_once()
         self.assertIn("connected: maifeng@10.0.0.8", result.output)
-        self.assertIn("url: http://127.0.0.1:4318", result.output)
+        self.assertIn(
+            "url: http://127.0.0.1:4318?coco_flow_context=remote&remote_name=dev&remote_host=10.0.0.8",
+            result.output,
+        )
 
     def test_remote_status_prints_empty_message(self) -> None:
         runner = CliRunner()

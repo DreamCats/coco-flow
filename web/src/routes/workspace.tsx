@@ -23,7 +23,7 @@ export function WorkspacePage() {
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">路径视图</div>
           <h2 className="mt-2 text-[32px] font-semibold tracking-[-0.05em] text-stone-950 dark:text-stone-50">仓库与执行路径</h2>
           <p className="mt-3 text-sm leading-6 text-stone-600 dark:text-stone-300">
-            这里展示任务目录、上下文目录和隔离工作区的实际位置，方便确认任务会落到哪里。
+            这里展示任务目录和隔离工作区的实际位置，方便确认任务会落到哪里。
           </p>
         </div>
       </section>
@@ -34,7 +34,6 @@ export function WorkspacePage() {
           <div className="space-y-3">
             <PathCard label="仓库根目录" value={workspace.repoRoot} />
             <PathCard label="任务目录" value={workspace.tasksRoot} />
-            <PathCard label="上下文目录" value={workspace.contextRoot} />
             <PathCard label="隔离工作区" value={workspace.worktreeRoot} />
           </div>
         </section>

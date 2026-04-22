@@ -12,6 +12,7 @@ import subprocess
 import time
 from typing import Any
 from urllib.error import URLError
+from urllib.parse import urlencode
 from urllib.request import urlopen
 import webbrowser
 
@@ -72,7 +73,7 @@ def connect_remote(
         remote_port=resolved_remote_port,
     )
     local_health_url = _health_url(resolved_local_port)
-    local_url = _app_url(resolved_local_port)
+    local_url = _remote_ui_url(_app_url(resolved_local_port), target=target, host=host)
 
     if not restart and not reconnect_tunnel:
         if _probe_health(local_health_url):
@@ -319,6 +320,17 @@ def _health_url(port: int) -> str:
 
 def _app_url(port: int) -> str:
     return f"http://127.0.0.1:{port}"
+
+
+def _remote_ui_url(base_url: str, *, target: str, host: str) -> str:
+    query = urlencode(
+        {
+            "coco_flow_context": "remote",
+            "remote_name": target,
+            "remote_host": host,
+        }
+    )
+    return f"{base_url}?{query}"
 
 
 def _probe_health(url: str, timeout: float = 1.0) -> bool:

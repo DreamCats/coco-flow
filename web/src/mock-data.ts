@@ -323,7 +323,6 @@ export const tasks: TaskRecord[] = [
 export const workspaceSummary = {
   repoRoot: '/home/maifeng/go/src/code.byted.org/ttec/live_pack',
   tasksRoot: '~/.config/coco-ext/tasks',
-  contextRoot: '.livecoding/context',
   worktreeRoot: '/home/maifeng/go/src/code.byted.org/ttec/.coco-ext-worktree',
   activeBranches: [
     'main',
