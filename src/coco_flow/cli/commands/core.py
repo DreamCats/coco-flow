@@ -33,7 +33,7 @@ def install_cmd(
         cli_project.run_project_command(["uv", "python", "install", cli_project._PYTHON_VERSION], cwd=project_root)
     cli_project.install_tool_from_project(project_root)
     if not no_ui:
-        cli_project.run_project_command(["npm", "install"], cwd=project_root / "web")
+        cli_server.ensure_web_build(project_root / "web", force=True)
     typer.echo(f"installed tool: coco-flow ({project_root})")
     typer.echo(f"bin dir: {cli_project.tool_bin_dir(project_root)}")
 
@@ -51,7 +51,7 @@ def update_cmd(
     cli_project.run_project_command(["uv", "python", "upgrade", cli_project._PYTHON_VERSION], cwd=project_root)
     cli_project.install_tool_from_project(project_root)
     if not no_ui:
-        cli_project.run_project_command(["npm", "install"], cwd=project_root / "web")
+        cli_server.ensure_web_build(project_root / "web", force=True)
     typer.echo(f"updated tool: coco-flow ({project_root})")
     typer.echo(f"bin dir: {cli_project.tool_bin_dir(project_root)}")
 

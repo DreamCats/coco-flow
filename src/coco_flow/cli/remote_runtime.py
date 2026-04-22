@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 import json
-import os
 from pathlib import Path
 import shlex
 import signal
@@ -54,6 +53,36 @@ except Exception:
     raise SystemExit(1)
 
 print(json.dumps(payload))
+""".strip()
+_REMOTE_COCO_FLOW_BIN_SCRIPT = """
+from pathlib import Path
+import os
+import shutil
+
+candidates = []
+resolved = shutil.which("coco-flow")
+if resolved:
+    candidates.append(resolved)
+
+home = Path.home()
+candidates.extend(
+    [
+        str(home / ".local" / "bin" / "coco-flow"),
+        str(home / ".cargo" / "bin" / "coco-flow"),
+    ]
+)
+
+seen = set()
+for candidate in candidates:
+    normalized = str(candidate).strip()
+    if not normalized or normalized in seen:
+        continue
+    seen.add(normalized)
+    if Path(normalized).is_file():
+        print(normalized)
+        raise SystemExit(0)
+
+raise SystemExit(1)
 """.strip()
 
 
@@ -126,7 +155,7 @@ def connect_remote(
         logger(f"remote_start: {_build_ssh_target(host, resolved_user)}:{resolved_remote_port}")
         _start_remote_service(host, resolved_user, remote_port=resolved_remote_port, build_web=build_web)
         remote_started = True
-        if not _probe_remote_health(host, resolved_user, resolved_remote_port):
+        if not _wait_for_remote_health(host, resolved_user, resolved_remote_port):
             raise ValueError(f"remote coco-flow did not become healthy on {host}:{resolved_remote_port}")
         remote_build = _fetch_remote_meta(host, resolved_user, resolved_remote_port)
         fingerprint_match = _fingerprints_match(local_build, remote_build)
@@ -168,7 +197,7 @@ def connect_remote(
             _touch_remote_record(records, matching_record, target=target, host=host, user=resolved_user)
             _save_remote_records(cfg, records)
 
-    if not _probe_health(local_health_url):
+    if not _wait_for_health(local_health_url, timeout=5.0):
         raise ValueError(f"local tunnel did not become healthy on {local_health_url}")
 
     if open_browser:
@@ -399,8 +428,9 @@ def _fetch_remote_meta(target: str, user: str, remote_port: int) -> dict[str, An
 
 
 def _start_remote_service(target: str, user: str, *, remote_port: int, build_web: bool) -> None:
+    coco_flow_bin = _resolve_remote_coco_flow_bin(target, user)
     command = [
-        "coco-flow",
+        coco_flow_bin,
         "start",
         "--detach",
         "--host",
@@ -416,7 +446,8 @@ def _start_remote_service(target: str, user: str, *, remote_port: int, build_web
 
 
 def _stop_remote_service(target: str, user: str) -> None:
-    result = _run_ssh_command(target, user, "coco-flow stop")
+    coco_flow_bin = _resolve_remote_coco_flow_bin(target, user)
+    result = _run_ssh_command(target, user, f"{shlex.quote(coco_flow_bin)} stop")
     if result.returncode != 0:
         raise ValueError(result.stderr.strip() or result.stdout.strip() or "failed to stop remote coco-flow")
 
@@ -464,6 +495,15 @@ def _run_ssh_command(target: str, user: str, command: str) -> subprocess.Complet
     )
 
 
+def _resolve_remote_coco_flow_bin(target: str, user: str) -> str:
+    result = _run_ssh_command(target, user, f"python3 -c {shlex.quote(_REMOTE_COCO_FLOW_BIN_SCRIPT)}")
+    if result.returncode == 0:
+        resolved = result.stdout.strip()
+        if resolved:
+            return resolved
+    raise ValueError(result.stderr.strip() or result.stdout.strip() or "failed to resolve remote coco-flow binary")
+
+
 def _ensure_local_port_available(port: int) -> None:
     if _has_local_listener(port):
         raise ValueError(f"local port {port} is already in use")
@@ -488,6 +528,24 @@ def _has_local_listener(port: int) -> bool:
 
 def _build_ssh_target(target: str, user: str) -> str:
     return f"{user.strip()}@{target}" if user.strip() else target
+
+
+def _wait_for_health(url: str, *, timeout: float, interval: float = 0.2) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _probe_health(url):
+            return True
+        time.sleep(interval)
+    return _probe_health(url)
+
+
+def _wait_for_remote_health(target: str, user: str, remote_port: int, *, timeout: float = 5.0, interval: float = 0.2) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _probe_remote_health(target, user, remote_port):
+            return True
+        time.sleep(interval)
+    return _probe_remote_health(target, user, remote_port)
 
 
 def _fingerprints_match(local_build: dict[str, Any], remote_build: dict[str, Any] | None) -> bool | None:

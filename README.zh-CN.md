@@ -143,6 +143,7 @@ coco-flow remote disconnect
 
 - 如果你的 `~/.ssh/config` 已经配置了 `User`，通常不需要再显式传 `--user`
 - `remote connect` 现在会对比本地 build fingerprint 和远程运行中服务的 fingerprint；如果不一致，会明确提示并建议 `--restart`
+- `coco-flow update` 现在会一并重建 bundled Web UI；`coco-flow start` 和 `coco-flow ui serve` 也会在检测到 `web/dist` 过期时自动重建
 - `remote disconnect` 目前只会断开本地 SSH 隧道，不会停止远程开发机上的 `coco-flow`
 - 已保存的 remote 配置会落在 `~/.config/coco-flow/remote/`
 
