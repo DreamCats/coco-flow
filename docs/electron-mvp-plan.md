@@ -21,9 +21,11 @@
 
 1. `desktop/` 下新增了 Electron + React 工程
 2. 主进程通过受控 IPC 调用已安装的 `coco-flow` CLI
-3. 已接通 `remote list/add/remove/connect/disconnect/status`
-4. 已支持 connect/disconnect 的流式日志展示
-5. connect 成功后由 Electron 打开本地 Web URL
+3. 已支持 launcher 首屏先选择 `Local` 或 `Remote`
+4. `Local` 已接通 `start/stop/status/open`
+5. `Remote` 已接通 `remote list/add/remove/connect/disconnect/status`
+6. 已支持本地/远程动作的流式日志展示
+7. 成功后由 Electron 打开对应的本地 Web URL
 
 当前仍未做：
 

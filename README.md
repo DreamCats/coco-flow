@@ -236,19 +236,18 @@ Current UI capabilities:
 
 The Electron launcher MVP lives in [`desktop/`](desktop/).
 
-It is intentionally a thin shell over the existing remote CLI:
+It now exposes two lightweight entry modes:
 
-- lists saved remotes
-- adds or removes remote profiles
-- runs `connect`, `restart & connect`, `disconnect`, and `status`
-- streams CLI logs into a desktop log panel
-- opens the local Web URL in the system browser after a successful connect
+- `Local`: start or stop local `coco-flow`, inspect local status, and open the local Web UI
+- `Remote`: list saved remotes, add or remove profiles, connect or disconnect, inspect status, and open the forwarded Web UI
+
+Both modes stream CLI logs into the same desktop log panel.
 
 Current constraints:
 
 - the desktop app still requires a locally installed `coco-flow` binary
 - it does not bundle the Python runtime or reimplement SSH/auth flows
-- it does not embed the full Web UI yet; successful connects still open the browser
+- it does not embed the full Web UI yet; successful local or remote launches still open the browser
 
 Local development:
 

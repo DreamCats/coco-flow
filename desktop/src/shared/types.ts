@@ -98,6 +98,30 @@ export type DisconnectRemoteResult = {
   targets: string[]
 }
 
+export type LocalStatusResponse = {
+  running: boolean
+  pid?: number | null
+  pid_file: string
+  log_file: string
+  url: string
+  healthy: boolean
+}
+
+export type LocalStartInput = {
+  requestId: string
+  openBrowser?: boolean
+}
+
+export type LocalStopInput = {
+  requestId: string
+}
+
+export type LocalStopResult = {
+  stopped: boolean
+  message: string
+  url: string
+}
+
 export type CommandLogEvent = {
   requestId: string
   message: string
@@ -105,6 +129,9 @@ export type CommandLogEvent = {
 
 export type DesktopApi = {
   preflight: () => Promise<PreflightStatus>
+  getLocalStatus: () => Promise<LocalStatusResponse>
+  startLocal: (input: LocalStartInput) => Promise<LocalStatusResponse>
+  stopLocal: (input: LocalStopInput) => Promise<LocalStopResult>
   listRemotes: () => Promise<RemoteListResponse>
   addRemote: (input: AddRemoteInput) => Promise<AddRemoteResult>
   removeRemote: (name: string) => Promise<{ removed: string }>

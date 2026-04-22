@@ -12,6 +12,10 @@ import type {
   ConnectRemoteResult,
   DisconnectRemoteInput,
   DisconnectRemoteResult,
+  LocalStartInput,
+  LocalStatusResponse,
+  LocalStopInput,
+  LocalStopResult,
   PreflightStatus,
   RemoteListResponse,
   RemoteStatusResponse,
@@ -22,6 +26,9 @@ const ELECTRON_RENDERER_URL = process.env.ELECTRON_RENDERER_URL
 const PRELOAD_PATH = join(__dirname, '../preload/index.mjs')
 const RENDERER_HTML = join(__dirname, '../renderer/index.html')
 const IS_DEV = Boolean(ELECTRON_RENDERER_URL)
+const LOCAL_PORT = 4318
+const LOCAL_URL = `http://127.0.0.1:${LOCAL_PORT}`
+const LOCAL_HEALTH_URL = `${LOCAL_URL}/healthz`
 
 let mainWindow: BrowserWindow | null = null
 let cachedBinaryPath: string | null = null
@@ -167,6 +174,43 @@ async function runJsonCommand<T>(args: string[]): Promise<T> {
   })
 }
 
+type StreamingCommandResult = {
+  stdout: string
+  stderr: string
+}
+
+async function runStreamingCommand(requestId: string, args: string[]): Promise<StreamingCommandResult> {
+  const binaryPath = await ensureBinaryPath()
+  emitCommandLog(requestId, `$ ${['coco-flow', ...args].join(' ')}\n`)
+  return new Promise((resolve, reject) => {
+    const child = spawn(binaryPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: process.env,
+    })
+    let stdout = ''
+    let stderr = ''
+
+    child.stdout.on('data', (chunk) => {
+      const message = chunk.toString()
+      stdout += message
+      emitCommandLog(requestId, message)
+    })
+    child.stderr.on('data', (chunk) => {
+      const message = chunk.toString()
+      stderr += message
+      emitCommandLog(requestId, message)
+    })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || stdout.trim() || `coco-flow exited with code ${code ?? 'unknown'}`))
+        return
+      }
+      resolve({ stdout, stderr })
+    })
+  })
+}
+
 async function runStreamingJsonCommand<T>(requestId: string, args: string[]): Promise<T> {
   const binaryPath = await ensureBinaryPath()
   emitCommandLog(requestId, `$ ${['coco-flow', ...args].join(' ')}\n`)
@@ -201,6 +245,37 @@ async function runStreamingJsonCommand<T>(requestId: string, args: string[]): Pr
   })
 }
 
+async function probeHealth(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, { method: 'GET' })
+    if (!response.ok) {
+      return false
+    }
+    const body = (await response.text()).toLowerCase()
+    return body.includes('ok')
+  } catch {
+    return false
+  }
+}
+
+async function getLocalStatus(): Promise<LocalStatusResponse> {
+  const rawStatus = await runJsonCommand<{
+    running?: boolean
+    pid?: number | null
+    pid_file?: string
+    log_file?: string
+  }>(['status'])
+  const healthy = await probeHealth(LOCAL_HEALTH_URL)
+  return {
+    running: Boolean(rawStatus.running),
+    pid: rawStatus.pid ?? null,
+    pid_file: rawStatus.pid_file || '',
+    log_file: rawStatus.log_file || '',
+    url: LOCAL_URL,
+    healthy,
+  }
+}
+
 async function preflight(): Promise<PreflightStatus> {
   try {
     const binaryPath = await ensureBinaryPath()
@@ -221,6 +296,26 @@ async function preflight(): Promise<PreflightStatus> {
 
 function registerIpcHandlers(): void {
   ipcMain.handle('desktop:preflight', () => preflight())
+  ipcMain.handle('desktop:get-local-status', () => getLocalStatus())
+  ipcMain.handle('desktop:start-local', async (_event, input: LocalStartInput) => {
+    const requestId = input.requestId || randomUUID()
+    await runStreamingCommand(requestId, ['start', '--detach', '--host', '127.0.0.1', '--port', String(LOCAL_PORT)])
+    const result = await getLocalStatus()
+    if (input.openBrowser !== false) {
+      await shell.openExternal(result.url)
+      emitCommandLog(requestId, `open_browser: ${result.url}\n`)
+    }
+    return result
+  })
+  ipcMain.handle('desktop:stop-local', async (_event, input: LocalStopInput) => {
+    const requestId = input.requestId || randomUUID()
+    const result = await runStreamingCommand(requestId, ['stop'])
+    return {
+      stopped: true,
+      message: (result.stdout || result.stderr || 'coco-flow server stopped').trim(),
+      url: LOCAL_URL,
+    } satisfies LocalStopResult
+  })
   ipcMain.handle('desktop:list-remotes', () => runJsonCommand<RemoteListResponse>(['remote', 'list', '--json']))
   ipcMain.handle('desktop:add-remote', (_event, input: AddRemoteInput) =>
     runJsonCommand<AddRemoteResult>([

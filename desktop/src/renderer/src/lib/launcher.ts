@@ -9,6 +9,7 @@ export type FormState = {
 }
 
 export type ConnectionTone = 'idle' | 'healthy' | 'warning'
+export type LauncherMode = 'picker' | 'local' | 'remote'
 
 export const DEFAULT_FORM: FormState = {
   name: '',

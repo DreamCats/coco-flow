@@ -6,10 +6,15 @@ import type {
   ConnectRemoteInput,
   DesktopApi,
   DisconnectRemoteInput,
+  LocalStartInput,
+  LocalStopInput,
 } from '@shared/types'
 
 const api: DesktopApi = {
   preflight: () => ipcRenderer.invoke('desktop:preflight'),
+  getLocalStatus: () => ipcRenderer.invoke('desktop:get-local-status'),
+  startLocal: (input: LocalStartInput) => ipcRenderer.invoke('desktop:start-local', input),
+  stopLocal: (input: LocalStopInput) => ipcRenderer.invoke('desktop:stop-local', input),
   listRemotes: () => ipcRenderer.invoke('desktop:list-remotes'),
   addRemote: (input: AddRemoteInput) => ipcRenderer.invoke('desktop:add-remote', input),
   removeRemote: (name: string) => ipcRenderer.invoke('desktop:remove-remote', name),

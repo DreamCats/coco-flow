@@ -9,7 +9,7 @@ export function Topbar({ preflight }: TopbarProps) {
     <header className="topbar">
       <div className="topbar__title">
         <p className="eyebrow">coco-flow</p>
-        <h1>Remote launcher</h1>
+        <h1>Launcher</h1>
       </div>
       <div className="topbar__meta">
         <span className={`status-badge status-badge--${preflight?.ok ? 'healthy' : 'warning'}`}>
