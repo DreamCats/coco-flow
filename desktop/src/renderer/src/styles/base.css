@@ -1,0 +1,58 @@
+:root {
+  --bg: #f5f4ed;
+  --bg-strong: #faf9f5;
+  --bg-soft: #ece8dc;
+  --surface: rgba(255, 255, 255, 0.74);
+  --surface-strong: rgba(255, 255, 255, 0.92);
+  --text: #141413;
+  --text-muted: #5e5d59;
+  --text-soft: #87867f;
+  --border: #e6e0d3;
+  --brand: #c96442;
+  --brand-soft: #e8b39f;
+  --healthy: #3d6f55;
+  --warning: #9a5c2a;
+  --danger: #b53333;
+  --shadow-card: 0 18px 40px rgba(20, 20, 19, 0.06);
+  --shadow-ring: 0 0 0 1px rgba(214, 207, 191, 0.9);
+  font-family: "Avenir Next", "Segoe UI", Arial, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(201, 100, 66, 0.1), transparent 28%),
+    linear-gradient(180deg, #fbfaf6 0%, #f5f4ed 100%);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+code,
+pre {
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+}
