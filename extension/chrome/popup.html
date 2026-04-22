@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>coco-flow</title>
+    <link rel="stylesheet" href="./base.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <h1 class="brand">coco-flow</h1>
+        <div id="gateway-badge" class="status-badge status-badge--checking">Checking...</div>
+      </header>
+
+      <section id="notice" class="notice hidden"></section>
+
+      <section id="gateway-missing" class="panel card hidden">
+        <p class="eyebrow">Gateway missing</p>
+        <h2 class="title">Run one local command, then come back.</h2>
+        <p class="copy">插件本身不会直接执行本地 shell。先把本地 gateway 拉起来，后续入口就会很轻。</p>
+        <div class="command-list">
+          <div class="command-item">
+            <p class="eyebrow">Step 1</p>
+            <div class="command-block" id="install-command">curl -fsSL https://raw.githubusercontent.com/DreamCats/coco-flow/main/install.sh | bash</div>
+            <button class="button button--ghost" id="copy-install" type="button">Copy install command</button>
+          </div>
+          <div class="command-item">
+            <p class="eyebrow">Step 2</p>
+            <div class="command-block" id="start-command">coco-flow gateway start -d</div>
+            <button class="button button--ghost" id="copy-start" type="button">Copy start command</button>
+          </div>
+        </div>
+        <div class="button-row">
+          <button class="button button--primary" id="retry-gateway" type="button">Retry</button>
+        </div>
+      </section>
+
+      <section id="app-shell" class="hidden">
+        <div class="segmented">
+          <button class="segmented__item" data-mode="local" type="button">Local</button>
+          <button class="segmented__item" data-mode="remote" type="button">Remote</button>
+        </div>
+
+        <section id="local-panel" class="panel card hidden">
+          <p class="eyebrow">Local</p>
+          <h2 class="title">Use on this Mac</h2>
+          <div class="fact-grid">
+            <div class="fact">
+              <span class="fact__label">Status</span>
+              <span class="fact__value" id="local-running">Unknown</span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Health</span>
+              <span class="fact__value" id="local-health">Unknown</span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">URL</span>
+              <span class="fact__value" id="local-url">-</span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">PID</span>
+              <span class="fact__value" id="local-pid">-</span>
+            </div>
+          </div>
+          <div class="button-row">
+            <button class="button button--primary" id="local-start" type="button">Start</button>
+            <button class="button button--secondary" id="local-stop" type="button">Stop</button>
+            <button class="button button--ghost" id="local-open" type="button">Open</button>
+            <button class="button button--ghost" id="local-refresh" type="button">Refresh</button>
+          </div>
+        </section>
+
+        <section id="remote-panel" class="panel card hidden">
+          <p class="eyebrow">Remote</p>
+          <h2 class="title">Connect to remote machine</h2>
+          <label class="field">
+            <span class="field__label">Saved remotes</span>
+            <select id="remote-select" class="select"></select>
+          </label>
+          <div class="chip-row">
+            <div class="status-badge status-badge--checking" id="remote-connected-chip">Unknown</div>
+            <div class="status-badge status-badge--checking" id="remote-tunnel-chip">Tunnel</div>
+            <div class="status-badge status-badge--checking" id="remote-fingerprint-chip">Fingerprint</div>
+          </div>
+          <div class="fact-grid">
+            <div class="fact">
+              <span class="fact__label">Host</span>
+              <span class="fact__value" id="remote-host">-</span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">SSH</span>
+              <span class="fact__value" id="remote-ssh">-</span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">URL</span>
+              <span class="fact__value" id="remote-url">-</span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Health</span>
+              <span class="fact__value" id="remote-health">-</span>
+            </div>
+          </div>
+          <div class="button-row">
+            <button class="button button--primary" id="remote-connect" type="button">Connect</button>
+            <button class="button button--secondary" id="remote-disconnect" type="button">Disconnect</button>
+            <button class="button button--ghost" id="remote-open" type="button">Open</button>
+            <button class="button button--ghost" id="remote-refresh" type="button">Refresh</button>
+          </div>
+          <p class="copy" id="remote-empty-copy">No saved remotes yet. Add one from Manage remotes.</p>
+          <button class="link-button" id="open-options" type="button">Manage remotes</button>
+        </section>
+
+        <section id="operation-panel" class="panel card hidden">
+          <p class="eyebrow">Progress</p>
+          <h2 class="title" id="operation-title">Working</h2>
+          <p class="copy" id="operation-message">Queued…</p>
+          <div class="step-list" id="operation-steps"></div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>

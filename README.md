@@ -9,7 +9,7 @@
 - Product: `coco-flow`
 - Package: `coco-flow`
 - Python: `>=3.13`
-- Stack: Python, `uv`, Typer, FastAPI, Vite/React, Electron
+- Stack: Python, `uv`, Typer, FastAPI, Vite/React, Electron, Chrome Extension
 - Default interaction language: Chinese
 
 Current task flow:
@@ -270,6 +270,38 @@ Packaging notes:
 - `npm run dist:dir` builds an unpacked macOS app bundle in `desktop/dist/mac/`
 - `npm run dist:mac` builds a distributable macOS package such as `.dmg` in `desktop/dist/`
 - the current setup is unsigned; macOS signing and notarization still need to be added before wider distribution
+
+## Chrome Extension Gateway MVP
+
+The lightweight browser entrypoint lives in [`extension/chrome/`](extension/chrome/).
+
+Current shape:
+
+- a local `coco-flow gateway` process serves HTTP on `127.0.0.1:4319`
+- the Chrome extension popup talks to the gateway over HTTP
+- `Local` and `Remote` entry actions are available in the popup
+- remote profile management lives in the extension options page
+
+Run the gateway locally:
+
+```bash
+coco-flow gateway start -d
+coco-flow gateway status --json
+coco-flow gateway stop
+```
+
+Load the extension in Chrome:
+
+1. Open `chrome://extensions`
+2. Enable `Developer mode`
+3. Click `Load unpacked`
+4. Select `/Users/bytedance/Work/tools/bytedance/coco-flow/extension/chrome`
+
+Current constraints:
+
+- the extension assumes the local gateway is already running
+- it does not execute shell commands by itself
+- action progress currently uses operation polling from the gateway
 
 ## Execution Modes
 
