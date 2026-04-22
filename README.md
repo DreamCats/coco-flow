@@ -256,7 +256,15 @@ cd /Users/bytedance/Work/tools/bytedance/coco-flow/desktop
 npm install
 npm run dev
 npm run build
+npm run dist:dir
+npm run dist:mac
 ```
+
+Packaging notes:
+
+- `npm run dist:dir` builds an unpacked macOS app bundle in `desktop/dist/mac/`
+- `npm run dist:mac` builds a distributable macOS package such as `.dmg` in `desktop/dist/`
+- the current setup is unsigned; macOS signing and notarization still need to be added before wider distribution
 
 ## Execution Modes
 

@@ -77,6 +77,8 @@ npm run build
 cd /Users/bytedance/Work/tools/bytedance/coco-flow/desktop
 npm install
 npm run build
+npm run dist:dir
+npm run dist:mac
 ```
 
 定向校验：

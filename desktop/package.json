@@ -3,15 +3,17 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "author": "Maifeng <maifeng@bytedance.com>",
   "description": "Electron launcher MVP for coco-flow remote connections.",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "preview": "electron-vite preview"
+    "preview": "electron-vite preview",
+    "dist:dir": "npm run build && electron-builder --dir",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {
-    "electron": "^38.7.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
@@ -20,8 +22,29 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.0",
+    "electron": "^38.7.0",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^4.0.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.11"
+  },
+  "build": {
+    "appId": "com.dreamcats.cocoflow.desktop",
+    "productName": "Coco Flow",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dir",
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools"
+    }
   }
 }
