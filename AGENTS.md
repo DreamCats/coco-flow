@@ -61,6 +61,12 @@ uv run coco-flow tasks archive <task_id>
 uv run coco-flow daemon start
 uv run coco-flow daemon status
 uv run coco-flow daemon stop
+
+# gateway
+uv run coco-flow gateway start
+uv run coco-flow gateway start -d
+uv run coco-flow gateway status --json
+uv run coco-flow gateway stop
 ```
 
 前端调试：

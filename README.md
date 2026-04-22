@@ -77,6 +77,11 @@ coco-flow daemon start
 coco-flow daemon status
 coco-flow daemon stop
 
+coco-flow gateway start
+coco-flow gateway start -d
+coco-flow gateway status --json
+coco-flow gateway stop
+
 coco-flow remote add dev --host 10.37.122.5 --user maifeng
 coco-flow remote list
 coco-flow remote connect dev
