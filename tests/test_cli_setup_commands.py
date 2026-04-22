@@ -60,7 +60,10 @@ class CliSetupCommandsTest(unittest.TestCase):
             project_root = make_project_root(Path(tmp))
             completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
             dir_completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="/tmp/bin\n", stderr="")
-            with patch("coco_flow.cli.project.subprocess.run", side_effect=[completed, completed, completed, completed, dir_completed]) as run_mock:
+            with (
+                patch("coco_flow.cli.project.subprocess.run", side_effect=[completed, completed, completed, dir_completed]) as run_mock,
+                patch("coco_flow.cli.server.ensure_web_build") as ensure_web_build_mock,
+            ):
                 result = runner.invoke(
                     app,
                     ["install", "--path", str(project_root)],
@@ -69,13 +72,13 @@ class CliSetupCommandsTest(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, msg=result.output)
         self.assertIn(f"installed tool: coco-flow ({project_root})", result.output)
         self.assertIn("bin dir: /tmp/bin", result.output)
+        ensure_web_build_mock.assert_called_once_with(project_root / "web", force=True)
         self.assertEqual(
             run_mock.call_args_list,
             [
                 call(["uv", "python", "install", "3.13"], cwd=project_root, check=False),
                 call(["uv", "tool", "install", "--force", "--python", "3.13", "--editable", str(project_root)], cwd=project_root, check=False),
                 call(["uv", "tool", "update-shell"], cwd=project_root, check=False),
-                call(["npm", "install"], cwd=project_root / "web", check=False),
                 call(["uv", "tool", "dir", "--bin"], cwd=project_root, check=False, capture_output=True, text=True),
             ],
         )
@@ -86,12 +89,16 @@ class CliSetupCommandsTest(unittest.TestCase):
             project_root = make_project_root(Path(tmp))
             completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
             dir_completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="/tmp/bin\n", stderr="")
-            with patch("coco_flow.cli.project.subprocess.run", side_effect=[completed, completed, completed, completed, completed, dir_completed]) as run_mock:
+            with (
+                patch("coco_flow.cli.project.subprocess.run", side_effect=[completed, completed, completed, completed, dir_completed]) as run_mock,
+                patch("coco_flow.cli.server.ensure_web_build") as ensure_web_build_mock,
+            ):
                 result = runner.invoke(app, ["update", "--path", str(project_root)])
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
         self.assertIn(f"updated tool: coco-flow ({project_root})", result.output)
         self.assertIn("bin dir: /tmp/bin", result.output)
+        ensure_web_build_mock.assert_called_once_with(project_root / "web", force=True)
         self.assertEqual(
             run_mock.call_args_list,
             [
@@ -99,7 +106,6 @@ class CliSetupCommandsTest(unittest.TestCase):
                 call(["uv", "python", "upgrade", "3.13"], cwd=project_root, check=False),
                 call(["uv", "tool", "install", "--force", "--python", "3.13", "--editable", str(project_root)], cwd=project_root, check=False),
                 call(["uv", "tool", "update-shell"], cwd=project_root, check=False),
-                call(["npm", "install"], cwd=project_root / "web", check=False),
                 call(["uv", "tool", "dir", "--bin"], cwd=project_root, check=False, capture_output=True, text=True),
             ],
         )
@@ -112,13 +118,15 @@ class CliSetupCommandsTest(unittest.TestCase):
             dir_completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="/tmp/bin\n", stderr="")
             with (
                 patch("coco_flow.cli.project.installed_repo_root", return_value=project_root),
-                patch("coco_flow.cli.project.subprocess.run", side_effect=[completed, completed, completed, completed, completed, dir_completed]) as run_mock,
+                patch("coco_flow.cli.project.subprocess.run", side_effect=[completed, completed, completed, completed, dir_completed]) as run_mock,
+                patch("coco_flow.cli.server.ensure_web_build") as ensure_web_build_mock,
             ):
                 result = runner.invoke(app, ["update"])
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
         self.assertIn(f"updated tool: coco-flow ({project_root})", result.output)
         self.assertEqual(run_mock.call_args_list[0], call(["git", "pull", "--ff-only"], cwd=project_root, check=False))
+        ensure_web_build_mock.assert_called_once_with(project_root / "web", force=True)
 
     def test_start_delegates_to_ui_serve(self) -> None:
         runner = CliRunner()
@@ -197,6 +205,43 @@ class CliSetupCommandsTest(unittest.TestCase):
         self.assertIn("pkill -f 'ssh .* -L 4318:127.0.0.1:4318 .*<user>@<dev-machine>'", result.output)
         self.assertIn("coco-flow start --detach", result.output)
         uvicorn_run_mock.assert_called_once()
+
+    def test_ensure_web_build_skips_rebuild_when_dist_is_current(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            web_root = Path(tmp) / "web"
+            dist_dir = web_root / "dist"
+            dist_dir.mkdir(parents=True)
+            (web_root / "node_modules").mkdir()
+            (dist_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            (dist_dir / ".coco-flow-build.json").write_text('{"fingerprint":"git:abc123"}\n', encoding="utf-8")
+            with (
+                patch("coco_flow.cli.server.build_meta_for_root", return_value={"fingerprint": "git:abc123"}),
+                patch("coco_flow.cli.server.subprocess.run") as run_mock,
+            ):
+                from coco_flow.cli import server as cli_server
+
+                cli_server.ensure_web_build(web_root, force=False)
+
+        run_mock.assert_not_called()
+
+    def test_ensure_web_build_rebuilds_when_dist_is_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            web_root = Path(tmp) / "web"
+            dist_dir = web_root / "dist"
+            dist_dir.mkdir(parents=True)
+            (web_root / "node_modules").mkdir()
+            (dist_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            (dist_dir / ".coco-flow-build.json").write_text('{"fingerprint":"git:old123"}\n', encoding="utf-8")
+            completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            with (
+                patch("coco_flow.cli.server.build_meta_for_root", return_value={"fingerprint": "git:new123"}),
+                patch("coco_flow.cli.server.subprocess.run", return_value=completed) as run_mock,
+            ):
+                from coco_flow.cli import server as cli_server
+
+                cli_server.ensure_web_build(web_root, force=False)
+                run_mock.assert_called_once_with(["npm", "run", "build"], cwd=web_root, check=False)
+                self.assertIn("git:new123", (dist_dir / ".coco-flow-build.json").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

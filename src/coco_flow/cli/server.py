@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import json
 import os
 from pathlib import Path
 import signal
@@ -14,6 +15,9 @@ import uvicorn
 from coco_flow.api import create_app
 from coco_flow.config import load_settings
 from coco_flow.daemon.paths import server_log_path, server_pid_path
+from coco_flow.services.runtime.build_meta import build_meta_for_root
+
+_WEB_BUILD_STAMP = ".coco-flow-build.json"
 
 
 def run_background_server_entrypoint() -> None:
@@ -53,7 +57,7 @@ def serve_ui(
     source_web_dir = project_root / "web"
 
     if build_web:
-        ensure_web_build(source_web_dir)
+        ensure_web_build(source_web_dir, force=False)
 
     if not resolved_web_dir.is_dir():
         raise typer.BadParameter(f"web dir does not exist: {resolved_web_dir}")
@@ -81,7 +85,7 @@ def serve_ui(
     )
 
 
-def ensure_web_build(web_root: Path) -> None:
+def ensure_web_build(web_root: Path, *, force: bool = False) -> None:
     if not web_root.is_dir():
         raise typer.BadParameter(f"web source directory not found: {web_root}")
 
@@ -95,6 +99,9 @@ def ensure_web_build(web_root: Path) -> None:
         if install.returncode != 0:
             raise typer.Exit(code=install.returncode)
 
+    if not force and not _web_build_is_stale(web_root):
+        return
+
     build = subprocess.run(
         ["npm", "run", "build"],
         cwd=web_root,
@@ -102,6 +109,7 @@ def ensure_web_build(web_root: Path) -> None:
     )
     if build.returncode != 0:
         raise typer.Exit(code=build.returncode)
+    _write_web_build_stamp(web_root)
 
 
 def start_server_in_background(
@@ -253,3 +261,37 @@ def _cleanup_server_pid_file(pid_path: Path, pid: int | None) -> None:
     current = _read_pid_file(pid_path)
     if current == pid:
         pid_path.unlink(missing_ok=True)
+
+
+def _web_build_is_stale(web_root: Path) -> bool:
+    dist_dir = web_root / "dist"
+    index_file = dist_dir / "index.html"
+    stamp = _read_web_build_stamp(web_root)
+    if not dist_dir.is_dir() or not index_file.is_file() or stamp is None:
+        return True
+    current_fingerprint = str(build_meta_for_root(web_root.parent).get("fingerprint") or "")
+    stamp_fingerprint = str(stamp.get("fingerprint") or "")
+    if not current_fingerprint or not stamp_fingerprint:
+        return True
+    return current_fingerprint != stamp_fingerprint
+
+
+def _write_web_build_stamp(web_root: Path) -> None:
+    dist_dir = web_root / "dist"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    payload = build_meta_for_root(web_root.parent)
+    (dist_dir / _WEB_BUILD_STAMP).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _read_web_build_stamp(web_root: Path) -> dict[str, object] | None:
+    stamp_path = web_root / "dist" / _WEB_BUILD_STAMP
+    if not stamp_path.is_file():
+        return None
+    try:
+        payload = json.loads(stamp_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None

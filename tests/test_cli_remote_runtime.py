@@ -49,6 +49,7 @@ class RemoteRuntimeTest(unittest.TestCase):
             with (
                 patch("coco_flow.cli.remote_runtime._probe_health", return_value=True),
                 patch("coco_flow.cli.remote_runtime._probe_remote_health", return_value=True),
+                patch("coco_flow.cli.remote_runtime._wait_for_health", return_value=True),
                 patch(
                     "coco_flow.cli.remote_runtime.current_build_meta",
                     return_value={"fingerprint": "git:local123", "version": "0.1.0"},
@@ -76,10 +77,11 @@ class RemoteRuntimeTest(unittest.TestCase):
     def test_connect_starts_remote_and_tunnel_when_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = self.make_settings(Path(tmp))
-            health_states = iter([False, False, True, True])
             with (
-                patch("coco_flow.cli.remote_runtime._probe_health", side_effect=lambda *_args, **_kwargs: next(health_states)),
+                patch("coco_flow.cli.remote_runtime._probe_health", side_effect=[False, False]),
                 patch("coco_flow.cli.remote_runtime._probe_remote_health", side_effect=[False, True]),
+                patch("coco_flow.cli.remote_runtime._wait_for_remote_health", return_value=True),
+                patch("coco_flow.cli.remote_runtime._wait_for_health", return_value=True),
                 patch(
                     "coco_flow.cli.remote_runtime.current_build_meta",
                     return_value={"fingerprint": "git:local123", "version": "0.1.0"},
@@ -184,10 +186,11 @@ class RemoteRuntimeTest(unittest.TestCase):
                 remote_port=6318,
                 settings=settings,
             )
-            health_states = iter([False, False, True, True])
             with (
-                patch("coco_flow.cli.remote_runtime._probe_health", side_effect=lambda *_args, **_kwargs: next(health_states)),
+                patch("coco_flow.cli.remote_runtime._probe_health", side_effect=[False, False]),
                 patch("coco_flow.cli.remote_runtime._probe_remote_health", side_effect=[False, True]),
+                patch("coco_flow.cli.remote_runtime._wait_for_remote_health", return_value=True),
+                patch("coco_flow.cli.remote_runtime._wait_for_health", return_value=True),
                 patch(
                     "coco_flow.cli.remote_runtime.current_build_meta",
                     return_value={"fingerprint": "git:local123", "version": "0.1.0"},
@@ -232,6 +235,7 @@ class RemoteRuntimeTest(unittest.TestCase):
             with (
                 patch("coco_flow.cli.remote_runtime._probe_health", return_value=True),
                 patch("coco_flow.cli.remote_runtime._probe_remote_health", return_value=True),
+                patch("coco_flow.cli.remote_runtime._wait_for_health", return_value=True),
                 patch(
                     "coco_flow.cli.remote_runtime.current_build_meta",
                     return_value={"fingerprint": "git:local123", "version": "0.1.0"},
@@ -247,6 +251,29 @@ class RemoteRuntimeTest(unittest.TestCase):
         self.assertFalse(result["fingerprint_match"])
         self.assertIn("remote_version_mismatch: local=git:local123 remote=git:remote999", logs)
         self.assertIn("remote_version_action: rerun with --restart after the remote machine has been updated", logs)
+
+    def test_start_remote_service_resolves_absolute_remote_binary(self) -> None:
+        with (
+            patch(
+                "coco_flow.cli.remote_runtime._resolve_remote_coco_flow_bin",
+                return_value="/home/maifeng/.local/bin/coco-flow",
+            ),
+            patch("coco_flow.cli.remote_runtime._run_ssh_command") as run_mock,
+        ):
+            run_mock.return_value.returncode = 0
+            remote_runtime._start_remote_service("sgdev", "maifeng", remote_port=4318, build_web=True)
+
+        run_mock.assert_called_once_with(
+            "sgdev",
+            "maifeng",
+            "/home/maifeng/.local/bin/coco-flow start --detach --host 127.0.0.1 --port 4318",
+        )
+
+    def test_wait_for_health_retries_before_failing(self) -> None:
+        with patch("coco_flow.cli.remote_runtime._probe_health", side_effect=[False, False, True]):
+            ok = remote_runtime._wait_for_health("http://127.0.0.1:4318/healthz", timeout=0.6, interval=0.0)
+
+        self.assertTrue(ok)
 
 
 if __name__ == "__main__":

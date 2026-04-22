@@ -143,6 +143,7 @@ Notes:
 
 - if your SSH config already defines `User`, you usually do not need `--user`
 - `remote connect` now compares the local build fingerprint with the running remote service; if they differ, it will print a warning and suggest `--restart`
+- after `coco-flow update`, the remote installation also rebuilds the bundled Web UI; `coco-flow start` and `coco-flow ui serve` will additionally rebuild when `web/dist` is stale
 - `remote disconnect` currently stops the local tunnel only; it does not stop the remote `coco-flow` service
 - saved remote profiles live under `~/.config/coco-flow/remote/`
 

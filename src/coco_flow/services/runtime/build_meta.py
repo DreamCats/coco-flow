@@ -10,9 +10,13 @@ _REPO_MARKERS = ("pyproject.toml", "src/coco_flow")
 
 
 def current_build_meta(*, started_at: str = "") -> dict[str, Any]:
-    version_value = _package_version()
     source_root = _source_root(Path(__file__).resolve())
-    git_root = _git_root(source_root)
+    return build_meta_for_root(source_root, started_at=started_at)
+
+
+def build_meta_for_root(source_root: Path, *, started_at: str = "") -> dict[str, Any]:
+    version_value = _package_version()
+    git_root = _git_root(source_root.resolve())
     git_commit = ""
     git_dirty = False
     fingerprint = f"version:{version_value}"
