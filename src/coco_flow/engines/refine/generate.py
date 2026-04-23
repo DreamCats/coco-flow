@@ -15,7 +15,7 @@ from coco_flow.prompts.refine import (
     build_refine_verify_template_json,
 )
 
-from .models import EXECUTOR_NATIVE, RefineEngineResult, RefineIntent, RefineKnowledgeRead, RefinePreparedInput, STATUS_REFINED
+from .models import EXECUTOR_NATIVE, RefineEngineResult, RefineIntent, RefineSkillsRead, RefinePreparedInput, STATUS_REFINED
 
 _REQUIRED_SECTIONS = (
     "需求概述",
@@ -31,7 +31,7 @@ def generate_refine(
     *,
     prepared: RefinePreparedInput,
     intent: RefineIntent,
-    knowledge_read: RefineKnowledgeRead,
+    skills_read: RefineSkillsRead,
     settings: Settings,
     artifacts: dict[str, str | dict[str, object]],
     on_log,
@@ -41,7 +41,7 @@ def generate_refine(
             return generate_native_refine(
                 prepared=prepared,
                 intent=intent,
-                knowledge_read=knowledge_read,
+                skills_read=skills_read,
                 settings=settings,
                 artifacts=artifacts,
                 on_log=on_log,
@@ -51,7 +51,7 @@ def generate_refine(
     return generate_local_refine(
         prepared=prepared,
         intent=intent,
-        knowledge_read=knowledge_read,
+        skills_read=skills_read,
         artifacts=artifacts,
         on_log=on_log,
     )
@@ -61,18 +61,18 @@ def generate_local_refine(
     *,
     prepared: RefinePreparedInput,
     intent: RefineIntent,
-    knowledge_read: RefineKnowledgeRead,
+    skills_read: RefineSkillsRead,
     artifacts: dict[str, str | dict[str, object]],
     on_log,
 ) -> RefineEngineResult:
     on_log("generate_mode: local")
-    refined = build_local_refined_markdown(prepared=prepared, intent=intent, knowledge_read=knowledge_read)
+    refined = build_local_refined_markdown(prepared=prepared, intent=intent, skills_read=skills_read)
     on_log(f"status: {STATUS_REFINED}")
     return RefineEngineResult(
         status=STATUS_REFINED,
         refined_markdown=refined,
-        knowledge_used=bool(knowledge_read.selected_ids),
-        selected_knowledge_ids=knowledge_read.selected_ids,
+        skills_used=bool(skills_read.selected_skill_ids),
+        selected_skill_ids=skills_read.selected_skill_ids,
         intermediate_artifacts=artifacts,
     )
 
@@ -81,7 +81,7 @@ def generate_native_refine(
     *,
     prepared: RefinePreparedInput,
     intent: RefineIntent,
-    knowledge_read: RefineKnowledgeRead,
+    skills_read: RefineSkillsRead,
     settings: Settings,
     artifacts: dict[str, str | dict[str, object]],
     on_log,
@@ -98,7 +98,7 @@ def generate_native_refine(
             source_markdown=prepared.source_markdown,
             supplement=prepared.supplement,
             intent_payload=intent.to_payload(),
-            knowledge_read_markdown=knowledge_read.markdown,
+            skills_read_markdown=skills_read.markdown,
             template_path=str(template_path),
         )
         on_log(f"generate_agent_start: timeout={settings.native_query_timeout}")
@@ -157,8 +157,8 @@ def generate_native_refine(
     return RefineEngineResult(
         status=STATUS_REFINED,
         refined_markdown=refined.rstrip() + "\n",
-        knowledge_used=bool(knowledge_read.selected_ids),
-        selected_knowledge_ids=knowledge_read.selected_ids,
+        skills_used=bool(skills_read.selected_skill_ids),
+        selected_skill_ids=skills_read.selected_skill_ids,
         intermediate_artifacts=artifacts,
     )
 
@@ -256,12 +256,12 @@ def build_local_refined_markdown(
     *,
     prepared: RefinePreparedInput,
     intent: RefineIntent,
-    knowledge_read: RefineKnowledgeRead,
+    skills_read: RefineSkillsRead,
 ) -> str:
     change_scope = intent.change_points or [intent.goal]
     acceptance_criteria = (
         intent.acceptance_criteria
-        or _extract_hint_lines(knowledge_read.markdown, "验收")
+        or _extract_hint_lines(skills_read.markdown, "验收")
         or [f"当需求「{intent.goal}」落地后，应该满足预期业务行为且不引入额外回归。"]
     )
     boundaries = intent.boundary_seed or ["仅围绕当前输入明确提到的需求范围推进，不默认扩展到相邻能力。"]

@@ -31,7 +31,7 @@ def build_design_repo_research_agent_prompt(
     *,
     title: str,
     refined_markdown: str,
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     repo_id: str,
     repo_path: str,
     prefilter_score: int,
@@ -68,7 +68,7 @@ def build_design_repo_research_agent_prompt(
             build_design_input_section(
                 title=title,
                 refined_markdown=refined_markdown,
-                knowledge_brief_markdown=knowledge_brief_markdown,
+                skills_brief_markdown=skills_brief_markdown,
             ),
             PromptSection(
                 title="当前仓库",

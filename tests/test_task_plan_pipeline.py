@@ -33,7 +33,7 @@ from coco_flow.engines.shared.models import (
     RepoScope,
     ResearchFinding,
 )
-from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
+from coco_flow.services.queries.skills import SkillStore
 from coco_flow.services.tasks.design import design_task, start_designing_task
 from coco_flow.services.tasks.plan import plan_task
 
@@ -41,14 +41,10 @@ from coco_flow.services.tasks.plan import plan_task
 def make_settings(root: Path, plan_executor: str = "local") -> Settings:
     config_root = root / "config"
     task_root = config_root / "tasks"
-    knowledge_root = config_root / "knowledge"
     task_root.mkdir(parents=True, exist_ok=True)
-    knowledge_root.mkdir(parents=True, exist_ok=True)
     return Settings(
         config_root=config_root,
         task_root=task_root,
-        knowledge_root=knowledge_root,
-        knowledge_executor="local",
         refine_executor="local",
         plan_executor=plan_executor,
         code_executor="local",
@@ -72,8 +68,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n## 功能点\n- 添加 two sum 算法\n- 添加两数之和 golang 文件\n- 仅处理 two sum\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[],
                 repo_researches=[],
@@ -135,8 +131,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- demo\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[],
                 repo_researches=[],
@@ -192,8 +188,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- demo\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[],
                 repo_researches=[],
@@ -351,8 +347,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[],
@@ -479,8 +475,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[],
@@ -541,8 +537,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[],
@@ -606,8 +602,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[],
                 repo_researches=[],
@@ -678,8 +674,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[
@@ -731,8 +727,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[
@@ -798,8 +794,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[],
@@ -873,8 +869,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[
                     RepoScope(repo_id="live_pack", repo_path=str(live_pack)),
@@ -970,8 +966,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 添加 two sum 算法\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[
                     RepoScope(repo_id="demo", repo_path=str(demo)),
@@ -1045,8 +1041,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 添加 two sum 算法\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[],
                 repo_researches=[],
@@ -1120,8 +1116,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 支持讲解卡状态提示。\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[
                     RepoScope(repo_id="repo_a", repo_path=str(repo_a)),
@@ -1222,8 +1218,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[
@@ -1306,7 +1302,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
     def test_design_writes_design_markdown_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
-            repo_root = Path(tmp) / "repo"
+            repo_root = Path(tmp) / "demo_repo"
             (repo_root / ".git").mkdir(parents=True)
             (repo_root / "app" / "explain_card").mkdir(parents=True)
             (repo_root / "app" / "explain_card" / "render_handler.go").write_text(
@@ -1442,10 +1438,10 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertFalse((task_dir / "plan.log").exists())
             self.assertFalse((task_dir / "plan-result.json").exists())
 
-    def test_design_can_infer_repos_from_selected_knowledge_when_repos_empty(self) -> None:
+    def test_design_can_infer_repos_from_selected_reference_doc_when_repos_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
-            repo_root = Path(tmp) / "repo"
+            repo_root = Path(tmp) / "demo_repo"
             repo_root.mkdir(parents=True)
             subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
             (repo_root / "app" / "auction_card").mkdir(parents=True)
@@ -1463,41 +1459,22 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             timestamp = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "domains" / "auction-reward-card-domain.md",
-                KnowledgeDocument(
-                    id="auction-reward-card-domain",
-                    kind="domain",
-                    status="approved",
-                    title="竞拍奖励卡领域知识",
-                    desc="包含竞拍奖励卡相关仓库线索",
-                    domainId="auction_reward_card",
-                    domainName="竞拍奖励卡",
-                    engines=["refine"],
-                    repos=["demo_repo"],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body=(
+            create_skill_package(
+                settings,
+                package_id="auction-reward-card-domain",
+                description="包含竞拍奖励卡相关仓库线索",
+                domain="auction_reward_card",
+                references={
+                    "domain.md": (
                         "## Summary\n\n"
                         "- 竞拍奖励卡的主逻辑位于主播侧渲染链路。\n"
-                    ),
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=["demo_repo"],
-                        keywordMatches=["竞拍奖励卡"],
-                        pathMatches=[str(repo_root)],
-                        candidateFiles=[],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+                        f"- repo: demo_repo\n"
+                        f"- code path: {repo_root}\n"
+                    )
+                },
             )
 
-            task_id = "task-design-knowledge-discovery"
+            task_id = "task-design-reference-discovery"
             task_dir = settings.task_root / task_id
             task_dir.mkdir(parents=True)
             now = timestamp.isoformat()
@@ -1520,11 +1497,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            (task_dir / "refine-knowledge-selection.json").write_text(
+            (task_dir / "refine-skills-selection.json").write_text(
                 json.dumps(
                     {
-                        "selected_ids": ["auction-reward-card-domain"],
-                        "rejected_ids": [],
+                        "selected_skill_ids": ["auction-reward-card-domain"],
+                        "rejected_skill_ids": [],
                         "reason": "selected for refine",
                         "candidates": [],
                         "mode": "rule",
@@ -1535,8 +1512,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            (task_dir / "refine-knowledge-read.md").write_text(
-                "# Refine Knowledge Read\n\n- 竞拍奖励卡主链路与 demo_repo 强相关。\n",
+            (task_dir / "refine-skills-read.md").write_text(
+                "# Refine Skills Read\n\n- 竞拍奖励卡主链路与 demo_repo 强相关。\n",
                 encoding="utf-8",
             )
             (task_dir / "prd-refined.md").write_text(
@@ -1562,9 +1539,118 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(repo_binding["repo_bindings"][0]["repo_id"], "demo_repo")
             self.assertEqual(repo_binding["repo_bindings"][0]["decision"], "in_scope")
             design_log = (task_dir / "design.log").read_text(encoding="utf-8")
-            self.assertIn("design_repo_discovery_ok: mode=knowledge_selection, bound=0, inferred=1", design_log)
+            self.assertIn("design_repo_discovery_ok: mode=skills_selection, bound=0, inferred=1", design_log)
 
-    def test_design_can_infer_repo_from_knowledge_candidate_file(self) -> None:
+    def test_design_can_infer_repos_from_selected_skill_when_repos_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            repo_root = Path(tmp) / "repo"
+            repo_root.mkdir(parents=True)
+            subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+            (repo_root / "app" / "auction_card").mkdir(parents=True)
+            (repo_root / "app" / "auction_card" / "render_handler.go").write_text(
+                "package auction_card\n\nfunc RenderAuctionCard() {}\n",
+                encoding="utf-8",
+            )
+            context_dir = repo_root / ".livecoding" / "context"
+            context_dir.mkdir(parents=True, exist_ok=True)
+            (context_dir / "glossary.md").write_text(
+                "| 业务术语 | 代码标识 | 说明 | 模块 |\n"
+                "| --- | --- | --- | --- |\n"
+                "| 竞拍奖励卡 | RenderAuctionCard | 竞拍奖励卡入口 | app/auction_card |\n",
+                encoding="utf-8",
+            )
+
+            skill_store = SkillStore(settings)
+            _name, package_root, _skill_path = skill_store.create_package(
+                "auction-reward-card",
+                description="竞拍奖励卡相关 skill。",
+                domain="auction_reward_card",
+            )
+            (package_root / "SKILL.md").write_text(
+                (
+                    "---\n"
+                    "name: auction-reward-card\n"
+                    "description: 竞拍奖励卡相关 skill。\n"
+                    "domain: auction_reward_card\n"
+                    "---\n\n"
+                    "# Overview\n\n"
+                    "适用于竞拍奖励卡相关需求。\n"
+                ),
+                encoding="utf-8",
+            )
+            (package_root / "references" / "main-flow.md").write_text(
+                f"## Main Flow\n\n- 主链路仓库位于 {repo_root}。\n",
+                encoding="utf-8",
+            )
+
+            task_id = "task-design-skill-discovery"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = datetime.now().astimezone().isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "竞拍奖励卡状态提示调整",
+                        "status": "refined",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "竞拍奖励卡状态提示调整",
+                        "repo_count": 0,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "refine-skills-selection.json").write_text(
+                json.dumps(
+                    {
+                        "selected_skill_ids": ["auction-reward-card"],
+                        "rejected_skill_ids": [],
+                        "reason": "selected for refine",
+                        "candidates": [],
+                        "mode": "rule",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "refine-skills-read.md").write_text(
+                "# Refine Skills Read\n\n- 竞拍奖励卡主链路与 skill package 强相关。\n",
+                encoding="utf-8",
+            )
+            (task_dir / "prd-refined.md").write_text(
+                "# PRD Refined\n\n"
+                "## 需求概述\n\n"
+                "- 竞拍奖励卡需要补充主播侧状态提示。\n\n"
+                "## 功能点\n\n"
+                "- 支持竞拍奖励卡展示主播侧状态提示。\n\n"
+                "## 边界条件\n\n"
+                "- 非竞拍场景不展示。\n\n"
+                "## 验收标准\n\n"
+                "- 状态提示展示正确。\n",
+                encoding="utf-8",
+            )
+
+            status = design_task(task_id, settings=settings)
+
+            self.assertEqual(status, "designed")
+            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
+            self.assertEqual(research["mode"], "local")
+            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["repo"])
+            repo_binding = json.loads((task_dir / "design-repo-binding.json").read_text(encoding="utf-8"))
+            self.assertEqual(repo_binding["repo_bindings"][0]["repo_id"], "repo")
+            design_log = (task_dir / "design.log").read_text(encoding="utf-8")
+            self.assertIn("design_repo_discovery_ok: mode=skills_selection, bound=0, inferred=1", design_log)
+
+    def test_design_can_infer_repo_from_reference_candidate_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             repo_root = Path(tmp) / "candidate-file-repo"
@@ -1578,35 +1664,18 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             timestamp = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "domains" / "reward-card-candidate-file.md",
-                KnowledgeDocument(
-                    id="reward-card-candidate-file",
-                    kind="domain",
-                    status="approved",
-                    title="奖励卡文件线索",
-                    desc="仅通过 candidateFiles 提供仓库线索",
-                    domainId="reward_card",
-                    domainName="奖励卡",
-                    engines=["refine"],
-                    repos=[],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 奖励卡渲染链路在服务层。\n",
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=[],
-                        keywordMatches=["奖励卡"],
-                        pathMatches=[],
-                        candidateFiles=[str(target_file)],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+            create_skill_package(
+                settings,
+                package_id="reward-card-candidate-file",
+                description="仅通过 candidate file 提供仓库线索",
+                domain="reward_card",
+                references={
+                    "domain.md": (
+                        "## Summary\n\n"
+                        "- 奖励卡渲染链路在服务层。\n"
+                        f"- candidate file: {target_file}\n"
+                    )
+                },
             )
 
             task_id = "task-design-candidate-file-discovery"
@@ -1632,11 +1701,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            (task_dir / "refine-knowledge-selection.json").write_text(
+            (task_dir / "refine-skills-selection.json").write_text(
                 json.dumps(
                     {
-                        "selected_ids": ["reward-card-candidate-file"],
-                        "rejected_ids": [],
+                        "selected_skill_ids": ["reward-card-candidate-file"],
+                        "rejected_skill_ids": [],
                         "reason": "selected for refine",
                         "candidates": [],
                         "mode": "rule",
@@ -1704,35 +1773,18 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            write_knowledge_document(
-                settings.knowledge_root / "domains" / "auction-card-fuzzy-hint.md",
-                KnowledgeDocument(
-                    id="auction-card-fuzzy-hint",
-                    kind="domain",
-                    status="approved",
-                    title="竞拍卡仓库线索",
-                    desc="repoMatches 与历史 repo id 存在轻微格式差异",
-                    domainId="auction_card",
-                    domainName="竞拍卡",
-                    engines=["refine"],
-                    repos=[],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 主链路仍在 auction card repo。\n",
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=["auction_card_repo"],
-                        keywordMatches=["竞拍卡"],
-                        pathMatches=[],
-                        candidateFiles=[],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+            create_skill_package(
+                settings,
+                package_id="auction-card-fuzzy-hint",
+                description="repo hint 与历史 repo id 存在轻微格式差异",
+                domain="auction_card",
+                references={
+                    "domain.md": (
+                        "## Summary\n\n"
+                        "- 主链路仍在 auction card repo。\n"
+                        "- repo: auction_card_repo\n"
+                    )
+                },
             )
 
             task_id = "task-design-fuzzy-repo-hint"
@@ -1758,11 +1810,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            (task_dir / "refine-knowledge-selection.json").write_text(
+            (task_dir / "refine-skills-selection.json").write_text(
                 json.dumps(
                     {
-                        "selected_ids": ["auction-card-fuzzy-hint"],
-                        "rejected_ids": [],
+                        "selected_skill_ids": ["auction-card-fuzzy-hint"],
+                        "rejected_skill_ids": [],
                         "reason": "selected for refine",
                         "candidates": [],
                         "mode": "rule",
@@ -1801,35 +1853,18 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             timestamp = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "auction-remote-repo-hint.md",
-                KnowledgeDocument(
-                    id="auction-remote-repo-hint",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍远端 repo 线索",
-                    desc="仅给出 code.byted.org 形式的 repo hint",
-                    domainId="auction_remote",
-                    domainName="竞拍远端仓库",
-                    engines=["refine"],
-                    repos=["code.byted.org/oec/live_shop"],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 竞拍主链路在 live_shop。\n",
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=["code.byted.org/oec/live_shop"],
-                        keywordMatches=["竞拍"],
-                        pathMatches=[],
-                        candidateFiles=[],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+            create_skill_package(
+                settings,
+                package_id="auction-remote-repo-hint",
+                description="仅给出 code.byted.org 形式的 repo hint",
+                domain="auction_remote",
+                references={
+                    "main-flow.md": (
+                        "## Summary\n\n"
+                        "- 竞拍主链路在 live_shop。\n"
+                        "- repo: code.byted.org/oec/live_shop\n"
+                    )
+                },
             )
 
             task_id = "task-design-remote-repo-hint"
@@ -1855,11 +1890,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            (task_dir / "refine-knowledge-selection.json").write_text(
+            (task_dir / "refine-skills-selection.json").write_text(
                 json.dumps(
                     {
-                        "selected_ids": ["auction-remote-repo-hint"],
-                        "rejected_ids": [],
+                        "selected_skill_ids": ["auction-remote-repo-hint"],
+                        "rejected_skill_ids": [],
                         "reason": "selected for refine",
                         "candidates": [],
                         "mode": "rule",
@@ -1886,7 +1921,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
             self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["live_shop"])
 
-    def test_local_plan_writes_knowledge_selection_and_brief(self) -> None:
+    def test_local_plan_writes_skills_selection_and_brief(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             repo_root = Path(tmp) / "repo"
@@ -1911,42 +1946,21 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             timestamp = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "flow-auction-card-plan.md",
-                KnowledgeDocument(
-                    id="flow-auction-card-plan",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍讲解卡状态提示链路",
-                    desc="主播侧状态提示的主链路说明",
-                    domainId="auction_card",
-                    domainName="竞拍讲解卡",
-                    engines=["plan"],
-                    repos=["demo_repo"],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body=(
+            create_skill_package(
+                settings,
+                package_id="flow-auction-card-plan",
+                description="主播侧状态提示的主链路说明",
+                domain="auction_card",
+                references={
+                    "main-flow.md": (
                         "## Main Flow\n\n"
                         "- 主链路先进入 ExplainCardHandler，再下发状态提示。\n\n"
                         "## Risks\n\n"
                         "- 需要保持非竞拍态不展示。\n\n"
                         "## Validation\n\n"
                         "- 校验主播侧状态提示与现有讲解卡兼容。\n"
-                    ),
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=["demo_repo"],
-                        keywordMatches=["竞拍讲解卡"],
-                        pathMatches=[str(repo_root)],
-                        candidateFiles=[],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+                    )
+                },
             )
 
             task_id = "task-plan"
@@ -2012,16 +2026,16 @@ class PlanTaskPipelineTest(unittest.TestCase):
 
             self.assertEqual(design_status, "designed")
             self.assertEqual(status, "planned")
-            selection = json.loads((task_dir / "plan-knowledge-selection.json").read_text(encoding="utf-8"))
-            self.assertEqual(selection["selected_ids"], ["flow-auction-card-plan"])
+            selection = json.loads((task_dir / "plan-skills-selection.json").read_text(encoding="utf-8"))
+            self.assertEqual(selection["selected_skill_ids"], ["flow-auction-card-plan"])
             work_items = json.loads((task_dir / "plan-work-items.json").read_text(encoding="utf-8"))
             self.assertTrue(work_items["work_items"])
             self.assertEqual(work_items["work_items"][0]["repo_id"], "demo_repo")
             validation = json.loads((task_dir / "plan-validation.json").read_text(encoding="utf-8"))
             self.assertTrue(validation["task_validations"])
-            brief = (task_dir / "plan-knowledge-brief.md").read_text(encoding="utf-8")
-            self.assertIn("Plan Knowledge Brief", brief)
-            self.assertIn("竞拍讲解卡状态提示链路", brief)
+            brief = (task_dir / "plan-skills-brief.md").read_text(encoding="utf-8")
+            self.assertIn("Plan Skills Brief", brief)
+            self.assertIn("flow-auction-card-plan", brief)
             self.assertIn("决策边界", brief)
             self.assertIn("稳定规则", brief)
             self.assertIn("验证要点", brief)
@@ -2035,6 +2049,128 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("## 任务清单", plan)
             self.assertIn("## 执行顺序", plan)
             self.assertIn("最小范围验证通过", plan)
+
+    def test_local_plan_can_use_skill_packages_without_legacy_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            repo_root = Path(tmp) / "repo"
+            (repo_root / ".git").mkdir(parents=True)
+            (repo_root / "app" / "explain_card").mkdir(parents=True)
+            (repo_root / "service" / "card_render").mkdir(parents=True)
+            (repo_root / "app" / "explain_card" / "render_handler.go").write_text(
+                "package explain_card\n\nfunc ExplainCardHandler() {}\n",
+                encoding="utf-8",
+            )
+            (repo_root / "service" / "card_render" / "render_service.go").write_text(
+                "package card_render\n\nfunc RenderExplainCard() {}\n",
+                encoding="utf-8",
+            )
+            context_dir = repo_root / ".livecoding" / "context"
+            context_dir.mkdir(parents=True, exist_ok=True)
+            (context_dir / "glossary.md").write_text(
+                "| 业务术语 | 代码标识 | 说明 | 模块 |\n"
+                "| --- | --- | --- | --- |\n"
+                "| 竞拍讲解卡 | ExplainCardHandler | 竞拍讲解卡入口 | app/explain_card |\n",
+                encoding="utf-8",
+            )
+
+            skill_store = SkillStore(settings)
+            _name, package_root, _skill_path = skill_store.create_package(
+                "auction-popcard",
+                description="处理竞拍讲解卡状态提示相关需求。",
+                domain="auction_card",
+            )
+            (package_root / "SKILL.md").write_text(
+                (
+                    "---\n"
+                    "name: auction-popcard\n"
+                    "description: 处理竞拍讲解卡状态提示相关需求。\n"
+                    "domain: auction_card\n"
+                    "---\n\n"
+                    "# Overview\n\n"
+                    "适用于竞拍讲解卡状态提示的 design/plan。\n"
+                ),
+                encoding="utf-8",
+            )
+            (package_root / "references" / "domain.md").write_text(
+                "## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n\n## Risks\n\n- 非竞拍态不展示。\n",
+                encoding="utf-8",
+            )
+            (package_root / "references" / "main-flow.md").write_text(
+                "## Main Flow\n\n- 主链路先进入 ExplainCardHandler，再下发状态提示。\n\n## Validation\n\n- 校验主播侧状态提示与现有讲解卡兼容。\n",
+                encoding="utf-8",
+            )
+
+            task_id = "task-plan-skill"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = datetime.now().astimezone().isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "竞拍讲解卡状态提示调整",
+                        "status": "refined",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "竞拍讲解卡状态提示调整",
+                        "repo_count": 1,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(
+                json.dumps(
+                    {
+                        "repos": [
+                            {
+                                "id": "demo_repo",
+                                "path": str(repo_root),
+                                "status": "refined",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "prd-refined.md").write_text(
+                "# PRD Refined\n\n"
+                "## 需求概述\n\n"
+                "- 竞拍讲解卡需要支持主播侧状态提示。\n\n"
+                "## 功能点\n\n"
+                "- 支持竞拍讲解卡展示主播侧状态提示。\n\n"
+                "## 边界条件\n\n"
+                "- 非竞拍态不展示。\n\n"
+                "## 交互与展示\n\n"
+                "- 保持已有讲解卡样式。\n\n"
+                "## 验收标准\n\n"
+                "- 主播侧状态提示可正确展示。\n\n"
+                "## 业务规则\n\n"
+                "- 非竞拍态保持不展示。\n\n"
+                "## 待确认问题\n\n"
+                "- 是否需要兼容老版本样式。\n",
+                encoding="utf-8",
+            )
+
+            design_status = design_task(task_id, settings=settings)
+            status = plan_task(task_id, settings=settings)
+
+            self.assertEqual(design_status, "designed")
+            self.assertEqual(status, "planned")
+            selection = json.loads((task_dir / "plan-skills-selection.json").read_text(encoding="utf-8"))
+            self.assertEqual(selection["selected_skill_ids"], ["auction-popcard"])
+            brief = (task_dir / "plan-skills-brief.md").read_text(encoding="utf-8")
+            self.assertIn("Plan Skills Brief", brief)
+            self.assertIn("auction-popcard", brief)
+            self.assertIn("决策边界", brief)
+            self.assertIn("稳定规则", brief)
 
     def test_native_plan_runs_scope_and_verify(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2056,42 +2192,21 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             timestamp = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "flow-auction-card-plan.md",
-                KnowledgeDocument(
-                    id="flow-auction-card-plan",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍讲解卡状态提示链路",
-                    desc="主播侧状态提示的主链路说明",
-                    domainId="auction_card",
-                    domainName="竞拍讲解卡",
-                    engines=["plan"],
-                    repos=["demo_repo"],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body=(
+            create_skill_package(
+                settings,
+                package_id="flow-auction-card-plan",
+                description="主播侧状态提示的主链路说明",
+                domain="auction_card",
+                references={
+                    "main-flow.md": (
                         "## Main Flow\n\n"
                         "- 主链路先进入 ExplainCardHandler，再下发状态提示。\n\n"
                         "## Risks\n\n"
                         "- 需要保持非竞拍态不展示。\n\n"
                         "## Validation\n\n"
                         "- 校验主播侧状态提示与现有讲解卡兼容。\n"
-                    ),
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=["demo_repo"],
-                        keywordMatches=["竞拍讲解卡"],
-                        pathMatches=[str(repo_root)],
-                        candidateFiles=[],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+                    )
+                },
             )
 
             task_id = "task-plan-native"
@@ -2279,31 +2394,36 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("最小范围验证通过", plan)
 
 
+def create_skill_package(
+    settings: Settings,
+    *,
+    package_id: str,
+    description: str,
+    domain: str,
+    references: dict[str, str],
+) -> Path:
+    skill_store = SkillStore(settings)
+    _name, package_root, _skill_path = skill_store.create_package(
+        package_id,
+        description=description,
+        domain=domain,
+    )
+    (package_root / "SKILL.md").write_text(
+        (
+            "---\n"
+            f"name: {package_id}\n"
+            f"description: {description}\n"
+            f"domain: {domain}\n"
+            "---\n\n"
+            "# Overview\n\n"
+            f"适用于 {package_id} 相关需求。\n"
+        ),
+        encoding="utf-8",
+    )
+    for name, content in references.items():
+        (package_root / "references" / name).write_text(content, encoding="utf-8")
+    return package_root
+
+
 if __name__ == "__main__":
     unittest.main()
-
-
-def write_knowledge_document(path: Path, document: KnowledgeDocument) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    meta = {
-        "kind": document.kind,
-        "id": document.id,
-        "title": document.title,
-        "desc": document.desc,
-        "status": document.status,
-        "engines": document.engines,
-        "domain_id": document.domainId,
-        "domain_name": document.domainName,
-        "repos": document.repos,
-        "priority": document.priority,
-        "confidence": document.confidence,
-        "updated_at": document.updatedAt,
-        "owner": document.owner,
-        "evidence": document.evidence.model_dump(),
-    }
-    frontmatter = ["---"]
-    for key, value in meta.items():
-        serialized = json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else str(value)
-        frontmatter.append(f"{key}: {serialized}")
-    frontmatter.append("---")
-    path.write_text("\n".join(frontmatter) + "\n\n" + document.body.rstrip() + "\n", encoding="utf-8")

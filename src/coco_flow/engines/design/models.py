@@ -23,8 +23,8 @@ class DesignPreparedInput:
     refined_markdown: str
     input_meta: dict[str, object]
     refine_intent_payload: dict[str, object]
-    refine_knowledge_selection_payload: dict[str, object]
-    refine_knowledge_read_markdown: str
+    refine_skills_selection_payload: dict[str, object]
+    refine_skills_read_markdown: str
     repo_lines: list[str]
     repo_scopes: list[RepoScope]
     repo_researches: list[RepoResearch]

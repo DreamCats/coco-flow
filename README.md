@@ -43,7 +43,7 @@ Uninstall:
 uv tool uninstall coco-flow
 rm -rf ~/.local/share/coco-flow
 
-# optional: remove local task and knowledge data
+# optional: remove local task and skills data
 rm -rf ~/.config/coco-flow
 ```
 
@@ -64,8 +64,6 @@ coco-flow stop
 
 coco-flow tasks roots
 coco-flow tasks list
-coco-flow knowledge list
-
 coco-flow tasks refine <task_id>
 coco-flow tasks design <task_id>
 coco-flow tasks plan <task_id>
@@ -167,16 +165,16 @@ Notes:
 ### Refine
 
 - `refine` supports `native` and `local`.
-- `native refine` runs a staged flow around intent extraction, knowledge selection, knowledge brief generation, draft generation, and verification.
+- `native refine` runs a staged flow around intent extraction, skills selection, skills read, draft generation, and verification.
 - `local refine` produces a structured fallback draft.
-- Typical artifacts include `prd-refined.md`, `refine-intent.json`, `refine-knowledge-selection.json`, `refine-knowledge-brief.md`, `refine-verify.json`, and `refine-result.json`.
+- Typical artifacts include `prd-refined.md`, `refine-intent.json`, `refine-skills-selection.json`, `refine-skills-read.md`, `refine-verify.json`, and `refine-result.json`.
 
 ### Design And Plan
 
 - `design` is a standalone stage exposed in both CLI and API.
 - `plan` supports `native` and `local`.
 - `native plan` runs staged scope extraction, generation, and verification.
-- Typical artifacts include `design.md`, `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-knowledge-selection.json`, and `plan-knowledge-brief.md`.
+- Typical artifacts include `design.md`, `design-skills-brief.md`, `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-skills-selection.json`, and `plan-skills-brief.md`.
 
 ### Code
 
@@ -235,7 +233,7 @@ Current UI capabilities:
 
 - create tasks
 - run `refine`, `design`, `plan`, and `code`
-- browse and edit knowledge documents
+- browse and edit skills packages
 - edit `prd.source.md`, `prd-refined.md`, `design.md`, and `plan.md`
 - reset, archive, and inspect task artifacts
 
@@ -317,7 +315,6 @@ Common environment variables:
 
 ```bash
 export COCO_FLOW_COCO_BIN=/path/to/coco
-export COCO_FLOW_KNOWLEDGE_EXECUTOR=local
 export COCO_FLOW_REFINE_EXECUTOR=local
 export COCO_FLOW_PLAN_EXECUTOR=local
 export COCO_FLOW_CODE_EXECUTOR=local
@@ -338,12 +335,10 @@ Current endpoints:
 - `GET /healthz`
 - `GET /api/meta`
 - `GET /api/workspace`
-- `GET /api/knowledge`
-- `POST /api/knowledge`
-- `GET /api/knowledge/{document_id}`
-- `PUT /api/knowledge/{document_id}`
-- `PUT /api/knowledge/{document_id}/content`
-- `DELETE /api/knowledge/{document_id}`
+- `GET /api/skills/tree`
+- `GET /api/skills/file`
+- `PUT /api/skills/file`
+- `POST /api/skills/package`
 - `GET /api/tasks`
 - `POST /api/tasks`
 - `GET /api/tasks/{task_id}`
@@ -391,7 +386,7 @@ uv run python -m py_compile src/coco_flow/engines/plan/__init__.py
 uv run python -m py_compile src/coco_flow/engines/plan/source.py
 uv run python -m py_compile src/coco_flow/engines/plan/task_outline.py
 uv run python -m py_compile src/coco_flow/engines/shared/models.py
-uv run python -m py_compile src/coco_flow/engines/plan_knowledge.py
+uv run python -m py_compile src/coco_flow/engines/plan_skills.py
 uv run python -m py_compile src/coco_flow/engines/shared/research.py
 uv run python -m py_compile src/coco_flow/services/tasks/plan.py
 uv run python -m py_compile src/coco_flow/services/tasks/code.py

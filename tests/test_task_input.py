@@ -13,14 +13,10 @@ from coco_flow.services.tasks.input import create_task, input_task
 def make_settings(root: Path) -> Settings:
     config_root = root / "config"
     task_root = config_root / "tasks"
-    knowledge_root = config_root / "knowledge"
     task_root.mkdir(parents=True, exist_ok=True)
-    knowledge_root.mkdir(parents=True, exist_ok=True)
     return Settings(
         config_root=config_root,
         task_root=task_root,
-        knowledge_root=knowledge_root,
-        knowledge_executor="local",
         refine_executor="local",
         plan_executor="local",
         code_executor="local",

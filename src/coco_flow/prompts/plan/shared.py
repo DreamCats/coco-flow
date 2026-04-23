@@ -20,7 +20,7 @@ def build_plan_input_section(
     title: str,
     design_markdown: str,
     refined_markdown: str,
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
 ) -> PromptSection:
     return PromptSection(
         title="Plan 输入",
@@ -29,7 +29,7 @@ def build_plan_input_section(
                 f"- 标题：{title}",
                 "### Design Markdown\n\n" + design_markdown.strip(),
                 "### PRD Refined\n\n" + (refined_markdown.strip() or "- 当前没有 refined markdown。"),
-                "### Plan Knowledge Brief\n\n" + (knowledge_brief_markdown.strip() or "- 当前没有知识 brief。"),
+                "### Plan Skills Brief\n\n" + (skills_brief_markdown.strip() or "- 当前没有 skills brief。"),
             ]
         ),
     )

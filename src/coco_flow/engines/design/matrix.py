@@ -19,7 +19,7 @@ _LEVELS = ("none", "low", "medium", "high")
 def build_design_responsibility_matrix_payload(
     prepared: DesignPreparedInput,
     settings: Settings,
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     on_log,
 ) -> dict[str, object]:
     """汇总每个 repo 的职责画像，并给出推荐的 scope tier。
@@ -45,7 +45,7 @@ def build_design_responsibility_matrix_payload(
             build_design_responsibility_matrix_agent_prompt(
                 title=prepared.title,
                 refined_markdown=prepared.refined_markdown,
-                knowledge_brief_markdown=knowledge_brief_markdown,
+                skills_brief_markdown=skills_brief_markdown,
                 change_points_payload=prepared.change_points_payload,
                 research_payload=prepared.research_payload,
                 template_path=str(template_path),

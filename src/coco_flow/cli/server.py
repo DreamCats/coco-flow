@@ -155,7 +155,6 @@ def start_server_in_background(
     env = os.environ.copy()
     env["COCO_FLOW_CONFIG_DIR"] = str(cfg.config_root)
     env["COCO_FLOW_TASK_ROOT"] = str(cfg.task_root)
-    env["COCO_FLOW_KNOWLEDGE_ROOT"] = str(cfg.knowledge_root)
     env["COCO_FLOW_COCO_BIN"] = cfg.coco_bin
     env["COCO_FLOW_NATIVE_QUERY_TIMEOUT"] = cfg.native_query_timeout
     env["COCO_FLOW_NATIVE_CODE_TIMEOUT"] = str(cfg.native_code_timeout)

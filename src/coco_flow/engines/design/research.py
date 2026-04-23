@@ -19,7 +19,7 @@ from .models import DesignPreparedInput, EXECUTOR_NATIVE
 def build_design_research_payload(
     prepared: DesignPreparedInput,
     settings: Settings,
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     on_log,
 ) -> dict[str, object]:
     """在最终 binding 前补深对 repo 的理解。
@@ -65,7 +65,7 @@ def build_design_research_payload(
                         _explore_repo_with_agent,
                         prepared,
                         settings,
-                        knowledge_brief_markdown,
+                        skills_brief_markdown,
                         client,
                         repo_id,
                         local_entries.get(repo_id, {}),
@@ -91,7 +91,7 @@ def build_design_research_payload(
             explored_entries[repo_id] = _explore_repo_with_agent(
                 prepared,
                 settings,
-                knowledge_brief_markdown,
+                skills_brief_markdown,
                 client,
                 repo_id,
                 local_entries.get(repo_id, {}),
@@ -274,7 +274,7 @@ def _build_local_evidence(repo) -> list[str]:
 def _explore_repo_with_agent(
     prepared: DesignPreparedInput,
     settings: Settings,
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     client: CocoACPClient,
     repo_id: str,
     local_entry: dict[str, object],
@@ -293,7 +293,7 @@ def _explore_repo_with_agent(
             build_design_repo_research_agent_prompt(
                 title=prepared.title,
                 refined_markdown=prepared.refined_markdown,
-                knowledge_brief_markdown=knowledge_brief_markdown,
+                skills_brief_markdown=skills_brief_markdown,
                 repo_id=repo_id,
                 repo_path=repo_scope.repo_path,
                 prefilter_score=int(local_entry.get("prefilter_score") or 0),

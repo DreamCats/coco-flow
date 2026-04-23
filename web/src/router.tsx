@@ -10,7 +10,7 @@ import {
 import { useEffect, useState } from 'react'
 import { AppDataProvider, useAppData } from './hooks/use-app-data'
 import { TopNavItem } from './components/ui-primitives'
-import { KnowledgePage } from './routes/knowledge'
+import { SkillsPage } from './routes/skills'
 import { TasksIndexPage, TasksLayout, TaskDetailPage } from './routes/tasks'
 import { WorkspacePage } from './routes/workspace'
 
@@ -165,10 +165,10 @@ function AppShell() {
                   to="/tasks"
                 />
                 <TopNavItem
-                  description="浏览知识文档，直接维护 Markdown 文件和 frontmatter。"
-                  isActive={location.pathname.startsWith('/knowledge')}
-                  title="知识工作台"
-                  to="/knowledge"
+                  description="浏览和维护 skill package、SKILL.md 与 references 文件。"
+                  isActive={location.pathname.startsWith('/skills') || location.pathname.startsWith('/knowledge')}
+                  title="Skills 工作台"
+                  to="/skills"
                 />
               </div>
             </div>
@@ -243,16 +243,23 @@ const workspaceRoute = createRoute({
   component: WorkspacePage,
 })
 
-const knowledgeRoute = createRoute({
+const skillsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'skills',
+  component: SkillsPage,
+})
+
+const legacyKnowledgeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'knowledge',
-  component: KnowledgePage,
+  component: () => <Navigate replace to="/skills" />,
 })
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
   tasksRoute.addChildren([tasksIndexRoute, taskDetailRoute]),
-  knowledgeRoute,
+  skillsRoute,
+  legacyKnowledgeRoute,
   workspaceRoute,
 ])
 

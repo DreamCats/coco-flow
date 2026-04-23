@@ -16,14 +16,14 @@ _ALLOWED_TASK_TYPES = {"implementation", "coordination", "validation", "preparat
 def build_plan_work_items(
     prepared: PlanPreparedInput,
     settings: Settings,
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     on_log,
 ) -> tuple[list[PlanWorkItem], dict[str, object]]:
     fallback_payload = build_local_plan_task_outline_payload(prepared)
     outline_payload = fallback_payload
     if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
-            outline_payload = _build_plan_task_outline_with_agent(prepared, settings, knowledge_brief_markdown)
+            outline_payload = _build_plan_task_outline_with_agent(prepared, settings, skills_brief_markdown)
             on_log(f"plan_task_outline_mode: native repos={len(_payload_task_units(outline_payload))}")
         except Exception as error:
             on_log(f"plan_task_outline_fallback: {error}")
@@ -113,7 +113,7 @@ def normalize_plan_work_items(outline_payload: dict[str, object], prepared: Plan
 def _build_plan_task_outline_with_agent(
     prepared: PlanPreparedInput,
     settings: Settings,
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
 ) -> dict[str, object]:
     client = CocoACPClient(
         settings.coco_bin,
@@ -127,7 +127,7 @@ def _build_plan_task_outline_with_agent(
                 title=prepared.title,
                 design_markdown=prepared.design_markdown,
                 refined_markdown=prepared.refined_markdown,
-                knowledge_brief_markdown=knowledge_brief_markdown,
+                skills_brief_markdown=skills_brief_markdown,
                 repo_binding_payload=prepared.design_repo_binding_payload,
                 design_sections_payload=prepared.design_sections_payload,
                 template_path=str(template_path),

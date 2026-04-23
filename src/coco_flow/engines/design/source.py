@@ -17,8 +17,8 @@ from coco_flow.engines.shared.research import (
     score_complexity,
 )
 from coco_flow.services import TaskStore
-from coco_flow.services.queries.knowledge import KnowledgeStore
 from coco_flow.services.queries.repos import list_recent_repos, validate_repo_path
+from coco_flow.services.queries.skills import SkillPackage, SkillStore
 from coco_flow.services.queries.task_detail import read_json_file
 
 from .models import DesignPreparedInput
@@ -39,8 +39,8 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
     task_id = task_dir.name
     input_meta = read_json_file(task_dir / "input.json")
     refine_intent_payload = read_json_file(task_dir / "refine-intent.json")
-    refine_knowledge_selection_payload = read_json_file(task_dir / "refine-knowledge-selection.json")
-    refine_knowledge_read_markdown = read_text_if_exists(task_dir / "refine-knowledge-read.md")
+    refine_skills_selection_payload = read_json_file(task_dir / "refine-skills-selection.json")
+    refine_skills_read_markdown = read_text_if_exists(task_dir / "refine-skills-read.md")
     refined_markdown = read_text_if_exists(task_dir / "prd-refined.md")
     repos_meta = read_json_file(task_dir / "repos.json")
     title = str(task_meta.get("title") or input_meta.get("title") or task_id)
@@ -50,12 +50,10 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
         "mode": "bound" if bound_repo_scopes else "none",
         "bound_repo_count": len(bound_repo_scopes),
         "inferred_repo_count": 0,
-        "selected_knowledge_ids": [
-            str(item) for item in refine_knowledge_selection_payload.get("selected_ids", []) if str(item).strip()
-        ],
+        "selected_skill_ids": _selection_ids(refine_skills_selection_payload),
     }
     if not repo_scopes:
-        repo_scopes, repo_discovery_payload = infer_repo_scopes_from_knowledge(settings, refine_knowledge_selection_payload)
+        repo_scopes, repo_discovery_payload = infer_repo_scopes_from_skills(settings, refine_skills_selection_payload)
     repo_lines = [f"- {scope.repo_id} ({scope.repo_path})" for scope in repo_scopes]
     sections = parse_refined_sections(refined_markdown)
     repo_researches = build_repo_researches(repo_scopes, title, sections)
@@ -82,8 +80,8 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
         refined_markdown=refined_markdown,
         input_meta=input_meta,
         refine_intent_payload=refine_intent_payload,
-        refine_knowledge_selection_payload=refine_knowledge_selection_payload,
-        refine_knowledge_read_markdown=refine_knowledge_read_markdown,
+        refine_skills_selection_payload=refine_skills_selection_payload,
+        refine_skills_read_markdown=refine_skills_read_markdown,
         repo_lines=repo_lines,
         repo_scopes=repo_scopes,
         repo_researches=repo_researches,
@@ -97,36 +95,39 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
     )
 
 
-def infer_repo_scopes_from_knowledge(
+def infer_repo_scopes_from_skills(
     settings: Settings,
-    refine_knowledge_selection_payload: dict[str, object],
+    refine_skills_selection_payload: dict[str, object],
 ) -> tuple[list[RepoScope], dict[str, object]]:
-    """当 task 没有显式绑定 repo 时，尝试从 approved knowledge 里补 repo scopes。
+    """当 task 没有显式绑定 repo 时，尝试从已选 skills 材料里补 repo scopes。
 
-    Design 默认更偏好显式 repo 绑定；这个函数是兜底路径，把知识文档里的
-    repo 线索转成标准化的 RepoScope。
+    Design 默认更偏好显式 repo 绑定；这个函数是兜底路径，把 refine 选中的
+    material 里 repo 线索转成标准化的 RepoScope。
     """
-    selected_ids = [
-        str(item).strip()
-        for item in refine_knowledge_selection_payload.get("selected_ids", [])
-        if str(item).strip()
-    ]
+    selected_ids = _selection_ids(refine_skills_selection_payload)
     payload = {
         "mode": "none",
         "bound_repo_count": 0,
         "inferred_repo_count": 0,
-        "selected_knowledge_ids": selected_ids,
-        "selected_knowledge_titles": [],
+        "selected_skill_ids": selected_ids,
+        "selected_skill_titles": [],
         "unresolved_repo_hints": [],
     }
     if not selected_ids:
         return [], payload
+    return _infer_repo_scopes_from_skills(settings, selected_ids, payload)
 
-    store = KnowledgeStore(settings)
-    documents = [document for document_id in selected_ids if (document := store.get_document(document_id)) is not None]
-    payload["selected_knowledge_titles"] = [document.title for document in documents]
-    if not documents:
-        payload["mode"] = "knowledge_docs_missing"
+
+def _infer_repo_scopes_from_skills(
+    settings: Settings,
+    selected_ids: list[str],
+    payload: dict[str, object],
+) -> tuple[list[RepoScope], dict[str, object]]:
+    skill_store = SkillStore(settings)
+    skills = [skill for skill_id in selected_ids if (skill := skill_store.get_package(skill_id)) is not None]
+    payload["selected_skill_titles"] = [skill.name for skill in skills]
+    if not skills:
+        payload["mode"] = "skills_missing"
         return [], payload
 
     recent_repo_entries = list_recent_repos(TaskStore(settings))
@@ -134,10 +135,9 @@ def infer_repo_scopes_from_knowledge(
     candidates: dict[str, dict[str, object]] = {}
     unresolved_hints: list[str] = []
 
-    for document in documents:
-        repo_id_hints = [item for item in [*document.repos, *document.evidence.repoMatches] if item.strip()]
-        path_match_repo_id_hint = repo_id_hints[0] if len(set(repo_id_hints)) == 1 else ""
-        for path_hint in document.evidence.pathMatches:
+    for skill in skills:
+        repo_hints, path_hints, candidate_files = _extract_skill_hints(skill)
+        for path_hint in path_hints:
             resolved_path = _resolve_repo_path_from_path_hint(path_hint)
             if resolved_path is None:
                 unresolved_hints.append(path_hint)
@@ -145,10 +145,10 @@ def infer_repo_scopes_from_knowledge(
             _record_repo_candidate(
                 candidates,
                 repo_path=resolved_path,
-                repo_id_hint=path_match_repo_id_hint,
-                source=f"{document.id}:path_match",
+                repo_id_hint="",
+                source=f"{skill.id}:path_hint",
             )
-        for candidate_file in document.evidence.candidateFiles:
+        for candidate_file in candidate_files:
             resolved_path = _resolve_repo_path_from_path_hint(candidate_file)
             if resolved_path is None:
                 unresolved_hints.append(candidate_file)
@@ -156,10 +156,10 @@ def infer_repo_scopes_from_knowledge(
             _record_repo_candidate(
                 candidates,
                 repo_path=resolved_path,
-                repo_id_hint=path_match_repo_id_hint,
-                source=f"{document.id}:candidate_file",
+                repo_id_hint="",
+                source=f"{skill.id}:candidate_file",
             )
-        for repo_hint in repo_id_hints:
+        for repo_hint in repo_hints:
             resolved = _resolve_repo_path_from_repo_hint(repo_hint, recent_repo_map)
             if resolved is None:
                 unresolved_hints.append(repo_hint)
@@ -169,7 +169,7 @@ def infer_repo_scopes_from_knowledge(
                 candidates,
                 repo_path=resolved_path,
                 repo_id_hint=repo_id_hint or repo_hint,
-                source=f"{document.id}:repo_hint",
+                source=f"{skill.id}:repo_hint",
             )
 
     repo_scopes = [
@@ -181,7 +181,7 @@ def infer_repo_scopes_from_knowledge(
         if str(candidate.get("repo_path") or "").strip()
     ]
     repo_scopes.sort(key=lambda item: item.repo_id)
-    payload["mode"] = "knowledge_selection" if repo_scopes else "knowledge_selection_empty"
+    payload["mode"] = "skills_selection" if repo_scopes else "skills_selection_empty"
     payload["inferred_repo_count"] = len(repo_scopes)
     payload["unresolved_repo_hints"] = sorted({item for item in unresolved_hints if item.strip()})[:8]
     return repo_scopes, payload
@@ -205,6 +205,11 @@ def _build_recent_repo_map(recent_repo_entries: list[dict[str, object]]) -> dict
             for normalized_alias in _hint_aliases(alias):
                 mapping.setdefault(normalized_alias, (repo_path, repo_id))
     return mapping
+def _selection_ids(payload: dict[str, object]) -> list[str]:
+    values = payload.get("selected_skill_ids")
+    if not isinstance(values, list):
+        return []
+    return [str(item).strip() for item in values if str(item).strip()]
 
 
 def _resolve_repo_path_from_repo_hint(
@@ -341,3 +346,24 @@ def _repo_id_from_hint(repo_hint: str, repo_path: str) -> str:
     if "/" in normalized_hint:
         return normalized_hint.rsplit("/", 1)[-1] or derive_repo_id(repo_path)
     return normalized_hint or derive_repo_id(repo_path)
+
+
+def _extract_skill_hints(skill: SkillPackage) -> tuple[list[str], list[str], list[str]]:
+    text_parts = [skill.name, skill.description, skill.domain, skill.body]
+    for path in skill.reference_paths:
+        text_parts.append(path.read_text(encoding="utf-8"))
+    combined = "\n".join(part for part in text_parts if part.strip())
+
+    repo_hints = set(re.findall(r"code\.byted\.org/[A-Za-z0-9._/-]+", combined))
+    repo_hints.update(
+        match.group(1).strip()
+        for match in re.finditer(
+            r"(?im)^\s*(?:[-*]\s*)?repo(?:_hint|_id)?\s*[:：]\s*([A-Za-z0-9._/-]+)\s*$",
+            combined,
+        )
+    )
+    repo_hints = sorted(repo_hints)
+    path_hints = sorted(set(re.findall(r"/[A-Za-z0-9._/\-]+", combined)))
+    candidate_files = [path for path in path_hints if Path(path).suffix]
+    directory_paths = [path for path in path_hints if path not in set(candidate_files)]
+    return repo_hints, directory_paths[:12], candidate_files[:12]

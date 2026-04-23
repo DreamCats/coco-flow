@@ -14,14 +14,14 @@ DESIGN_OUTPUT_CONTRACT = "\n".join(
 )
 
 
-def build_design_input_section(*, title: str, refined_markdown: str, knowledge_brief_markdown: str) -> PromptSection:
+def build_design_input_section(*, title: str, refined_markdown: str, skills_brief_markdown: str) -> PromptSection:
     return PromptSection(
         title="Design 输入",
         body="\n\n".join(
             [
                 f"- 标题：{title}",
                 "### PRD Refined\n\n" + refined_markdown.strip(),
-                "### Design Knowledge Brief\n\n" + (knowledge_brief_markdown.strip() or "- 当前没有知识 brief。"),
+                "### Design Skills Brief\n\n" + (skills_brief_markdown.strip() or "- 当前没有 skills brief。"),
             ]
         ),
     )

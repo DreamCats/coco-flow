@@ -17,7 +17,7 @@ _ASCII_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
 def build_design_change_points_payload(
     prepared: DesignPreparedInput,
     settings: Settings,
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     on_log,
 ) -> dict[str, object]:
     """抽取 Design 阶段围绕展开的那几个核心 change points。
@@ -40,7 +40,7 @@ def build_design_change_points_payload(
             build_design_change_points_agent_prompt(
                 title=prepared.title,
                 refined_markdown=prepared.refined_markdown,
-                knowledge_brief_markdown=knowledge_brief_markdown,
+                skills_brief_markdown=skills_brief_markdown,
                 seed_change_points=[item["title"] for item in fallback["change_points"] if isinstance(item, dict) and str(item.get("title") or "").strip()],
                 template_path=str(template_path),
             ),

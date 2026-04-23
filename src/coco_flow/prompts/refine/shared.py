@@ -30,9 +30,9 @@ def build_intent_json_section(payload: dict[str, object]) -> PromptSection:
     return PromptSection(title="Refine Intent", body=render_json_block(payload))
 
 
-def build_knowledge_cards_section(cards: list[dict[str, object]]) -> PromptSection:
-    return PromptSection(title="候选知识卡片", body="```yaml\n" + render_yaml_cards(cards) + "\n```")
+def build_skill_cards_section(cards: list[dict[str, object]]) -> PromptSection:
+    return PromptSection(title="候选 Skills 卡片", body="```yaml\n" + render_yaml_cards(cards) + "\n```")
 
 
-def build_knowledge_read_section(markdown: str) -> PromptSection:
-    return PromptSection(title="知识深读结果", body=markdown.strip() or "- 当前无知识深读结果。")
+def build_skills_read_section(markdown: str) -> PromptSection:
+    return PromptSection(title="Skills 深读结果", body=markdown.strip() or "- 当前无 skills 深读结果。")

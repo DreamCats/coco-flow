@@ -31,9 +31,9 @@ class PlanPreparedInput:
     repo_scopes: list[RepoScope]
     repo_ids: set[str]
     refined_sections: RefinedSections
-    knowledge_brief_markdown: str = ""
-    knowledge_selection_payload: dict[str, object] = field(default_factory=dict)
-    selected_knowledge_ids: list[str] = field(default_factory=list)
+    skills_brief_markdown: str = ""
+    skills_selection_payload: dict[str, object] = field(default_factory=dict)
+    selected_skill_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
