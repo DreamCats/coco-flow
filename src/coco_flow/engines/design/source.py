@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
-import re
-import subprocess
 
 from coco_flow.config import Settings
-from coco_flow.engines.input.persist import derive_repo_id
-from coco_flow.engines.shared.models import RepoScope
 from coco_flow.engines.shared.research import (
     build_design_research_signals,
     build_repo_researches,
@@ -16,9 +11,6 @@ from coco_flow.engines.shared.research import (
     read_text_if_exists,
     score_complexity,
 )
-from coco_flow.services import TaskStore
-from coco_flow.services.queries.repos import list_recent_repos, validate_repo_path
-from coco_flow.services.queries.skills import SkillPackage, SkillStore
 from coco_flow.services.queries.task_detail import read_json_file
 
 from .models import DesignPreparedInput
@@ -32,10 +24,7 @@ def locate_task_dir(task_id: str, settings: Settings) -> Path | None:
 
 
 def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings: Settings) -> DesignPreparedInput:
-    """读取 Design 依赖的全部上游产物，并归一化成统一输入。
-
-    这里是磁盘上的 task 文件和后续设计编排之间的桥梁。
-    """
+    """读取 Design 依赖的全部上游产物，并归一化成统一输入。"""
     task_id = task_dir.name
     input_meta = read_json_file(task_dir / "input.json")
     refine_intent_payload = read_json_file(task_dir / "refine-intent.json")
@@ -44,16 +33,13 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
     refined_markdown = read_text_if_exists(task_dir / "prd-refined.md")
     repos_meta = read_json_file(task_dir / "repos.json")
     title = str(task_meta.get("title") or input_meta.get("title") or task_id)
-    bound_repo_scopes = parse_repo_scopes(repos_meta)
-    repo_scopes = bound_repo_scopes
+    repo_scopes = parse_repo_scopes(repos_meta)
     repo_discovery_payload = {
-        "mode": "bound" if bound_repo_scopes else "none",
-        "bound_repo_count": len(bound_repo_scopes),
+        "mode": "bound" if repo_scopes else "none",
+        "bound_repo_count": len(repo_scopes),
         "inferred_repo_count": 0,
         "selected_skill_ids": _selection_ids(refine_skills_selection_payload),
     }
-    if not repo_scopes:
-        repo_scopes, repo_discovery_payload = infer_repo_scopes_from_skills(settings, refine_skills_selection_payload)
     repo_lines = [f"- {scope.repo_id} ({scope.repo_path})" for scope in repo_scopes]
     sections = parse_refined_sections(refined_markdown)
     repo_researches = build_repo_researches(repo_scopes, title, sections)
@@ -95,275 +81,8 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
     )
 
 
-def infer_repo_scopes_from_skills(
-    settings: Settings,
-    refine_skills_selection_payload: dict[str, object],
-) -> tuple[list[RepoScope], dict[str, object]]:
-    """当 task 没有显式绑定 repo 时，尝试从已选 skills 材料里补 repo scopes。
-
-    Design 默认更偏好显式 repo 绑定；这个函数是兜底路径，把 refine 选中的
-    material 里 repo 线索转成标准化的 RepoScope。
-    """
-    selected_ids = _selection_ids(refine_skills_selection_payload)
-    payload = {
-        "mode": "none",
-        "bound_repo_count": 0,
-        "inferred_repo_count": 0,
-        "selected_skill_ids": selected_ids,
-        "selected_skill_titles": [],
-        "unresolved_repo_hints": [],
-    }
-    if not selected_ids:
-        return [], payload
-    return _infer_repo_scopes_from_skills(settings, selected_ids, payload)
-
-
-def _infer_repo_scopes_from_skills(
-    settings: Settings,
-    selected_ids: list[str],
-    payload: dict[str, object],
-) -> tuple[list[RepoScope], dict[str, object]]:
-    skill_store = SkillStore(settings)
-    skills = [skill for skill_id in selected_ids if (skill := skill_store.get_package(skill_id)) is not None]
-    payload["selected_skill_titles"] = [skill.name for skill in skills]
-    if not skills:
-        payload["mode"] = "skills_missing"
-        return [], payload
-
-    recent_repo_entries = list_recent_repos(TaskStore(settings))
-    recent_repo_map = _build_recent_repo_map(recent_repo_entries)
-    candidates: dict[str, dict[str, object]] = {}
-    unresolved_hints: list[str] = []
-
-    for skill in skills:
-        repo_hints, path_hints, candidate_files = _extract_skill_hints(skill)
-        for path_hint in path_hints:
-            resolved_path = _resolve_repo_path_from_path_hint(path_hint)
-            if resolved_path is None:
-                unresolved_hints.append(path_hint)
-                continue
-            _record_repo_candidate(
-                candidates,
-                repo_path=resolved_path,
-                repo_id_hint="",
-                source=f"{skill.id}:path_hint",
-            )
-        for candidate_file in candidate_files:
-            resolved_path = _resolve_repo_path_from_path_hint(candidate_file)
-            if resolved_path is None:
-                unresolved_hints.append(candidate_file)
-                continue
-            _record_repo_candidate(
-                candidates,
-                repo_path=resolved_path,
-                repo_id_hint="",
-                source=f"{skill.id}:candidate_file",
-            )
-        for repo_hint in repo_hints:
-            resolved = _resolve_repo_path_from_repo_hint(repo_hint, recent_repo_map)
-            if resolved is None:
-                unresolved_hints.append(repo_hint)
-                continue
-            resolved_path, repo_id_hint = resolved
-            _record_repo_candidate(
-                candidates,
-                repo_path=resolved_path,
-                repo_id_hint=repo_id_hint or repo_hint,
-                source=f"{skill.id}:repo_hint",
-            )
-
-    repo_scopes = [
-        RepoScope(
-            repo_id=str(candidate.get("repo_id") or derive_repo_id(str(candidate.get("repo_path") or ""))),
-            repo_path=str(candidate.get("repo_path") or ""),
-        )
-        for candidate in candidates.values()
-        if str(candidate.get("repo_path") or "").strip()
-    ]
-    repo_scopes.sort(key=lambda item: item.repo_id)
-    payload["mode"] = "skills_selection" if repo_scopes else "skills_selection_empty"
-    payload["inferred_repo_count"] = len(repo_scopes)
-    payload["unresolved_repo_hints"] = sorted({item for item in unresolved_hints if item.strip()})[:8]
-    return repo_scopes, payload
-
-
-def _build_recent_repo_map(recent_repo_entries: list[dict[str, object]]) -> dict[str, tuple[str, str]]:
-    mapping: dict[str, tuple[str, str]] = {}
-    for item in recent_repo_entries:
-        repo_id = str(item.get("id") or "").strip()
-        repo_path = str(item.get("path") or "").strip()
-        if not repo_path:
-            continue
-        aliases = {
-            repo_id,
-            str(item.get("displayName") or "").strip(),
-            Path(repo_path).name,
-            Path(repo_path).stem,
-        }
-        aliases.discard("")
-        for alias in aliases:
-            for normalized_alias in _hint_aliases(alias):
-                mapping.setdefault(normalized_alias, (repo_path, repo_id))
-    return mapping
 def _selection_ids(payload: dict[str, object]) -> list[str]:
     values = payload.get("selected_skill_ids")
     if not isinstance(values, list):
         return []
     return [str(item).strip() for item in values if str(item).strip()]
-
-
-def _resolve_repo_path_from_repo_hint(
-    repo_hint: str,
-    recent_repo_map: dict[str, tuple[str, str]],
-) -> tuple[str, str] | None:
-    normalized_hint = repo_hint.strip()
-    if not normalized_hint:
-        return None
-    direct_path = _resolve_repo_path_from_path_hint(normalized_hint)
-    if direct_path is not None:
-        return direct_path, derive_repo_id(direct_path)
-    mirrored_path = _resolve_repo_mirror_path(normalized_hint)
-    if mirrored_path is not None:
-        return mirrored_path, _repo_id_from_hint(normalized_hint, mirrored_path)
-    alias_candidates = _hint_aliases(normalized_hint)
-    for alias in alias_candidates:
-        matched = recent_repo_map.get(alias)
-        if matched is not None:
-            return matched
-    fuzzy_matches = {
-        value
-        for alias, value in recent_repo_map.items()
-        if any(alias == candidate or alias in candidate or candidate in alias for candidate in alias_candidates if candidate)
-    }
-    if len(fuzzy_matches) == 1:
-        return next(iter(fuzzy_matches))
-    return None
-
-
-def _resolve_repo_mirror_path(repo_hint: str) -> str | None:
-    normalized_hint = repo_hint.strip().strip("/")
-    if not normalized_hint or "/" not in normalized_hint:
-        return None
-    for mirror_root in _local_repo_mirror_roots():
-        candidate = mirror_root / normalized_hint
-        resolved = _resolve_repo_path_from_path_hint(str(candidate))
-        if resolved is not None:
-            return resolved
-    return None
-
-
-def _resolve_repo_path_from_path_hint(path_hint: str) -> str | None:
-    normalized = path_hint.strip()
-    if not normalized:
-        return None
-    candidate = Path(normalized).expanduser()
-    if not candidate.exists():
-        return None
-    git_target = candidate if candidate.is_dir() else candidate.parent
-    try:
-        repo_root = subprocess.run(
-            ["git", "-C", str(git_target), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if repo_root.returncode == 0 and repo_root.stdout.strip():
-            normalized = repo_root.stdout.strip()
-    except OSError:
-        return None
-    try:
-        validated = validate_repo_path(normalized)
-    except ValueError:
-        return None
-    return str(validated.get("path") or "").strip() or None
-
-
-def _record_repo_candidate(
-    candidates: dict[str, dict[str, object]],
-    *,
-    repo_path: str,
-    repo_id_hint: str,
-    source: str,
-) -> None:
-    normalized_path = repo_path.strip()
-    if not normalized_path:
-        return
-    current = candidates.get(normalized_path)
-    if current is None:
-        candidates[normalized_path] = {
-            "repo_id": repo_id_hint.strip() or derive_repo_id(normalized_path),
-            "repo_path": normalized_path,
-            "sources": [source],
-        }
-        return
-    if repo_id_hint.strip() and current["repo_id"] == derive_repo_id(normalized_path):
-        current["repo_id"] = repo_id_hint.strip()
-    if source not in current["sources"]:
-        current["sources"].append(source)
-
-
-def _hint_aliases(value: str) -> set[str]:
-    raw = value.strip()
-    if not raw:
-        return set()
-    normalized = raw.lower()
-    collapsed = re.sub(r"[^a-z0-9]+", "", normalized)
-    dashed = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
-    underscored = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
-    return {item for item in {normalized, collapsed, dashed, underscored} if item}
-
-
-def _local_repo_mirror_roots() -> list[Path]:
-    roots: list[Path] = []
-    gopath = os.getenv("GOPATH", "").strip()
-    if gopath:
-        for entry in gopath.split(os.pathsep):
-            current = entry.strip()
-            if not current:
-                continue
-            roots.append(Path(current).expanduser() / "src")
-    if not roots:
-        home = Path.home()
-        roots.extend(
-            [
-                home / "go" / "src",
-                home / "src",
-            ]
-        )
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for item in roots:
-        key = str(item)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(item)
-    return unique
-
-
-def _repo_id_from_hint(repo_hint: str, repo_path: str) -> str:
-    normalized_hint = repo_hint.strip().strip("/")
-    if "/" in normalized_hint:
-        return normalized_hint.rsplit("/", 1)[-1] or derive_repo_id(repo_path)
-    return normalized_hint or derive_repo_id(repo_path)
-
-
-def _extract_skill_hints(skill: SkillPackage) -> tuple[list[str], list[str], list[str]]:
-    text_parts = [skill.name, skill.description, skill.domain, skill.body]
-    for path in skill.reference_paths:
-        text_parts.append(path.read_text(encoding="utf-8"))
-    combined = "\n".join(part for part in text_parts if part.strip())
-
-    repo_hints = set(re.findall(r"code\.byted\.org/[A-Za-z0-9._/-]+", combined))
-    repo_hints.update(
-        match.group(1).strip()
-        for match in re.finditer(
-            r"(?im)^\s*(?:[-*]\s*)?repo(?:_hint|_id)?\s*[:：]\s*([A-Za-z0-9._/-]+)\s*$",
-            combined,
-        )
-    )
-    repo_hints = sorted(repo_hints)
-    path_hints = sorted(set(re.findall(r"/[A-Za-z0-9._/\-]+", combined)))
-    candidate_files = [path for path in path_hints if Path(path).suffix]
-    directory_paths = [path for path in path_hints if path not in set(candidate_files)]
-    return repo_hints, directory_paths[:12], candidate_files[:12]

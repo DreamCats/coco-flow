@@ -1438,7 +1438,37 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertFalse((task_dir / "plan.log").exists())
             self.assertFalse((task_dir / "plan-result.json").exists())
 
-    def test_design_can_infer_repos_from_selected_reference_doc_when_repos_empty(self) -> None:
+    def test_start_designing_task_requires_bound_repos(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            task_id = "task-design-no-repos"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = datetime.now().astimezone().isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "无仓库设计测试",
+                        "status": "refined",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "无仓库设计测试",
+                        "repo_count": 0,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "design requires bound repos"):
+                start_designing_task(task_id, settings=settings)
+
+    def test_design_requires_bound_repos_even_with_skill_repo_hints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             repo_root = Path(tmp) / "demo_repo"
@@ -1529,19 +1559,10 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            status = design_task(task_id, settings=settings)
+            with self.assertRaisesRegex(ValueError, "design requires bound repos"):
+                design_task(task_id, settings=settings)
 
-            self.assertEqual(status, "designed")
-            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
-            self.assertEqual(research["mode"], "local")
-            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["demo_repo"])
-            repo_binding = json.loads((task_dir / "design-repo-binding.json").read_text(encoding="utf-8"))
-            self.assertEqual(repo_binding["repo_bindings"][0]["repo_id"], "demo_repo")
-            self.assertEqual(repo_binding["repo_bindings"][0]["decision"], "in_scope")
-            design_log = (task_dir / "design.log").read_text(encoding="utf-8")
-            self.assertIn("design_repo_discovery_ok: mode=skills_selection, bound=0, inferred=1", design_log)
-
-    def test_design_can_infer_repos_from_selected_skill_when_repos_empty(self) -> None:
+    def test_design_requires_bound_repos_even_with_selected_skill(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             repo_root = Path(tmp) / "repo"
@@ -1639,18 +1660,10 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            status = design_task(task_id, settings=settings)
+            with self.assertRaisesRegex(ValueError, "design requires bound repos"):
+                design_task(task_id, settings=settings)
 
-            self.assertEqual(status, "designed")
-            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
-            self.assertEqual(research["mode"], "local")
-            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["repo"])
-            repo_binding = json.loads((task_dir / "design-repo-binding.json").read_text(encoding="utf-8"))
-            self.assertEqual(repo_binding["repo_bindings"][0]["repo_id"], "repo")
-            design_log = (task_dir / "design.log").read_text(encoding="utf-8")
-            self.assertIn("design_repo_discovery_ok: mode=skills_selection, bound=0, inferred=1", design_log)
-
-    def test_design_can_infer_repo_from_reference_candidate_file(self) -> None:
+    def test_design_requires_bound_repos_even_with_candidate_file_hint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             repo_root = Path(tmp) / "candidate-file-repo"
@@ -1723,13 +1736,10 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            status = design_task(task_id, settings=settings)
+            with self.assertRaisesRegex(ValueError, "design requires bound repos"):
+                design_task(task_id, settings=settings)
 
-            self.assertEqual(status, "designed")
-            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
-            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["candidate-file-repo"])
-
-    def test_design_can_fuzzy_match_repo_hint_from_recent_history(self) -> None:
+    def test_design_requires_bound_repos_even_with_recent_history_hint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             repo_root = Path(tmp) / "auction-card-repo"
@@ -1832,13 +1842,10 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            status = design_task(task_id, settings=settings)
+            with self.assertRaisesRegex(ValueError, "design requires bound repos"):
+                design_task(task_id, settings=settings)
 
-            self.assertEqual(status, "designed")
-            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
-            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["auction-card-repo"])
-
-    def test_design_can_resolve_remote_repo_hint_via_local_go_src_mirror(self) -> None:
+    def test_design_requires_bound_repos_even_with_remote_repo_hint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_root = Path(tmp)
             settings = make_settings(tmp_root)
@@ -1915,11 +1922,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
             from unittest.mock import patch
 
             with patch.dict("os.environ", {"GOPATH": str(home_root / "go")}):
-                status = design_task(task_id, settings=settings)
-
-            self.assertEqual(status, "designed")
-            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
-            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["live_shop"])
+                with self.assertRaisesRegex(ValueError, "design requires bound repos"):
+                    design_task(task_id, settings=settings)
 
     def test_local_plan_writes_skills_selection_and_brief(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -67,9 +67,9 @@ export function TaskRepoBindingModal({
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Repo Binding</div>
-              <h3 className="mt-2 text-[30px] leading-[1.08] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">绑定仓库（可选）</h3>
+              <h3 className="mt-2 text-[30px] leading-[1.08] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">绑定仓库</h3>
               <p className="mt-3 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">
-                如果你已经知道相关仓库，可以在这里显式提供。保存后会清理当前 task 的 Design / Plan / Code 下游产物，并回到可重新生成 Design 的状态。
+                Design 生成前必须先绑定相关仓库。保存后会清理当前 task 的 Design / Plan / Code 下游产物，并回到可重新生成 Design 的状态。
               </p>
             </div>
             <button
@@ -91,7 +91,7 @@ export function TaskRepoBindingModal({
         <div className="border-t border-[#e8e6dc] px-6 py-4 dark:border-[#30302e]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className={`text-sm ${error ? 'text-[#b53333]' : 'text-[#87867f] dark:text-[#b0aea5]'}`}>
-              {error || '如果不绑定仓库，Design 仍然可以运行，但会先做 repo discovery。'}
+              {error || '请先绑定相关仓库，再生成 Design。'}
             </div>
             <div className="flex flex-wrap gap-2">
               <button
