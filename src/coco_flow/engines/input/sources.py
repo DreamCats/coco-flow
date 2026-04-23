@@ -7,6 +7,7 @@ import shutil
 import subprocess
 from urllib.parse import urlparse
 
+from .lark_markdown import normalize_lark_markdown
 from .models import InputSections, ResolvedSource, SOURCE_TYPE_FILE, SOURCE_TYPE_LARK_DOC, SOURCE_TYPE_TEXT, SUPPLEMENT_HEADING
 
 _spacing = re.compile(r"[ \t]+")
@@ -211,7 +212,8 @@ def fetch_lark_doc_markdown(doc_token: str) -> tuple[str, str]:
     if not bool(payload.get("ok")):
         raise ValueError(f"docs +fetch 返回失败，doc_token={doc_token}")
     data = payload.get("data") or {}
-    return str(data.get("markdown") or ""), str(data.get("title") or "").strip()
+    raw_markdown = str(data.get("markdown") or "")
+    return normalize_lark_markdown(raw_markdown), str(data.get("title") or "").strip()
 
 
 def collapse_spacing(value: str) -> str:

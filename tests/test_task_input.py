@@ -4,9 +4,12 @@ from pathlib import Path
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from coco_flow.config import Settings
+from coco_flow.engines.input.sources import fetch_lark_doc_markdown
+from coco_flow.engines.input.lark_markdown import normalize_lark_markdown
 from coco_flow.services.tasks.input import create_task, input_task
 
 
@@ -30,6 +33,61 @@ def make_settings(root: Path) -> Settings:
 
 
 class InputTaskTest(unittest.TestCase):
+    def test_normalize_lark_markdown_flattens_rich_tags(self) -> None:
+        raw = """
+# Version Control
+
+<lark-table rows="2" cols="2">
+  <lark-tr>
+    <lark-td>**Key**</lark-td>
+    <lark-td>**Value**</lark-td>
+  </lark-tr>
+  <lark-tr>
+    <lark-td>Owner</lark-td>
+    <lark-td><mention-user id="ou_demo"/></lark-td>
+  </lark-tr>
+</lark-table>
+
+<callout emoji="dart">
+# Summary
+
+强化爽感
+</callout>
+
+<quote-container>
+<mention-doc token="wiki123" type="wiki">相关文档</mention-doc>
+</quote-container>
+"""
+
+        normalized = normalize_lark_markdown(raw)
+
+        self.assertIn("| **Key** | **Value** |", normalized)
+        self.assertIn("| Owner | @ou_demo |", normalized)
+        self.assertIn("# Summary", normalized)
+        self.assertIn("强化爽感", normalized)
+        self.assertIn("[相关文档](https://bytedance.larkoffice.com/wiki/wiki123)", normalized)
+
+    def test_normalize_lark_markdown_removes_dangling_heading_markers(self) -> None:
+        raw = """
+<lark-table rows="2" cols="1">
+  <lark-tr>
+    <lark-td>Title</lark-td>
+  </lark-tr>
+  <lark-tr>
+    <lark-td>
+      #### **普通竞拍 / Temporary listing**
+      ####
+    </lark-td>
+  </lark-tr>
+</lark-table>
+"""
+
+        normalized = normalize_lark_markdown(raw)
+
+        self.assertIn("| #### **普通竞拍 / Temporary listing** |", normalized)
+        self.assertNotIn("listing**####", normalized)
+        self.assertNotIn("| #### |", normalized)
+
     def test_create_long_text_input_does_not_try_treat_as_file_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
@@ -120,6 +178,42 @@ class InputTaskTest(unittest.TestCase):
             self.assertEqual(task_meta["title"], "飞书标题")
             self.assertEqual(source_meta["doc_token"], "doc123")
             self.assertIn("# 正文", source_markdown)
+
+    def test_fetch_lark_doc_markdown_normalizes_rich_markdown(self) -> None:
+        raw_markdown = """
+# Links
+
+<lark-table rows="2" cols="2">
+  <lark-tr>
+    <lark-td>**Name**</lark-td>
+    <lark-td>**Doc**</lark-td>
+  </lark-tr>
+  <lark-tr>
+    <lark-td>参考</lark-td>
+    <lark-td><mention-doc token="abc" type="wiki">设计稿</mention-doc></lark-td>
+  </lark-tr>
+</lark-table>
+"""
+        payload = {
+            "ok": True,
+            "data": {
+                "title": "飞书标题",
+                "markdown": raw_markdown,
+            },
+        }
+
+        with (
+            patch("coco_flow.engines.input.sources.ensure_lark_cli"),
+            patch(
+                "coco_flow.engines.input.sources.subprocess.run",
+                return_value=SimpleNamespace(returncode=0, stdout=json.dumps(payload, ensure_ascii=False), stderr=""),
+            ),
+        ):
+            markdown, title = fetch_lark_doc_markdown("doc123")
+
+        self.assertEqual(title, "飞书标题")
+        self.assertIn("| **Name** | **Doc** |", markdown)
+        self.assertIn("[设计稿](https://bytedance.larkoffice.com/wiki/abc)", markdown)
 
 
 if __name__ == "__main__":
