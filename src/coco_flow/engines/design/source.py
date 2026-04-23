@@ -40,8 +40,14 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
     task_id = task_dir.name
     input_meta = read_json_file(task_dir / "input.json")
     refine_intent_payload = read_json_file(task_dir / "refine-intent.json")
-    refine_knowledge_selection_payload = read_json_file(task_dir / "refine-knowledge-selection.json")
-    refine_knowledge_read_markdown = read_text_if_exists(task_dir / "refine-knowledge-read.md")
+    refine_knowledge_selection_payload = _read_selection_payload(
+        task_dir / "refine-skills-selection.json",
+        task_dir / "refine-knowledge-selection.json",
+    )
+    refine_knowledge_read_markdown = _read_first_existing_text(
+        task_dir / "refine-skills-read.md",
+        task_dir / "refine-knowledge-read.md",
+    )
     refined_markdown = read_text_if_exists(task_dir / "prd-refined.md")
     repos_meta = read_json_file(task_dir / "repos.json")
     title = str(task_meta.get("title") or input_meta.get("title") or task_id)
@@ -51,9 +57,7 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
         "mode": "bound" if bound_repo_scopes else "none",
         "bound_repo_count": len(bound_repo_scopes),
         "inferred_repo_count": 0,
-        "selected_knowledge_ids": [
-            str(item) for item in refine_knowledge_selection_payload.get("selected_ids", []) if str(item).strip()
-        ],
+        "selected_skill_ids": _selection_ids(refine_knowledge_selection_payload),
     }
     if not repo_scopes:
         repo_scopes, repo_discovery_payload = infer_repo_scopes_from_knowledge(settings, refine_knowledge_selection_payload)
@@ -102,22 +106,18 @@ def infer_repo_scopes_from_knowledge(
     settings: Settings,
     refine_knowledge_selection_payload: dict[str, object],
 ) -> tuple[list[RepoScope], dict[str, object]]:
-    """当 task 没有显式绑定 repo 时，尝试从 approved knowledge 里补 repo scopes。
+    """当 task 没有显式绑定 repo 时，尝试从已选 skills 材料里补 repo scopes。
 
-    Design 默认更偏好显式 repo 绑定；这个函数是兜底路径，把知识文档里的
-    repo 线索转成标准化的 RepoScope。
+    Design 默认更偏好显式 repo 绑定；这个函数是兜底路径，把 refine 选中的
+    material 里 repo 线索转成标准化的 RepoScope。
     """
-    selected_ids = [
-        str(item).strip()
-        for item in refine_knowledge_selection_payload.get("selected_ids", [])
-        if str(item).strip()
-    ]
+    selected_ids = _selection_ids(refine_knowledge_selection_payload)
     payload = {
         "mode": "none",
         "bound_repo_count": 0,
         "inferred_repo_count": 0,
-        "selected_knowledge_ids": selected_ids,
-        "selected_knowledge_titles": [],
+        "selected_skill_ids": selected_ids,
+        "selected_skill_titles": [],
         "unresolved_repo_hints": [],
     }
     if not selected_ids:
@@ -125,7 +125,7 @@ def infer_repo_scopes_from_knowledge(
 
     store = KnowledgeStore(settings)
     documents = [document for document_id in selected_ids if (document := store.get_document(document_id)) is not None]
-    payload["selected_knowledge_titles"] = [document.title for document in documents]
+    payload["selected_skill_titles"] = [document.title for document in documents]
     if not documents:
         return _infer_repo_scopes_from_skills(settings, selected_ids, payload)
 
@@ -181,7 +181,7 @@ def infer_repo_scopes_from_knowledge(
         if str(candidate.get("repo_path") or "").strip()
     ]
     repo_scopes.sort(key=lambda item: item.repo_id)
-    payload["mode"] = "knowledge_selection" if repo_scopes else "knowledge_selection_empty"
+    payload["mode"] = "skills_selection" if repo_scopes else "skills_selection_empty"
     payload["inferred_repo_count"] = len(repo_scopes)
     payload["unresolved_repo_hints"] = sorted({item for item in unresolved_hints if item.strip()})[:8]
     return repo_scopes, payload
@@ -194,9 +194,9 @@ def _infer_repo_scopes_from_skills(
 ) -> tuple[list[RepoScope], dict[str, object]]:
     skill_store = SkillStore(settings)
     skills = [skill for skill_id in selected_ids if (skill := skill_store.get_package(skill_id)) is not None]
-    payload["selected_knowledge_titles"] = [skill.name for skill in skills]
+    payload["selected_skill_titles"] = [skill.name for skill in skills]
     if not skills:
-        payload["mode"] = "knowledge_docs_missing"
+        payload["mode"] = "skills_missing"
         return [], payload
 
     recent_repo_entries = list_recent_repos(TaskStore(settings))
@@ -250,7 +250,7 @@ def _infer_repo_scopes_from_skills(
         if str(candidate.get("repo_path") or "").strip()
     ]
     repo_scopes.sort(key=lambda item: item.repo_id)
-    payload["mode"] = "skill_selection" if repo_scopes else "skill_selection_empty"
+    payload["mode"] = "skills_selection" if repo_scopes else "skills_selection_empty"
     payload["inferred_repo_count"] = len(repo_scopes)
     payload["unresolved_repo_hints"] = sorted({item for item in unresolved_hints if item.strip()})[:8]
     return repo_scopes, payload
@@ -274,6 +274,31 @@ def _build_recent_repo_map(recent_repo_entries: list[dict[str, object]]) -> dict
             for normalized_alias in _hint_aliases(alias):
                 mapping.setdefault(normalized_alias, (repo_path, repo_id))
     return mapping
+
+
+def _read_selection_payload(*paths: Path) -> dict[str, object]:
+    for path in paths:
+        payload = read_json_file(path)
+        if payload:
+            return payload
+    return {}
+
+
+def _read_first_existing_text(*paths: Path) -> str:
+    for path in paths:
+        content = read_text_if_exists(path)
+        if content.strip():
+            return content
+    return ""
+
+
+def _selection_ids(payload: dict[str, object]) -> list[str]:
+    values = payload.get("selected_skill_ids")
+    if not isinstance(values, list):
+        values = payload.get("selected_ids")
+    if not isinstance(values, list):
+        return []
+    return [str(item).strip() for item in values if str(item).strip()]
 
 
 def _resolve_repo_path_from_repo_hint(

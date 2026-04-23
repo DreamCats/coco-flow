@@ -8,8 +8,8 @@ from .shared import REFINE_OUTPUT_CONTRACT, build_intent_json_section, build_kno
 def build_refine_shortlist_template_json() -> str:
     return (
         '{\n'
-        '  "selected_ids": ["__FILL__"],\n'
-        '  "rejected_ids": ["__FILL__"],\n'
+        '  "selected_skill_ids": ["__FILL__"],\n'
+        '  "rejected_skill_ids": ["__FILL__"],\n'
         '  "reason": "__FILL__"\n'
         '}\n'
     )
@@ -28,17 +28,17 @@ def build_refine_shortlist_agent_prompt(
             "只基于候选知识卡片判断，不要假设正文内容。",
             "优先选择对术语消歧、稳定规则补充、冲突识别有帮助的文档。",
             "如果某篇文档看起来更像实现背景，而不是 refine 辅助知识，应剔除。",
-            "如果没有明显相关的知识文档，selected_ids 必须返回空数组，不要为了凑数强行选择。",
+            "如果没有明显相关的 skills，selected_skill_ids 必须返回空数组，不要为了凑数强行选择。",
             "只有在 title、desc、domain_name 与当前需求存在明显术语/领域/目标匹配时才允许选中。",
             "候选卡片可能是压缩摘要格式；`summary` 和 `heuristic_score` 只作为辅助信号，不能覆盖 title / domain / desc 的实际匹配。",
-            "selected_ids 只保留当前候选卡片里的 id。",
+            "selected_skill_ids 只保留当前候选卡片里的 id。",
             "必须直接编辑指定文件，不要只在回复里输出 JSON。",
             "完成后只需简短回复已完成。",
         ],
         output_contract=REFINE_OUTPUT_CONTRACT
         + "\n\n"
         + "JSON 格式：\n"
-        + '{\n  "selected_ids": ["..."],\n  "rejected_ids": ["..."],\n  "reason": "..."\n}',
+        + '{\n  "selected_skill_ids": ["..."],\n  "rejected_skill_ids": ["..."],\n  "reason": "..."\n}',
         sections=[
             PromptSection(
                 title="需要编辑的模板文件",

@@ -157,10 +157,13 @@ export function DesignStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
 
 function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
   const log = task.artifacts['design.log'] || ''
+  const designSkillsBriefArtifact = task.artifacts['design-skills-brief.md'] || task.artifacts['design-knowledge-brief.md'] || ''
+  const refineSkillsReadArtifact = task.artifacts['refine-skills-read.md'] || task.artifacts['refine-knowledge-read.md'] || ''
   const hasStarted = task.status === 'designing' || task.status === 'designed' || log.includes('=== DESIGN START ===')
   const hasKnowledge =
-    hasArtifact(task.artifacts['design-knowledge-brief.md']) ||
-    hasArtifact(task.artifacts['refine-knowledge-read.md']) ||
+    hasArtifact(designSkillsBriefArtifact) ||
+    hasArtifact(refineSkillsReadArtifact) ||
+    log.includes('design_skills_ok:') ||
     log.includes('repo_research_prefilter_candidates:')
   const hasResearch =
     hasArtifact(task.artifacts['design-research.json']) ||
@@ -177,7 +180,7 @@ function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
 
   if (task.status === 'designed') {
     return [
-      { label: '继承知识', done: true, current: false },
+      { label: '继承 Skills', done: true, current: false },
       { label: '仓库探索', done: true, current: false },
       { label: 'Repo Binding', done: true, current: false },
       { label: '生成成稿', done: true, current: false },
@@ -187,7 +190,7 @@ function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
 
   if (task.status !== 'designing') {
     return [
-      { label: '继承知识', done: false, current: false },
+      { label: '继承 Skills', done: false, current: false },
       { label: '仓库探索', done: false, current: false },
       { label: 'Repo Binding', done: false, current: false },
       { label: '生成成稿', done: false, current: false },
@@ -196,9 +199,9 @@ function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
   }
 
   const currentStep = !hasStarted
-    ? '继承知识'
+    ? '继承 Skills'
     : !hasKnowledge
-      ? '继承知识'
+      ? '继承 Skills'
       : !hasResearch
         ? '仓库探索'
         : !hasBinding
@@ -210,7 +213,7 @@ function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
               : '完成校验'
 
   return [
-    { label: '继承知识', done: hasKnowledge, current: currentStep === '继承知识' },
+    { label: '继承 Skills', done: hasKnowledge, current: currentStep === '继承 Skills' },
     { label: '仓库探索', done: hasResearch, current: currentStep === '仓库探索' },
     { label: 'Repo Binding', done: hasBinding, current: currentStep === 'Repo Binding' },
     { label: '生成成稿', done: hasDraft, current: currentStep === '生成成稿' },

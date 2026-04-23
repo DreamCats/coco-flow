@@ -33,7 +33,7 @@ class PlanPreparedInput:
     refined_sections: RefinedSections
     knowledge_brief_markdown: str = ""
     knowledge_selection_payload: dict[str, object] = field(default_factory=dict)
-    selected_knowledge_ids: list[str] = field(default_factory=list)
+    selected_skill_ids: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -74,16 +74,16 @@ class KnowledgeCard:
 
 @dataclass
 class RefineKnowledgeSelection:
-    selected_ids: list[str]
-    rejected_ids: list[str]
+    selected_skill_ids: list[str]
+    rejected_skill_ids: list[str]
     reason: str
     candidates: list[dict[str, object]]
     mode: str
 
     def to_payload(self) -> dict[str, object]:
         return {
-            "selected_ids": self.selected_ids,
-            "rejected_ids": self.rejected_ids,
+            "selected_skill_ids": self.selected_skill_ids,
+            "rejected_skill_ids": self.rejected_skill_ids,
             "reason": self.reason,
             "candidates": self.candidates,
             "mode": self.mode,
@@ -93,14 +93,14 @@ class RefineKnowledgeSelection:
 @dataclass
 class RefineKnowledgeRead:
     markdown: str
-    selected_ids: list[str]
-    selected_titles: list[str]
+    selected_skill_ids: list[str]
+    selected_skill_titles: list[str]
 
 
 @dataclass
 class RefineEngineResult:
     status: str
     refined_markdown: str
-    knowledge_used: bool
-    selected_knowledge_ids: list[str]
+    skills_used: bool
+    selected_skill_ids: list[str]
     intermediate_artifacts: dict[str, str | dict[str, object]] = field(default_factory=dict)

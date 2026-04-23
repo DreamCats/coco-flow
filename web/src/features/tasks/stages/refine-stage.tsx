@@ -140,31 +140,30 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
 
 function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
   const log = task.artifacts['refine.log'] || ''
+  const selectionArtifact = task.artifacts['refine-skills-selection.json'] || task.artifacts['refine-knowledge-selection.json'] || ''
+  const skillsReadArtifact = task.artifacts['refine-skills-read.md'] || task.artifacts['refine-knowledge-read.md'] || ''
   const hasStarted = task.status === 'refining' || task.status === 'refined' || log.includes('=== REFINE START ===')
   const hasIntent =
     hasArtifact(task.artifacts['refine-intent.json']) ||
     log.includes('intent_goal:') ||
     log.includes('intent_extraction_mode:') ||
     log.includes('native_intent_fallback:')
-  const hasKnowledgeSelection =
-    hasArtifact(task.artifacts['refine-knowledge-selection.json']) ||
-    log.includes('knowledge_candidates:') ||
-    log.includes('selected_knowledge_ids:')
-  const hasKnowledgeRead =
-    hasArtifact(task.artifacts['refine-knowledge-read.md']) ||
-    log.includes('knowledge_read_mode:') ||
-    log.includes('knowledge_read_fallback:')
+  const hasSkillsSelection = hasArtifact(selectionArtifact) || log.includes('skills_candidates:') || log.includes('selected_skill_ids:')
+  const hasSkillsRead = hasArtifact(skillsReadArtifact) || log.includes('skills_read_mode:') || log.includes('skills_read_fallback:')
   const hasGenerateStarted = log.includes('generate_agent_start:') || log.includes('generate_mode: local')
   const hasDraft = hasArtifact(task.artifacts['prd-refined.md']) || log.includes('generate_agent_ok:') || log.includes('generate_mode: local')
   const hasVerified = hasArtifact(task.artifacts['refine-verify.json']) || task.status === 'refined'
-  const noKnowledgeSelected = log.includes('selected_knowledge_ids: 无') || task.artifacts['refine-knowledge-selection.json']?.includes('"selected_ids": []')
-  const knowledgeStageDone = hasKnowledgeSelection && (hasKnowledgeRead || noKnowledgeSelected || hasGenerateStarted || hasDraft || hasVerified)
+  const noSkillsSelected =
+    log.includes('selected_skill_ids: 无') ||
+    selectionArtifact.includes('"selected_skill_ids": []') ||
+    selectionArtifact.includes('"selected_ids": []')
+  const skillsStageDone = hasSkillsSelection && (hasSkillsRead || noSkillsSelected || hasGenerateStarted || hasDraft || hasVerified)
 
   if (task.status === 'refined') {
     return [
       { label: '读取输入', done: true, current: false },
       { label: '提炼意图', done: true, current: false },
-      { label: '知识筛选', done: true, current: false },
+      { label: 'Skills 筛选', done: true, current: false },
       { label: '生成初稿', done: true, current: false },
       { label: '完成校验', done: true, current: false },
     ]
@@ -174,7 +173,7 @@ function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
     return [
       { label: '读取输入', done: false, current: false },
       { label: '提炼意图', done: false, current: false },
-      { label: '知识筛选', done: false, current: false },
+      { label: 'Skills 筛选', done: false, current: false },
       { label: '生成初稿', done: false, current: false },
       { label: '完成校验', done: false, current: false },
     ]
@@ -184,8 +183,8 @@ function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
     ? '读取输入'
     : !hasIntent
       ? '提炼意图'
-      : !knowledgeStageDone
-        ? '知识筛选'
+      : !skillsStageDone
+        ? 'Skills 筛选'
         : !hasDraft
           ? '生成初稿'
           : !hasVerified
@@ -195,7 +194,7 @@ function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
   return [
     { label: '读取输入', done: hasStarted, current: currentStep === '读取输入' },
     { label: '提炼意图', done: hasIntent, current: currentStep === '提炼意图' },
-    { label: '知识筛选', done: knowledgeStageDone, current: currentStep === '知识筛选' },
+    { label: 'Skills 筛选', done: skillsStageDone, current: currentStep === 'Skills 筛选' },
     { label: '生成初稿', done: hasDraft, current: currentStep === '生成初稿' },
     { label: '完成校验', done: hasVerified, current: currentStep === '完成校验' },
   ]

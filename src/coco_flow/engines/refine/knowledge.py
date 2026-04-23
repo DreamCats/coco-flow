@@ -47,7 +47,7 @@ def shortlist_refine_knowledge(
     skill_store = SkillStore(settings)
     skill_candidates = skill_store.list_packages()
     if skill_candidates:
-        on_log(f"knowledge_shortlist_source: skills ({len(skill_candidates)})")
+        on_log(f"skills_shortlist_source: skills ({len(skill_candidates)})")
         return _shortlist_refine_skills(
             prepared=prepared,
             intent=intent,
@@ -64,25 +64,25 @@ def shortlist_refine_knowledge(
     ]
     cards = [_to_card(document) for document in candidates]
     scored_cards = _score_cards(cards, candidates, prepared, intent)
-    on_log(f"knowledge_shortlist_card_count: {len(cards)}")
+    on_log(f"skills_shortlist_card_count: {len(cards)}")
     if not cards:
-        on_log("knowledge_shortlist_mode: empty")
+        on_log("skills_shortlist_mode: empty")
         selection = RefineKnowledgeSelection(
-            selected_ids=[],
-            rejected_ids=[],
+            selected_skill_ids=[],
+            rejected_skill_ids=[],
             reason="no_approved_refine_knowledge",
             candidates=[],
             mode="empty",
         )
         return [], selection
     if settings.refine_executor.strip().lower() != EXECUTOR_NATIVE:
-        on_log("knowledge_shortlist_mode: rule")
+        on_log("skills_shortlist_mode: rule")
         selection = _rule_select(cards, scored_cards)
-        selected_docs = _selected_documents(candidates, selection.selected_ids)
+        selected_docs = _selected_documents(candidates, selection.selected_skill_ids)
         return selected_docs, selection
 
     selection = _native_select(cards, candidates, scored_cards, prepared, intent, settings, on_log)
-    selected_docs = _selected_documents(candidates, selection.selected_ids)
+    selected_docs = _selected_documents(candidates, selection.selected_skill_ids)
     return selected_docs, selection
 
 
@@ -95,7 +95,7 @@ def read_selected_knowledge(
     on_log,
 ) -> RefineKnowledgeRead:
     if not selected_documents:
-        return RefineKnowledgeRead(markdown="", selected_ids=[], selected_titles=[])
+        return RefineKnowledgeRead(markdown="", selected_skill_ids=[], selected_skill_titles=[])
 
     if isinstance(selected_documents[0], SkillPackage):
         return _read_selected_skills(
@@ -140,15 +140,15 @@ def read_selected_knowledge(
             raise ValueError("knowledge_read_template_unfilled")
         if not markdown:
             raise ValueError("empty_knowledge_read")
-        on_log(f"knowledge_read_mode: agent ({len(selected_documents)} docs)")
+        on_log(f"skills_read_mode: agent ({len(selected_documents)} docs)")
         _ = reply
         return RefineKnowledgeRead(
             markdown=markdown.rstrip() + "\n",
-            selected_ids=[document.id for document in selected_documents],
-            selected_titles=[document.title for document in selected_documents],
+            selected_skill_ids=[document.id for document in selected_documents],
+            selected_skill_titles=[document.title for document in selected_documents],
         )
     except ValueError as error:
-        on_log(f"knowledge_read_fallback: {error}")
+        on_log(f"skills_read_fallback: {error}")
         return _read_knowledge_locally(selected_documents)
     finally:
         if template_path.exists():
@@ -165,15 +165,15 @@ def _shortlist_refine_skills(
 ) -> tuple[list[SkillPackage], RefineKnowledgeSelection]:
     cards = [_skill_to_card(skill) for skill in candidates]
     scored_cards = _score_cards(cards, candidates, prepared, intent)
-    on_log(f"knowledge_shortlist_card_count: {len(cards)}")
+    on_log(f"skills_shortlist_card_count: {len(cards)}")
     if settings.refine_executor.strip().lower() != EXECUTOR_NATIVE:
-        on_log("knowledge_shortlist_mode: rule")
+        on_log("skills_shortlist_mode: rule")
         selection = _rule_select(cards, scored_cards)
-        selected_skills = _selected_documents(candidates, selection.selected_ids)
+        selected_skills = _selected_documents(candidates, selection.selected_skill_ids)
         return selected_skills, selection
 
     selection = _native_select(cards, candidates, scored_cards, prepared, intent, settings, on_log)
-    selected_skills = _selected_documents(candidates, selection.selected_ids)
+    selected_skills = _selected_documents(candidates, selection.selected_skill_ids)
     return selected_skills, selection
 
 
@@ -182,8 +182,8 @@ def _rule_select(cards: list[KnowledgeCard], scored_cards: list[tuple[int, Knowl
     rejected_ids = [card.id for card in cards if card.id not in {item.id for item in selected_cards}]
     reason = "rule_scored_from_frontmatter"
     return RefineKnowledgeSelection(
-        selected_ids=[card.id for card in selected_cards],
-        rejected_ids=rejected_ids,
+        selected_skill_ids=[card.id for card in selected_cards],
+        rejected_skill_ids=rejected_ids,
         reason=reason,
         candidates=[{"score": score, **card.to_payload()} for score, card in scored_cards],
         mode="rule",
@@ -206,11 +206,11 @@ def _native_select(
     )
     if len(cards) <= SHORTLIST_BATCH_MAX_CARDS:
         try:
-            on_log("knowledge_shortlist_mode: llm_batch")
+            on_log("skills_shortlist_mode: llm_batch")
             return _native_select_batch(cards, scored_cards, prepared, intent, settings, client, on_log)
         except ValueError as error:
-            on_log(f"knowledge_shortlist_batch_fallback: {error}")
-    on_log("knowledge_shortlist_mode: llm_chunked")
+            on_log(f"skills_shortlist_batch_fallback: {error}")
+    on_log("skills_shortlist_mode: llm_chunked")
     return _native_select_chunked(cards, scored_cards, prepared, intent, settings, client, on_log)
 
 
@@ -240,7 +240,7 @@ def _native_select_batch(
             raise ValueError("shortlist_template_unfilled")
         payload = _parse_shortlist_output(raw, cards)
         return _finalize_selection(
-            selected_ids=payload["selected_ids"],
+            selected_ids=payload["selected_skill_ids"],
             cards=cards,
             scored_cards=scored_cards,
             prepared=prepared,
@@ -284,12 +284,12 @@ def _native_select_chunked(
             if "__FILL__" in raw:
                 raise ValueError("shortlist_template_unfilled")
             payload = _parse_shortlist_output(raw, chunk_cards)
-            selected_ids.extend(payload["selected_ids"])
+            selected_ids.extend(payload["selected_skill_ids"])
             if payload["reason"]:
                 reasons.append(str(payload["reason"]))
             _ = reply
         except ValueError as error:
-            on_log(f"knowledge_shortlist_chunk_fallback: chunk={index + 1}/{total_chunks} error={error}")
+            on_log(f"skills_shortlist_chunk_fallback: chunk={index + 1}/{total_chunks} error={error}")
             for card in chunk_cards[:2]:
                 if _card_score_lookup(scored_cards, card.id) > 0:
                     selected_ids.append(card.id)
@@ -334,7 +334,7 @@ def _score_cards(
 
 
 def _read_knowledge_locally(selected_documents: list[KnowledgeDocument]) -> RefineKnowledgeRead:
-    lines = ["# Refine Knowledge Read", ""]
+    lines = ["# Refine Skills Read", ""]
     for document in selected_documents:
         lines.extend(
             [
@@ -351,8 +351,8 @@ def _read_knowledge_locally(selected_documents: list[KnowledgeDocument]) -> Refi
         )
     return RefineKnowledgeRead(
         markdown="\n".join(lines).rstrip() + "\n",
-        selected_ids=[document.id for document in selected_documents],
-        selected_titles=[document.title for document in selected_documents],
+        selected_skill_ids=[document.id for document in selected_documents],
+        selected_skill_titles=[document.title for document in selected_documents],
     )
 
 
@@ -365,7 +365,7 @@ def _read_selected_skills(
     on_log,
 ) -> RefineKnowledgeRead:
     if not selected_skills:
-        return RefineKnowledgeRead(markdown="", selected_ids=[], selected_titles=[])
+        return RefineKnowledgeRead(markdown="", selected_skill_ids=[], selected_skill_titles=[])
 
     if settings.refine_executor.strip().lower() != EXECUTOR_NATIVE:
         return _read_skills_locally(selected_skills)
@@ -393,15 +393,15 @@ def _read_selected_skills(
             raise ValueError("knowledge_read_template_unfilled")
         if not markdown:
             raise ValueError("empty_knowledge_read")
-        on_log(f"knowledge_read_mode: agent ({len(prompt_documents)} docs)")
+        on_log(f"skills_read_mode: agent ({len(prompt_documents)} docs)")
         _ = reply
         return RefineKnowledgeRead(
             markdown=markdown.rstrip() + "\n",
-            selected_ids=[skill.id for skill in selected_skills],
-            selected_titles=[skill.name for skill in selected_skills],
+            selected_skill_ids=[skill.id for skill in selected_skills],
+            selected_skill_titles=[skill.name for skill in selected_skills],
         )
     except ValueError as error:
-        on_log(f"knowledge_read_fallback: {error}")
+        on_log(f"skills_read_fallback: {error}")
         return _read_skills_locally(selected_skills)
     finally:
         if template_path.exists():
@@ -409,7 +409,7 @@ def _read_selected_skills(
 
 
 def _read_skills_locally(selected_skills: list[SkillPackage]) -> RefineKnowledgeRead:
-    lines = ["# Refine Knowledge Read", ""]
+    lines = ["# Refine Skills Read", ""]
     for skill in selected_skills:
         lines.extend(
             [
@@ -426,8 +426,8 @@ def _read_skills_locally(selected_skills: list[SkillPackage]) -> RefineKnowledge
         )
     return RefineKnowledgeRead(
         markdown="\n".join(lines).rstrip() + "\n",
-        selected_ids=[skill.id for skill in selected_skills],
-        selected_titles=[skill.name for skill in selected_skills],
+        selected_skill_ids=[skill.id for skill in selected_skills],
+        selected_skill_titles=[skill.name for skill in selected_skills],
     )
 
 
@@ -482,7 +482,7 @@ def _write_knowledge_read_template(task_dir: Path) -> Path:
         mode="w",
         encoding="utf-8",
         dir=task_dir,
-        prefix=".refine-knowledge-read-",
+        prefix=".refine-skills-read-",
         suffix=".md",
         delete=False,
     ) as handle:
@@ -505,11 +505,17 @@ def _parse_shortlist_output(raw: str, cards: list[KnowledgeCard]) -> dict[str, o
     if _payload_has_fill_marker(payload):
         raise ValueError("shortlist_output_contains_fill_marker")
     valid_ids = {card.id for card in cards}
-    selected_ids = [item for item in [str(item).strip() for item in payload.get("selected_ids", [])] if item in valid_ids]
-    rejected_ids = [item for item in [str(item).strip() for item in payload.get("rejected_ids", [])] if item in valid_ids]
+    raw_selected = payload.get("selected_skill_ids")
+    if not isinstance(raw_selected, list):
+        raw_selected = payload.get("selected_ids", [])
+    raw_rejected = payload.get("rejected_skill_ids")
+    if not isinstance(raw_rejected, list):
+        raw_rejected = payload.get("rejected_ids", [])
+    selected_ids = [item for item in [str(item).strip() for item in raw_selected] if item in valid_ids]
+    rejected_ids = [item for item in [str(item).strip() for item in raw_rejected] if item in valid_ids]
     return {
-        "selected_ids": _ordered_unique(selected_ids),
-        "rejected_ids": _ordered_unique(rejected_ids),
+        "selected_skill_ids": _ordered_unique(selected_ids),
+        "rejected_skill_ids": _ordered_unique(rejected_ids),
         "reason": str(payload.get("reason") or "").strip(),
     }
 
@@ -639,11 +645,11 @@ def _finalize_selection(
     normalized_ids = _ordered_unique(selected_ids)[:4]
     guarded_ids, guard_rejections = _guard_selected_ids(normalized_ids, cards, scored_cards, prepared, intent)
     if guard_rejections:
-        on_log(f"knowledge_guard_rejected_ids: {', '.join(guard_rejections)}")
+        on_log(f"skills_guard_rejected_ids: {', '.join(guard_rejections)}")
     if not guarded_ids:
         return RefineKnowledgeSelection(
-            selected_ids=[],
-            rejected_ids=[card.id for card in cards],
+            selected_skill_ids=[],
+            rejected_skill_ids=[card.id for card in cards],
             reason=reason or "llm_shortlist_empty",
             candidates=[{"score": score, **card.to_payload()} for score, card in scored_cards],
             mode="llm_empty" if mode.startswith("llm") else mode,
@@ -652,8 +658,8 @@ def _finalize_selection(
     if guard_rejections:
         rejected_ids = _ordered_unique(rejected_ids + guard_rejections)
     return RefineKnowledgeSelection(
-        selected_ids=guarded_ids,
-        rejected_ids=rejected_ids,
+        selected_skill_ids=guarded_ids,
+        rejected_skill_ids=rejected_ids,
         reason=reason,
         candidates=[{"score": score, **card.to_payload()} for score, card in scored_cards],
         mode=mode,

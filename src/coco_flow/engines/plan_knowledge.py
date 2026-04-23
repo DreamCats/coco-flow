@@ -56,8 +56,8 @@ def build_plan_knowledge_brief(
     scored.sort(key=lambda item: (-item[0], KNOWLEDGE_KIND_PRIORITY.get(item[2].kind, 9), item[2].title))
     selected = [item[2] for item in scored[:4]]
     selection_payload = {
-        "selected_ids": [item.id for item in selected],
-        "selected_titles": [item.title for item in selected],
+        "selected_skill_ids": [item.id for item in selected],
+        "selected_skill_titles": [item.title for item in selected],
         "candidates": [item[1] for item in scored] + unmatched_payloads,
     }
     if not selected:
@@ -65,10 +65,10 @@ def build_plan_knowledge_brief(
 
     terms = infer_plan_knowledge_terms(title, sections)
     lines = [
-        "# Plan Knowledge Brief",
+        "# Plan Skills Brief",
         "",
         "- 用途：用于 plan 阶段判断改动边界、主责任 repo、稳定规则、风险与验证要点。",
-        "- 优先级：当前 refined PRD 与本地代码调研优先于历史 knowledge。",
+        "- 优先级：当前 refined PRD 与本地代码调研优先于 skills 历史材料。",
         "",
     ]
     for document in selected:

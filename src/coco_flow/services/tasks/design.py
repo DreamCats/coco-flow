@@ -113,6 +113,7 @@ def _reset_design_outputs(task_dir: Path) -> None:
         "design-repo-assignment.json",
         "design-research.json",
         "design-repo-responsibility-matrix.json",
+        "design-skills-brief.md",
         "design-knowledge-brief.md",
         "design-repo-binding.json",
         "design-sections.json",
@@ -131,6 +132,8 @@ def _reset_plan_outputs(task_dir: Path) -> None:
     for name in (
         "plan.md",
         "plan.log",
+        "plan-skills-selection.json",
+        "plan-skills-brief.md",
         "plan-knowledge-selection.json",
         "plan-knowledge-brief.md",
         "plan-task-outline.json",

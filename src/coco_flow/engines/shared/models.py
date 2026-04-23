@@ -225,7 +225,7 @@ class PlanBuild:
     assessment: ComplexityAssessment
     knowledge_brief_markdown: str = ""
     knowledge_selection_payload: dict[str, object] = field(default_factory=dict)
-    selected_knowledge_ids: list[str] = field(default_factory=list)
+    selected_skill_ids: list[str] = field(default_factory=list)
     llm_scope: PlanScope = field(default_factory=PlanScope)
 
 

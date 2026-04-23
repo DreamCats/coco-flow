@@ -39,9 +39,9 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
         raise ValueError("prd-refined.md 为空，无法执行 design")
 
     # 先把 Refine 阶段的结果压缩成一个更短的 brief，供后续步骤复用。
-    on_log("design_knowledge_start: true")
+    on_log("design_skills_start: true")
     knowledge_brief_markdown = build_design_knowledge_brief(prepared)
-    on_log(f"design_knowledge_ok: used={'true' if bool(knowledge_brief_markdown.strip()) else 'false'}")
+    on_log(f"design_skills_ok: used={'true' if bool(knowledge_brief_markdown.strip()) else 'false'}")
 
     # 再把 refined scope 收敛成少量明确的设计改造点。
     on_log("design_change_points_start: true")
@@ -66,7 +66,7 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
         "design-research.json": research_payload,
     }
     if knowledge_brief_markdown.strip():
-        artifacts["design-knowledge-brief.md"] = knowledge_brief_markdown
+        artifacts["design-skills-brief.md"] = knowledge_brief_markdown
 
     # 把 repo research 转成更稳定的 repo 职责画像，方便后面做 binding。
     on_log("design_repo_matrix_start: true")
@@ -133,7 +133,7 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
         "status": "designed",
         "research_mode": str(research_payload.get("mode") or "local"),
         "repo_binding_mode": repo_binding.mode,
-        "selected_knowledge_ids": [str(item) for item in prepared.refine_knowledge_selection_payload.get("selected_ids", []) if str(item).strip()],
+        "selected_skill_ids": _selected_skill_ids(prepared.refine_knowledge_selection_payload),
         "artifacts": sorted(artifacts.keys()),
     }
     on_log("status: designed")
@@ -144,3 +144,12 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
         sections_payload=sections_payload,
         intermediate_artifacts=artifacts,
     )
+
+
+def _selected_skill_ids(selection_payload: dict[str, object]) -> list[str]:
+    values = selection_payload.get("selected_skill_ids")
+    if not isinstance(values, list):
+        values = selection_payload.get("selected_ids")
+    if not isinstance(values, list):
+        return []
+    return [str(item) for item in values if str(item).strip()]

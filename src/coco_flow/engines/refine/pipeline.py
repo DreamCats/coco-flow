@@ -40,9 +40,9 @@ def run_refine_engine(
         settings=settings,
         on_log=on_log,
     )
-    artifacts["refine-knowledge-selection.json"] = selection.to_payload()
-    on_log(f"knowledge_candidates: {len(selection.candidates)}")
-    on_log(f"selected_knowledge_ids: {', '.join(selection.selected_ids) if selection.selected_ids else '无'}")
+    artifacts["refine-skills-selection.json"] = selection.to_payload()
+    on_log(f"skills_candidates: {len(selection.candidates)}")
+    on_log(f"selected_skill_ids: {', '.join(selection.selected_skill_ids) if selection.selected_skill_ids else '无'}")
 
     knowledge_read = read_selected_knowledge(
         prepared=prepared,
@@ -52,7 +52,7 @@ def run_refine_engine(
         on_log=on_log,
     )
     if knowledge_read.markdown.strip():
-        artifacts["refine-knowledge-read.md"] = knowledge_read.markdown
+        artifacts["refine-skills-read.md"] = knowledge_read.markdown
 
     result = generate_refine(
         prepared=prepared,

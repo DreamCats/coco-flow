@@ -118,6 +118,8 @@ def _reset_plan_outputs(task_dir: Path) -> None:
     for name in (
         "plan.md",
         "plan.log",
+        "plan-skills-selection.json",
+        "plan-skills-brief.md",
         "plan-knowledge-selection.json",
         "plan-knowledge-brief.md",
         "plan-task-outline.json",

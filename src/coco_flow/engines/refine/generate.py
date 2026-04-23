@@ -71,8 +71,8 @@ def generate_local_refine(
     return RefineEngineResult(
         status=STATUS_REFINED,
         refined_markdown=refined,
-        knowledge_used=bool(knowledge_read.selected_ids),
-        selected_knowledge_ids=knowledge_read.selected_ids,
+        skills_used=bool(knowledge_read.selected_skill_ids),
+        selected_skill_ids=knowledge_read.selected_skill_ids,
         intermediate_artifacts=artifacts,
     )
 
@@ -157,8 +157,8 @@ def generate_native_refine(
     return RefineEngineResult(
         status=STATUS_REFINED,
         refined_markdown=refined.rstrip() + "\n",
-        knowledge_used=bool(knowledge_read.selected_ids),
-        selected_knowledge_ids=knowledge_read.selected_ids,
+        skills_used=bool(knowledge_read.selected_skill_ids),
+        selected_skill_ids=knowledge_read.selected_skill_ids,
         intermediate_artifacts=artifacts,
     )
 

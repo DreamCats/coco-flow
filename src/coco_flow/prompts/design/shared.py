@@ -21,7 +21,7 @@ def build_design_input_section(*, title: str, refined_markdown: str, knowledge_b
             [
                 f"- 标题：{title}",
                 "### PRD Refined\n\n" + refined_markdown.strip(),
-                "### Design Knowledge Brief\n\n" + (knowledge_brief_markdown.strip() or "- 当前没有知识 brief。"),
+                "### Design Skills Brief\n\n" + (knowledge_brief_markdown.strip() or "- 当前没有 skills brief。"),
             ]
         ),
     )

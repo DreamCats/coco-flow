@@ -152,8 +152,8 @@ uv run python -m unittest discover -s tests -v
 - `refine` 支持 `native` 和 `local`
 - `native` 通过 ACP 混合模式执行 refine
   - `intent extraction`：agent（固定 `refine-intent.json` 模板）
-  - `knowledge shortlist`：agent（固定 `refine-knowledge-selection.json` 模板）
-  - `knowledge deep read`：agent（固定 `refine-knowledge-read.md` 模板）
+  - `skills shortlist`：agent（固定 `refine-skills-selection.json` 模板）
+  - `skills deep read`：agent（固定 `refine-skills-read.md` 模板）
   - `generate refined draft`：agent（固定模板文件填充）
   - `verify`：agent（固定 `refine-verify.json` 模板）
 - `local` 生成结构化兜底稿
@@ -161,13 +161,13 @@ uv run python -m unittest discover -s tests -v
   - 默认优先读取 repo 下 `.livecoding/context/`
   - 若未找到可用上下文，显式降级为 `source_only`
   - 若只找到部分上下文，标记为 `partial_grounded`
-- `refine` 当前内部已拆成 `prepare -> intent -> knowledge selection -> knowledge brief -> generate` 多步编排
+- `refine` 当前内部已拆成 `prepare -> intent -> skills selection -> skills read -> generate` 多步编排
 - `native refine` 当前已按“controller 建模板 + agent 填文件”的方式组织主要结构化产物
 - `native refine` 还会在规则筛中的 approved knowledge 上额外做一步 LLM 适用性裁决；`local refine` 保持规则筛选回退
 - `refine` 当前会额外生成：
   - `refine-intent.json`
-  - `refine-knowledge-selection.json`（记录 approved knowledge 的规则筛选结果）
-  - `refine-knowledge-read.md`
+  - `refine-skills-selection.json`（记录 selected skills 的规则筛选结果）
+  - `refine-skills-read.md`
   - `refine-verify.json`（仅 native refine 生成）
 - 飞书文档若暂时拉不到正文，会生成 pending refine 占位稿，状态保持 `initialized`
 - `refine.log` 当前会记录：
@@ -176,8 +176,8 @@ uv run python -m unittest discover -s tests -v
   - `context_mode / business_memory_provider / business_memory_used`
   - `intent_goal / intent_key_terms / intent_terms`
   - `intent_extraction_mode`
-  - `knowledge_candidates / selected_knowledge_ids`
-  - `knowledge_brief_documents / knowledge_brief_files`
+  - `skills_candidates / selected_skill_ids`
+  - `skills_read_mode / skills_read_fallback`
   - `verify_start / verify_ok / verify_passed` 或 `verify_failed`
   - `source_type / source_path / source_url / source_doc_token`
   - `source_length`
@@ -205,16 +205,16 @@ uv run python -m unittest discover -s tests -v
   - 对 task 绑定的每个 repo 分别读取 `.livecoding/context`
   - 分别提取 glossary 命中、未命中术语、candidate files / dirs
   - 在 `design.md`、`plan.md`、prompt 和 `plan.log` 中按 repo 聚合
-- `plan` 当前已接入 approved knowledge 的规则筛选：
-  - 仅消费 `status=approved` 且 `engines` 包含 `plan` 的知识草稿
-  - 先生成 `plan-knowledge-selection.json`
-  - 再生成 `plan-knowledge-brief.md`
+- `plan` 当前已接入 skills 的规则筛选：
+  - 优先消费 `skills_root` 下的 `SKILL.md + references/*`
+  - 先生成 `plan-skills-selection.json`
+  - 再生成 `plan-skills-brief.md`
   - brief 会尽量压成“决策边界 / 稳定规则 / 验证要点”
   - native prompt 和 local `design.md` / `plan.md` 都会消费该 brief
 - `plan.log` 当前会记录：
   - `repo_count`
   - 每个 repo 的 `repo_research`
-  - `knowledge_candidates / selected_knowledge_ids / knowledge_brief`
+  - `plan_skills_ok / selected_skill_ids / skills_brief`
   - `scope_start / scope_ok / scope_error`
   - `verify_start / verify_ok / verify_passed` 或 `verify_failed / verify_error`
   - glossary hits / unmatched terms / candidate files / complexity
@@ -259,12 +259,13 @@ uv run python -m unittest discover -s tests -v
   - `plan.md`
 - 当前 task 级非编辑 artifact 还包括：
   - `refine-intent.json`
-  - `refine-knowledge-selection.json`
-  - `refine-knowledge-brief.md`
+  - `refine-skills-selection.json`
+  - `refine-skills-read.md`
   - `refine-verify.json`
   - `refine-result.json`
-  - `plan-knowledge-selection.json`
-  - `plan-knowledge-brief.md`
+  - `design-skills-brief.md`
+  - `plan-skills-selection.json`
+  - `plan-skills-brief.md`
   - `code-dispatch.json`
   - `code-progress.json`
   - `plan-scope.json`

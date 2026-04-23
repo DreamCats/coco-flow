@@ -29,15 +29,15 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     prepared = prepare_plan_input(task_dir, task_meta)
     on_log(f"plan_prepare_ok: repos={len(prepared.repo_scopes)}, title={prepared.title}")
 
-    on_log("plan_knowledge_start: true")
+    on_log("plan_skills_start: true")
     knowledge_brief_markdown, selection_payload, selected_ids = build_plan_knowledge_bundle(prepared, settings)
     prepared.knowledge_brief_markdown = knowledge_brief_markdown
     prepared.knowledge_selection_payload = selection_payload
-    prepared.selected_knowledge_ids = selected_ids
-    artifacts["plan-knowledge-selection.json"] = selection_payload
+    prepared.selected_skill_ids = selected_ids
+    artifacts["plan-skills-selection.json"] = selection_payload
     if knowledge_brief_markdown.strip():
-        artifacts["plan-knowledge-brief.md"] = knowledge_brief_markdown
-    on_log(f"plan_knowledge_ok: selected={len(selected_ids)}")
+        artifacts["plan-skills-brief.md"] = knowledge_brief_markdown
+    on_log(f"plan_skills_ok: selected={len(selected_ids)}")
 
     on_log("plan_task_outline_start: true")
     work_items, outline_payload = build_plan_work_items(prepared, settings, knowledge_brief_markdown, on_log)
@@ -117,7 +117,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
         "repo_count": len({item.repo_id for item in work_items}),
         "critical_path_length": len(graph.critical_path),
         "parallel_group_count": len(graph.parallel_groups),
-        "selected_knowledge_ids": selected_ids,
+        "selected_skill_ids": selected_ids,
         "artifacts": sorted(artifacts.keys()) + ["plan.md"],
     }
     on_log(f"status: {STATUS_PLANNED}")

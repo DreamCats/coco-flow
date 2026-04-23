@@ -167,16 +167,16 @@ Notes:
 ### Refine
 
 - `refine` supports `native` and `local`.
-- `native refine` runs a staged flow around intent extraction, knowledge selection, knowledge brief generation, draft generation, and verification.
+- `native refine` runs a staged flow around intent extraction, skills selection, skills read, draft generation, and verification.
 - `local refine` produces a structured fallback draft.
-- Typical artifacts include `prd-refined.md`, `refine-intent.json`, `refine-knowledge-selection.json`, `refine-knowledge-brief.md`, `refine-verify.json`, and `refine-result.json`.
+- Typical artifacts include `prd-refined.md`, `refine-intent.json`, `refine-skills-selection.json`, `refine-skills-read.md`, `refine-verify.json`, and `refine-result.json`.
 
 ### Design And Plan
 
 - `design` is a standalone stage exposed in both CLI and API.
 - `plan` supports `native` and `local`.
 - `native plan` runs staged scope extraction, generation, and verification.
-- Typical artifacts include `design.md`, `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-knowledge-selection.json`, and `plan-knowledge-brief.md`.
+- Typical artifacts include `design.md`, `design-skills-brief.md`, `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-skills-selection.json`, and `plan-skills-brief.md`.
 
 ### Code
 

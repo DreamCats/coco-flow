@@ -158,8 +158,9 @@ function buildPlanGraph(task: TaskRecord) {
 
 function buildPlanProgress(task: TaskRecord): PlanProgressStep[] {
   const log = task.artifacts['plan.log'] || ''
+  const skillsBriefArtifact = task.artifacts['plan-skills-brief.md'] || task.artifacts['plan-knowledge-brief.md'] || ''
   const hasStarted = task.status === 'planning' || task.status === 'planned' || log.includes('=== PLAN START ===')
-  const hasKnowledge = hasArtifact(task.artifacts['plan-knowledge-brief.md']) || log.includes('plan_knowledge_ok:')
+  const hasKnowledge = hasArtifact(skillsBriefArtifact) || log.includes('plan_skills_ok:') || log.includes('plan_knowledge_ok:')
   const hasOutline = hasArtifact(task.artifacts['plan-task-outline.json']) || hasArtifact(task.artifacts['plan-work-items.json']) || log.includes('plan_task_outline_ok:')
   const hasGraph = hasArtifact(task.artifacts['plan-execution-graph.json']) || log.includes('plan_graph_ok:')
   const hasValidation = hasArtifact(task.artifacts['plan-validation.json']) || log.includes('plan_validation_ok:')
@@ -168,7 +169,7 @@ function buildPlanProgress(task: TaskRecord): PlanProgressStep[] {
 
   if (task.status === 'planned') {
     return [
-      { label: '继承知识', done: true, current: false },
+      { label: '继承 Skills', done: true, current: false },
       { label: '拆分任务', done: true, current: false },
       { label: '关系建图', done: true, current: false },
       { label: '验证收敛', done: true, current: false },
@@ -179,7 +180,7 @@ function buildPlanProgress(task: TaskRecord): PlanProgressStep[] {
 
   if (task.status !== 'planning') {
     return [
-      { label: '继承知识', done: false, current: false },
+      { label: '继承 Skills', done: false, current: false },
       { label: '拆分任务', done: false, current: false },
       { label: '关系建图', done: false, current: false },
       { label: '验证收敛', done: false, current: false },
@@ -189,9 +190,9 @@ function buildPlanProgress(task: TaskRecord): PlanProgressStep[] {
   }
 
   const currentStep = !hasStarted
-    ? '继承知识'
+    ? '继承 Skills'
     : !hasKnowledge
-      ? '继承知识'
+      ? '继承 Skills'
       : !hasOutline
         ? '拆分任务'
         : !hasGraph
@@ -205,7 +206,7 @@ function buildPlanProgress(task: TaskRecord): PlanProgressStep[] {
                 : '完成校验'
 
   return [
-    { label: '继承知识', done: hasKnowledge, current: currentStep === '继承知识' },
+    { label: '继承 Skills', done: hasKnowledge, current: currentStep === '继承 Skills' },
     { label: '拆分任务', done: hasOutline, current: currentStep === '拆分任务' },
     { label: '关系建图', done: hasGraph, current: currentStep === '关系建图' },
     { label: '验证收敛', done: hasValidation, current: currentStep === '验证收敛' },

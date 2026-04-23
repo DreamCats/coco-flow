@@ -1521,11 +1521,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            (task_dir / "refine-knowledge-selection.json").write_text(
+            (task_dir / "refine-skills-selection.json").write_text(
                 json.dumps(
                     {
-                        "selected_ids": ["auction-reward-card-domain"],
-                        "rejected_ids": [],
+                        "selected_skill_ids": ["auction-reward-card-domain"],
+                        "rejected_skill_ids": [],
                         "reason": "selected for refine",
                         "candidates": [],
                         "mode": "rule",
@@ -1536,8 +1536,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            (task_dir / "refine-knowledge-read.md").write_text(
-                "# Refine Knowledge Read\n\n- 竞拍奖励卡主链路与 demo_repo 强相关。\n",
+            (task_dir / "refine-skills-read.md").write_text(
+                "# Refine Skills Read\n\n- 竞拍奖励卡主链路与 demo_repo 强相关。\n",
                 encoding="utf-8",
             )
             (task_dir / "prd-refined.md").write_text(
@@ -1563,7 +1563,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertEqual(repo_binding["repo_bindings"][0]["repo_id"], "demo_repo")
             self.assertEqual(repo_binding["repo_bindings"][0]["decision"], "in_scope")
             design_log = (task_dir / "design.log").read_text(encoding="utf-8")
-            self.assertIn("design_repo_discovery_ok: mode=knowledge_selection, bound=0, inferred=1", design_log)
+            self.assertIn("design_repo_discovery_ok: mode=skills_selection, bound=0, inferred=1", design_log)
 
     def test_design_can_infer_repos_from_selected_skill_when_repos_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1631,11 +1631,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            (task_dir / "refine-knowledge-selection.json").write_text(
+            (task_dir / "refine-skills-selection.json").write_text(
                 json.dumps(
                     {
-                        "selected_ids": ["auction-reward-card"],
-                        "rejected_ids": [],
+                        "selected_skill_ids": ["auction-reward-card"],
+                        "rejected_skill_ids": [],
                         "reason": "selected for refine",
                         "candidates": [],
                         "mode": "rule",
@@ -1646,8 +1646,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            (task_dir / "refine-knowledge-read.md").write_text(
-                "# Refine Knowledge Read\n\n- 竞拍奖励卡主链路与 skill package 强相关。\n",
+            (task_dir / "refine-skills-read.md").write_text(
+                "# Refine Skills Read\n\n- 竞拍奖励卡主链路与 skill package 强相关。\n",
                 encoding="utf-8",
             )
             (task_dir / "prd-refined.md").write_text(
@@ -1672,7 +1672,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             repo_binding = json.loads((task_dir / "design-repo-binding.json").read_text(encoding="utf-8"))
             self.assertEqual(repo_binding["repo_bindings"][0]["repo_id"], "repo")
             design_log = (task_dir / "design.log").read_text(encoding="utf-8")
-            self.assertIn("design_repo_discovery_ok: mode=skill_selection, bound=0, inferred=1", design_log)
+            self.assertIn("design_repo_discovery_ok: mode=skills_selection, bound=0, inferred=1", design_log)
 
     def test_design_can_infer_repo_from_knowledge_candidate_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1742,11 +1742,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            (task_dir / "refine-knowledge-selection.json").write_text(
+            (task_dir / "refine-skills-selection.json").write_text(
                 json.dumps(
                     {
-                        "selected_ids": ["reward-card-candidate-file"],
-                        "rejected_ids": [],
+                        "selected_skill_ids": ["reward-card-candidate-file"],
+                        "rejected_skill_ids": [],
                         "reason": "selected for refine",
                         "candidates": [],
                         "mode": "rule",
@@ -1868,11 +1868,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            (task_dir / "refine-knowledge-selection.json").write_text(
+            (task_dir / "refine-skills-selection.json").write_text(
                 json.dumps(
                     {
-                        "selected_ids": ["auction-card-fuzzy-hint"],
-                        "rejected_ids": [],
+                        "selected_skill_ids": ["auction-card-fuzzy-hint"],
+                        "rejected_skill_ids": [],
                         "reason": "selected for refine",
                         "candidates": [],
                         "mode": "rule",
@@ -1965,11 +1965,11 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            (task_dir / "refine-knowledge-selection.json").write_text(
+            (task_dir / "refine-skills-selection.json").write_text(
                 json.dumps(
                     {
-                        "selected_ids": ["auction-remote-repo-hint"],
-                        "rejected_ids": [],
+                        "selected_skill_ids": ["auction-remote-repo-hint"],
+                        "rejected_skill_ids": [],
                         "reason": "selected for refine",
                         "candidates": [],
                         "mode": "rule",
@@ -2122,15 +2122,15 @@ class PlanTaskPipelineTest(unittest.TestCase):
 
             self.assertEqual(design_status, "designed")
             self.assertEqual(status, "planned")
-            selection = json.loads((task_dir / "plan-knowledge-selection.json").read_text(encoding="utf-8"))
-            self.assertEqual(selection["selected_ids"], ["flow-auction-card-plan"])
+            selection = json.loads((task_dir / "plan-skills-selection.json").read_text(encoding="utf-8"))
+            self.assertEqual(selection["selected_skill_ids"], ["flow-auction-card-plan"])
             work_items = json.loads((task_dir / "plan-work-items.json").read_text(encoding="utf-8"))
             self.assertTrue(work_items["work_items"])
             self.assertEqual(work_items["work_items"][0]["repo_id"], "demo_repo")
             validation = json.loads((task_dir / "plan-validation.json").read_text(encoding="utf-8"))
             self.assertTrue(validation["task_validations"])
-            brief = (task_dir / "plan-knowledge-brief.md").read_text(encoding="utf-8")
-            self.assertIn("Plan Knowledge Brief", brief)
+            brief = (task_dir / "plan-skills-brief.md").read_text(encoding="utf-8")
+            self.assertIn("Plan Skills Brief", brief)
             self.assertIn("竞拍讲解卡状态提示链路", brief)
             self.assertIn("决策边界", brief)
             self.assertIn("稳定规则", brief)
@@ -2260,10 +2260,10 @@ class PlanTaskPipelineTest(unittest.TestCase):
 
             self.assertEqual(design_status, "designed")
             self.assertEqual(status, "planned")
-            selection = json.loads((task_dir / "plan-knowledge-selection.json").read_text(encoding="utf-8"))
-            self.assertEqual(selection["selected_ids"], ["auction-popcard"])
-            brief = (task_dir / "plan-knowledge-brief.md").read_text(encoding="utf-8")
-            self.assertIn("Plan Knowledge Brief", brief)
+            selection = json.loads((task_dir / "plan-skills-selection.json").read_text(encoding="utf-8"))
+            self.assertEqual(selection["selected_skill_ids"], ["auction-popcard"])
+            brief = (task_dir / "plan-skills-brief.md").read_text(encoding="utf-8")
+            self.assertIn("Plan Skills Brief", brief)
             self.assertIn("auction-popcard", brief)
             self.assertIn("决策边界", brief)
             self.assertIn("稳定规则", brief)

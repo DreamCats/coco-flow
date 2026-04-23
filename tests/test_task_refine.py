@@ -147,17 +147,18 @@ class RefineTaskTest(unittest.TestCase):
 
             self.assertEqual(status, "refined")
             refined = (task_dir / "prd-refined.md").read_text(encoding="utf-8")
-            self.assertIn("## 核心诉求", refined)
-            self.assertIn("## 改动范围", refined)
-            self.assertIn("## 风险提示", refined)
-            self.assertIn("## 讨论点", refined)
+            self.assertIn("# 需求确认书", refined)
+            self.assertIn("## 需求概述", refined)
+            self.assertIn("## 具体变更点", refined)
+            self.assertIn("## 验收标准", refined)
             self.assertIn("## 边界与非目标", refined)
+            self.assertIn("## 待确认项", refined)
             self.assertTrue((task_dir / "refine-query.json").exists())
-            self.assertTrue((task_dir / "refine-knowledge-selection.json").exists())
-            self.assertTrue((task_dir / "refine-knowledge-read.md").exists())
+            self.assertTrue((task_dir / "refine-skills-selection.json").exists())
+            self.assertTrue((task_dir / "refine-skills-read.md").exists())
             result = json.loads((task_dir / "refine-result.json").read_text(encoding="utf-8"))
-            self.assertEqual(result["knowledge_used"], True)
-            self.assertEqual(result["selected_knowledge_ids"], ["auction-domain"])
+            self.assertEqual(result["skills_used"], True)
+            self.assertEqual(result["selected_skill_ids"], ["auction-domain"])
 
     def test_local_refine_can_use_skill_packages_without_knowledge_docs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -205,12 +206,12 @@ class RefineTaskTest(unittest.TestCase):
             status = refine_task("task-skill-local", settings=settings)
 
             self.assertEqual(status, "refined")
-            self.assertTrue((task_dir / "refine-knowledge-selection.json").exists())
-            self.assertTrue((task_dir / "refine-knowledge-read.md").exists())
+            self.assertTrue((task_dir / "refine-skills-selection.json").exists())
+            self.assertTrue((task_dir / "refine-skills-read.md").exists())
             result = json.loads((task_dir / "refine-result.json").read_text(encoding="utf-8"))
-            self.assertEqual(result["selected_knowledge_ids"], ["auction-popcard"])
-            selection = json.loads((task_dir / "refine-knowledge-selection.json").read_text(encoding="utf-8"))
-            self.assertEqual(selection["selected_ids"], ["auction-popcard"])
+            self.assertEqual(result["selected_skill_ids"], ["auction-popcard"])
+            selection = json.loads((task_dir / "refine-skills-selection.json").read_text(encoding="utf-8"))
+            self.assertEqual(selection["selected_skill_ids"], ["auction-popcard"])
 
     def test_native_refine_runs_new_multi_step_prompt_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -270,20 +271,30 @@ class RefineTaskTest(unittest.TestCase):
                 elif list(cwd.glob(".refine-shortlist-*.json")):
                     next(cwd.glob(".refine-shortlist-*.json")).write_text(
                         json.dumps(
-                            {"selected_ids": ["auction-flow"], "rejected_ids": [], "reason": "术语和风险最相关"},
+                            {"selected_skill_ids": ["auction-flow"], "rejected_skill_ids": [], "reason": "术语和风险最相关"},
                             ensure_ascii=False,
                             indent=2,
                         ),
                         encoding="utf-8",
                     )
-                elif list(cwd.glob(".refine-knowledge-read-*.md")):
-                    next(cwd.glob(".refine-knowledge-read-*.md")).write_text(
+                elif list(cwd.glob(".refine-skills-read-*.md")):
+                    next(cwd.glob(".refine-skills-read-*.md")).write_text(
                         "## 术语解释\n- 竞拍讲解卡属于竞拍展示链路。\n\n## 稳定规则\n- 非竞拍态误展示会影响口径。\n\n## 冲突提醒\n- 当前未识别到明确冲突。\n\n## 边界提示\n- 仅围绕竞拍讲解卡。\n",
                         encoding="utf-8",
                     )
                 elif list(cwd.glob(".refine-template-*.md")):
                     next(cwd.glob(".refine-template-*.md")).write_text(
-                        "# PRD Refined\n\n## 核心诉求\n- 提炼竞拍讲解卡的竞拍态提示诉求\n\n## 改动范围\n- 新增竞拍态提示\n\n## 风险提示\n- 误展示导致口径错误\n\n## 讨论点\n- [待确认] 是否只在竞拍态展示\n\n## 边界与非目标\n- 不默认扩展其他卡片\n",
+                        "# 需求确认书\n\n"
+                        "## 需求概述\n"
+                        "- 提炼竞拍讲解卡的竞拍态提示诉求。\n\n"
+                        "## 具体变更点\n"
+                        "- 场景：竞拍讲解卡；当前行为：暂无竞拍态提示；期望行为：新增竞拍态提示。\n\n"
+                        "## 验收标准\n"
+                        "- 当进入竞拍态时，应该正确展示竞拍态提示。\n\n"
+                        "## 边界与非目标\n"
+                        "- 不默认扩展其他卡片。\n\n"
+                        "## 待确认项\n"
+                        "- 问题：是否只在竞拍态展示；当前假设：仅竞拍态展示；影响范围：竞拍讲解卡提示口径。\n",
                         encoding="utf-8",
                     )
                 elif list(cwd.glob(".refine-verify-*.json")):
@@ -307,9 +318,9 @@ class RefineTaskTest(unittest.TestCase):
             self.assertEqual(run_agent_mock.call_count, 5)
             verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
             self.assertEqual(verify["ok"], True)
-            selection = json.loads((task_dir / "refine-knowledge-selection.json").read_text(encoding="utf-8"))
-            self.assertEqual(selection["mode"], "llm")
-            self.assertEqual(selection["selected_ids"], ["auction-flow"])
+            selection = json.loads((task_dir / "refine-skills-selection.json").read_text(encoding="utf-8"))
+            self.assertEqual(selection["mode"], "llm_batch")
+            self.assertEqual(selection["selected_skill_ids"], ["auction-flow"])
 
     def test_native_refine_shortlist_guard_rejects_low_relevance_knowledge(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -369,7 +380,7 @@ class RefineTaskTest(unittest.TestCase):
                 elif list(cwd.glob(".refine-shortlist-*.json")):
                     next(cwd.glob(".refine-shortlist-*.json")).write_text(
                         json.dumps(
-                            {"selected_ids": ["auction-flow"], "rejected_ids": [], "reason": "只有这一篇候选"},
+                            {"selected_skill_ids": ["auction-flow"], "rejected_skill_ids": [], "reason": "只有这一篇候选"},
                             ensure_ascii=False,
                             indent=2,
                         ),
@@ -377,7 +388,17 @@ class RefineTaskTest(unittest.TestCase):
                     )
                 elif list(cwd.glob(".refine-template-*.md")):
                     next(cwd.glob(".refine-template-*.md")).write_text(
-                        "# PRD Refined\n\n## 核心诉求\n- 给仓库添加两数之和的leetcode算法实现\n\n## 改动范围\n- 新增两数之和算法实现\n\n## 风险提示\n- 当前未识别到明确高风险项，建议人工复核。\n\n## 讨论点\n- [建议补充] 当前输入信息仍偏少，建议补充业务口径和确认结论。\n\n## 边界与非目标\n- 仅围绕当前输入明确提到的需求范围推进，不默认扩展到相邻能力。\n",
+                        "# 需求确认书\n\n"
+                        "## 需求概述\n"
+                        "- 给仓库添加两数之和的算法实现。\n\n"
+                        "## 具体变更点\n"
+                        "- 场景：算法题实现；当前行为：仓库内暂无对应实现；期望行为：补齐两数之和算法。\n\n"
+                        "## 验收标准\n"
+                        "- 当输入合法测试样例时，应该返回正确结果。\n\n"
+                        "## 边界与非目标\n"
+                        "- 仅围绕当前输入明确提到的需求范围推进，不默认扩展到相邻能力。\n\n"
+                        "## 待确认项\n"
+                        "- 问题：是否需要补测试；当前假设：当前阶段先不补；影响范围：算法实现验证深度。\n",
                         encoding="utf-8",
                     )
                 elif list(cwd.glob(".refine-verify-*.json")):
@@ -396,10 +417,10 @@ class RefineTaskTest(unittest.TestCase):
 
             self.assertEqual(status, "refined")
             self.assertEqual(run_agent_mock.call_count, 4)
-            selection = json.loads((task_dir / "refine-knowledge-selection.json").read_text(encoding="utf-8"))
+            selection = json.loads((task_dir / "refine-skills-selection.json").read_text(encoding="utf-8"))
             self.assertEqual(selection["mode"], "llm_empty")
-            self.assertEqual(selection["selected_ids"], [])
-            self.assertFalse((task_dir / "refine-knowledge-read.md").exists())
+            self.assertEqual(selection["selected_skill_ids"], [])
+            self.assertFalse((task_dir / "refine-skills-read.md").exists())
 
     def test_native_refine_falls_back_when_verify_rejects_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -459,20 +480,30 @@ class RefineTaskTest(unittest.TestCase):
                 elif list(cwd.glob(".refine-shortlist-*.json")):
                     next(cwd.glob(".refine-shortlist-*.json")).write_text(
                         json.dumps(
-                            {"selected_ids": ["auction-flow"], "rejected_ids": [], "reason": "术语和风险最相关"},
+                            {"selected_skill_ids": ["auction-flow"], "rejected_skill_ids": [], "reason": "术语和风险最相关"},
                             ensure_ascii=False,
                             indent=2,
                         ),
                         encoding="utf-8",
                     )
-                elif list(cwd.glob(".refine-knowledge-read-*.md")):
-                    next(cwd.glob(".refine-knowledge-read-*.md")).write_text(
+                elif list(cwd.glob(".refine-skills-read-*.md")):
+                    next(cwd.glob(".refine-skills-read-*.md")).write_text(
                         "## 术语解释\n- 竞拍讲解卡属于竞拍展示链路。\n\n## 稳定规则\n- 仅围绕竞拍讲解卡。\n\n## 冲突提醒\n- 当前未识别到明确冲突。\n\n## 边界提示\n- 不默认扩展其他卡片。\n",
                         encoding="utf-8",
                     )
                 elif list(cwd.glob(".refine-template-*.md")):
                     next(cwd.glob(".refine-template-*.md")).write_text(
-                        "# PRD Refined\n\n## 核心诉求\n- 提炼竞拍讲解卡的竞拍态提示诉求\n\n## 改动范围\n- 新增竞拍态提示\n\n## 风险提示\n- 不同入口一致性问题\n\n## 讨论点\n- [待确认] 是否只在竞拍态展示\n\n## 边界与非目标\n- 不默认扩展其他卡片\n",
+                        "# 需求确认书\n\n"
+                        "## 需求概述\n"
+                        "- 提炼竞拍讲解卡的竞拍态提示诉求。\n\n"
+                        "## 具体变更点\n"
+                        "- 场景：竞拍讲解卡；当前行为：暂无竞拍态提示；期望行为：新增竞拍态提示。\n\n"
+                        "## 验收标准\n"
+                        "- 当进入竞拍态时，应该正确展示竞拍态提示。\n\n"
+                        "## 边界与非目标\n"
+                        "- 不默认扩展其他卡片。\n\n"
+                        "## 待确认项\n"
+                        "- 问题：是否只在竞拍态展示；当前假设：仅竞拍态展示；影响范围：竞拍讲解卡提示口径。\n",
                         encoding="utf-8",
                     )
                 elif list(cwd.glob(".refine-verify-*.json")):
@@ -556,20 +587,30 @@ class RefineTaskTest(unittest.TestCase):
                 elif list(cwd.glob(".refine-shortlist-*.json")):
                     next(cwd.glob(".refine-shortlist-*.json")).write_text(
                         json.dumps(
-                            {"selected_ids": ["auction-flow"], "rejected_ids": [], "reason": "术语和风险最相关"},
+                            {"selected_skill_ids": ["auction-flow"], "rejected_skill_ids": [], "reason": "术语和风险最相关"},
                             ensure_ascii=False,
                             indent=2,
                         ),
                         encoding="utf-8",
                     )
-                elif list(cwd.glob(".refine-knowledge-read-*.md")):
-                    next(cwd.glob(".refine-knowledge-read-*.md")).write_text(
+                elif list(cwd.glob(".refine-skills-read-*.md")):
+                    next(cwd.glob(".refine-skills-read-*.md")).write_text(
                         "## 术语解释\n- 竞拍讲解卡属于竞拍展示链路。\n\n## 稳定规则\n- 仅围绕竞拍讲解卡。\n\n## 冲突提醒\n- 当前未识别到明确冲突。\n\n## 边界提示\n- 不默认扩展其他卡片。\n",
                         encoding="utf-8",
                     )
                 elif list(cwd.glob(".refine-template-*.md")):
                     next(cwd.glob(".refine-template-*.md")).write_text(
-                        "# PRD Refined\n\n## 核心诉求\n- 初稿\n\n## 改动范围\n- 初稿\n\n## 风险提示\n- 初稿风险\n\n## 讨论点\n- [待确认] 初稿讨论点\n\n## 边界与非目标\n- 初稿边界\n",
+                        "# 需求确认书\n\n"
+                        "## 需求概述\n"
+                        "- 初稿概述。\n\n"
+                        "## 具体变更点\n"
+                        "- 场景：初稿场景；当前行为：初稿当前行为；期望行为：初稿期望行为。\n\n"
+                        "## 验收标准\n"
+                        "- 当验证初稿时，应该满足基本结构要求。\n\n"
+                        "## 边界与非目标\n"
+                        "- 初稿边界。\n\n"
+                        "## 待确认项\n"
+                        "- 问题：初稿讨论点；当前假设：待继续完善；影响范围：初稿质量。\n",
                         encoding="utf-8",
                     )
                 elif list(cwd.glob(".refine-verify-*.json")):
@@ -598,18 +639,16 @@ class RefineTaskTest(unittest.TestCase):
         from coco_flow.engines.shared.research import parse_refined_sections
 
         sections = parse_refined_sections(
-            "# PRD Refined\n\n"
-            "## 核心诉求\n- 统一规则口径\n\n"
-            "## 改动范围\n- 调整竞拍讲解卡提示\n\n"
-            "## 风险提示\n- 口径误展示\n\n"
-            "## 讨论点\n- [待确认] 是否对旧卡片生效\n\n"
+            "# 需求确认书\n\n"
+            "## 需求概述\n- 统一规则口径\n\n"
+            "## 具体变更点\n- 场景：竞拍讲解卡；当前行为：旧提示口径不一致；期望行为：统一规则口径。\n\n"
+            "## 验收标准\n- 当进入竞拍态时，应该展示统一提示。\n\n"
             "## 边界与非目标\n- 不处理非竞拍卡\n"
         )
 
         self.assertIn("统一规则口径", sections.change_scope)
         self.assertIn("不处理非竞拍卡", sections.non_goals)
-        self.assertIn("口径误展示", sections.key_constraints)
-        self.assertIn("[待确认] 是否对旧卡片生效", sections.open_questions)
+        self.assertIn("当进入竞拍态时，应该展示统一提示。", sections.acceptance_criteria)
 
     def test_parse_refine_verify_output_accepts_fenced_json(self) -> None:
         payload = parse_refine_verify_output(
@@ -676,20 +715,30 @@ class RefineTaskTest(unittest.TestCase):
                 elif list(cwd.glob(".refine-shortlist-*.json")):
                     next(cwd.glob(".refine-shortlist-*.json")).write_text(
                         json.dumps(
-                            {"selected_ids": ["auction-flow"], "rejected_ids": [], "reason": "术语和风险最相关"},
+                            {"selected_skill_ids": ["auction-flow"], "rejected_skill_ids": [], "reason": "术语和风险最相关"},
                             ensure_ascii=False,
                             indent=2,
                         ),
                         encoding="utf-8",
                     )
-                elif list(cwd.glob(".refine-knowledge-read-*.md")):
-                    next(cwd.glob(".refine-knowledge-read-*.md")).write_text(
+                elif list(cwd.glob(".refine-skills-read-*.md")):
+                    next(cwd.glob(".refine-skills-read-*.md")).write_text(
                         "## 术语解释\n- 竞拍讲解卡属于竞拍展示链路。\n\n## 稳定规则\n- 非竞拍态误展示会影响口径。\n\n## 冲突提醒\n- 当前未识别到明确冲突。\n\n## 边界提示\n- 不默认扩展其他卡片。\n",
                         encoding="utf-8",
                     )
                 elif list(cwd.glob(".refine-template-*.md")):
                     next(cwd.glob(".refine-template-*.md")).write_text(
-                        "# PRD Refined\n\n## 核心诉求\n- 提炼竞拍讲解卡的竞拍态提示诉求\n\n## 改动范围\n- 新增竞拍态提示\n\n## 风险提示\n- 误展示导致口径错误\n\n## 讨论点\n- [待确认] 是否只在竞拍态展示\n\n## 边界与非目标\n- 不默认扩展其他卡片\n",
+                        "# 需求确认书\n\n"
+                        "## 需求概述\n"
+                        "- 提炼竞拍讲解卡的竞拍态提示诉求。\n\n"
+                        "## 具体变更点\n"
+                        "- 场景：竞拍讲解卡；当前行为：暂无竞拍态提示；期望行为：新增竞拍态提示。\n\n"
+                        "## 验收标准\n"
+                        "- 当进入竞拍态时，应该正确展示竞拍态提示。\n\n"
+                        "## 边界与非目标\n"
+                        "- 不默认扩展其他卡片。\n\n"
+                        "## 待确认项\n"
+                        "- 问题：是否只在竞拍态展示；当前假设：仅竞拍态展示；影响范围：竞拍讲解卡提示口径。\n",
                         encoding="utf-8",
                     )
                 elif list(cwd.glob(".refine-verify-*.json")):
