@@ -1,4 +1,6 @@
 import type { TaskRecord } from '../../api'
+import { useState } from 'react'
+import { ConfirmationModal } from '../../components/confirmation-modal'
 import { ActionButton, EmptyPanel, StageStatusBadge } from './ui'
 import { codeActionLabelForRepo, getTaskStage, type TaskStage, preferredCodeRepo, repoReadyForCode } from './model'
 import { InputStage } from './stages/input-stage'
@@ -34,11 +36,24 @@ export function TaskStageDetailPanel({
   handlers: ActionHandlers
   onTaskUpdated: () => Promise<void> | void
 }) {
+  const [repoBindingPromptOpen, setRepoBindingPromptOpen] = useState(false)
+  const [openRepoBindingToken, setOpenRepoBindingToken] = useState(0)
   if (!task || !stage) {
     return <EmptyPanel>请选择一个任务。</EmptyPanel>
   }
 
-  const actions = buildStageActions(task, stage, stages, busyAction, handlers)
+  const effectiveHandlers = {
+    ...handlers,
+    onStartDesign: () => {
+      if (task.repos.length === 0) {
+        setRepoBindingPromptOpen(true)
+        return Promise.resolve()
+      }
+      return handlers.onStartDesign()
+    },
+  }
+
+  const actions = buildStageActions(task, stage, stages, busyAction, effectiveHandlers)
 
   return (
     <div className="rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
@@ -63,11 +78,26 @@ export function TaskStageDetailPanel({
       <div className="mt-5">
         {stage.id === 'input' ? <InputStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'refine' ? <RefineStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
-        {stage.id === 'design' ? <DesignStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
+        {stage.id === 'design' ? <DesignStage onTaskUpdated={onTaskUpdated} openRepoBindingToken={openRepoBindingToken} task={task} /> : null}
         {stage.id === 'plan' ? <PlanStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'code' ? <CodeStage busyAction={busyAction} onResetCode={handlers.onResetCode} onStartCode={handlers.onStartCode} task={task} /> : null}
         {stage.id === 'archive' ? <ArchiveStage task={task} /> : null}
       </div>
+
+      <ConfirmationModal
+        confirmLabel="去绑定仓库"
+        description="Design 生成前必须先绑定相关仓库。请先补齐仓库绑定，再开始设计。"
+        impacts={['当前任务还没有绑定任何仓库', '系统不会再自动推断仓库', '绑定仓库后即可重新点击“生成设计”']}
+        eyebrow="Repo Binding Required"
+        onClose={() => setRepoBindingPromptOpen(false)}
+        onConfirm={() => {
+          setRepoBindingPromptOpen(false)
+          setOpenRepoBindingToken((current) => current + 1)
+        }}
+        open={repoBindingPromptOpen}
+        title="请先绑定仓库"
+        tone="warning"
+      />
     </div>
   )
 }

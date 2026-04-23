@@ -1,6 +1,6 @@
 import type { TaskRecord } from '../../../api'
 import { updateTaskArtifact } from '../../../api'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { hasArtifact } from '../model'
 import { TaskRepoBindingModal } from '../task-repo-binding-modal'
 import { TaskStageEditorModal } from '../task-stage-editor-modal'
@@ -13,7 +13,15 @@ type DesignProgressStep = {
   current: boolean
 }
 
-export function DesignStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpdated: () => Promise<void> | void }) {
+export function DesignStage({
+  task,
+  onTaskUpdated,
+  openRepoBindingToken = 0,
+}: {
+  task: TaskRecord
+  onTaskUpdated: () => Promise<void> | void
+  openRepoBindingToken?: number
+}) {
   const [tab, setTab] = useState<DesignTab>('artifact')
   const [editingTab, setEditingTab] = useState<'artifact' | 'notes' | null>(null)
   const [bindingRepos, setBindingRepos] = useState(false)
@@ -31,10 +39,16 @@ export function DesignStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
         : 'bg-[#cdbda6] dark:bg-[#4a4640]'
   const notes =
     task.artifacts['design.notes.md'] ||
-    (task.repos.length > 0 ? `已绑定仓库：${task.repos.map((repo) => repo.displayName).join('、')}` : '当前还没有绑定仓库。后续会补一版正式的仓库绑定服务。')
+    (task.repos.length > 0 ? `已绑定仓库：${task.repos.map((repo) => repo.displayName).join('、')}` : '当前还没有绑定仓库。生成设计前请先绑定相关仓库。')
   const currentDesign = task.artifacts['design.md'] || ''
   const currentValue = editingTab === 'artifact' ? currentDesign : task.artifacts['design.notes.md'] || ''
   const canSave = editingTab === 'artifact' ? draft.trim().length > 0 && draft.trim() !== currentValue.trim() : draft.trim() !== currentValue.trim()
+
+  useEffect(() => {
+    if (openRepoBindingToken > 0) {
+      setBindingRepos(true)
+    }
+  }, [openRepoBindingToken])
 
   function openEditor(nextTab: 'artifact' | 'notes') {
     setDraft(nextTab === 'artifact' ? currentDesign : task.artifacts['design.notes.md'] || '')
@@ -111,7 +125,7 @@ export function DesignStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
           {tab !== 'log' ? (
             <div className="flex flex-wrap gap-2">
               <ActionButton onClick={() => setBindingRepos(true)} tone="secondary">
-                {task.repos.length > 0 ? '调整仓库' : '绑定仓库（可选）'}
+                {task.repos.length > 0 ? '调整仓库' : '绑定仓库'}
               </ActionButton>
               <ActionButton onClick={() => openEditor(tab === 'artifact' ? 'artifact' : 'notes')} tone="secondary">
                 {tab === 'artifact' ? '编辑原文' : '编辑补充'}

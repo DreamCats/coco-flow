@@ -30,6 +30,7 @@ def design_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
     status = str(task_meta.get("status") or "")
     if status not in {"refined", STATUS_DESIGNING, STATUS_DESIGNED, "planned", STATUS_FAILED}:
         raise ValueError(f"task status {status} does not allow design")
+    _ensure_bound_repos(task_dir)
     if status == "planned":
         _reset_plan_outputs(task_dir)
 
@@ -87,6 +88,7 @@ def start_designing_task(task_id: str, settings: Settings | None = None) -> str:
     status = str(task_meta.get("status") or "")
     if status not in {"refined", STATUS_DESIGNED, "planned", STATUS_FAILED}:
         raise ValueError(f"task status {status} does not allow design")
+    _ensure_bound_repos(task_dir)
 
     _reset_design_outputs(task_dir)
     if status == "planned":
@@ -103,6 +105,13 @@ def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return
     path.write_text(payload.rstrip() + "\n", encoding="utf-8")
+
+
+def _ensure_bound_repos(task_dir: Path) -> None:
+    repos_meta = read_json_file(task_dir / "repos.json")
+    raw_repos = repos_meta.get("repos")
+    if not isinstance(raw_repos, list) or not any(isinstance(item, dict) for item in raw_repos):
+        raise ValueError("design requires bound repos; please bind repos first")
 
 
 def _reset_design_outputs(task_dir: Path) -> None:
