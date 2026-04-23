@@ -9,6 +9,7 @@ import shlex
 import signal
 import socket
 import subprocess
+import tempfile
 import time
 from typing import Any
 from urllib.error import URLError
@@ -443,14 +444,28 @@ def _start_remote_service(target: str, user: str, *, remote_port: int, build_web
         command.append("--no-build")
     result = _run_ssh_command(target, user, _shell_join(command))
     if result.returncode != 0:
-        raise ValueError(result.stderr.strip() or result.stdout.strip() or "failed to start remote coco-flow")
+        raise ValueError(
+            _format_ssh_action_error(
+                target,
+                user,
+                action="启动远端 coco-flow",
+                detail=result.stderr.strip() or result.stdout.strip(),
+            )
+        )
 
 
 def _stop_remote_service(target: str, user: str) -> None:
     coco_flow_bin = _resolve_remote_coco_flow_bin(target, user)
     result = _run_ssh_command(target, user, f"{shlex.quote(coco_flow_bin)} stop")
     if result.returncode != 0:
-        raise ValueError(result.stderr.strip() or result.stdout.strip() or "failed to stop remote coco-flow")
+        raise ValueError(
+            _format_ssh_action_error(
+                target,
+                user,
+                action="停止远端 coco-flow",
+                detail=result.stderr.strip() or result.stdout.strip(),
+            )
+        )
 
 
 def _start_tunnel(target: str, user: str, *, local_port: int, remote_port: int) -> int:
@@ -459,6 +474,8 @@ def _start_tunnel(target: str, user: str, *, local_port: int, remote_port: int) 
         "ssh",
         "-N",
         "-o",
+        "BatchMode=yes",
+        "-o",
         "ExitOnForwardFailure=yes",
         "-o",
         "ServerAliveInterval=60",
@@ -466,30 +483,48 @@ def _start_tunnel(target: str, user: str, *, local_port: int, remote_port: int) 
         f"{local_port}:127.0.0.1:{remote_port}",
         ssh_target,
     ]
-    proc = subprocess.Popen(
-        args,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    deadline = time.monotonic() + 3.0
-    while time.monotonic() < deadline:
-        code = proc.poll()
-        if code is not None:
-            raise ValueError("failed to establish local SSH tunnel")
-        if _probe_health(_health_url(local_port), timeout=0.2):
-            return int(proc.pid)
-        time.sleep(0.1)
-    if proc.poll() is not None:
-        raise ValueError("failed to establish local SSH tunnel")
-    return int(proc.pid)
+    with tempfile.TemporaryFile(mode="w+") as stderr_file:
+        proc = subprocess.Popen(
+            args,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_file,
+            start_new_session=True,
+            text=True,
+        )
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            code = proc.poll()
+            if code is not None:
+                stderr_file.seek(0)
+                raise ValueError(
+                    _format_ssh_action_error(
+                        target,
+                        user,
+                        action="建立本地 SSH 隧道",
+                        detail=stderr_file.read().strip(),
+                    )
+                )
+            if _probe_health(_health_url(local_port), timeout=0.2):
+                return int(proc.pid)
+            time.sleep(0.1)
+        if proc.poll() is not None:
+            stderr_file.seek(0)
+            raise ValueError(
+                _format_ssh_action_error(
+                    target,
+                    user,
+                    action="建立本地 SSH 隧道",
+                    detail=stderr_file.read().strip(),
+                )
+            )
+        return int(proc.pid)
 
 
 def _run_ssh_command(target: str, user: str, command: str) -> subprocess.CompletedProcess[str]:
     ssh_target = _build_ssh_target(target, user)
     return subprocess.run(
-        ["ssh", ssh_target, f"sh -lc {shlex.quote(command)}"],
+        ["ssh", "-o", "BatchMode=yes", ssh_target, f"sh -lc {shlex.quote(command)}"],
         check=False,
         capture_output=True,
         text=True,
@@ -502,7 +537,14 @@ def _resolve_remote_coco_flow_bin(target: str, user: str) -> str:
         resolved = result.stdout.strip()
         if resolved:
             return resolved
-    raise ValueError(result.stderr.strip() or result.stdout.strip() or "failed to resolve remote coco-flow binary")
+    raise ValueError(
+        _format_ssh_action_error(
+            target,
+            user,
+            action="解析远端 coco-flow 可执行文件",
+            detail=result.stderr.strip() or result.stdout.strip(),
+        )
+    )
 
 
 def _ensure_local_port_available(port: int) -> None:
@@ -529,6 +571,75 @@ def _has_local_listener(port: int) -> bool:
 
 def _build_ssh_target(target: str, user: str) -> str:
     return f"{user.strip()}@{target}" if user.strip() else target
+
+
+def _format_ssh_action_error(target: str, user: str, *, action: str, detail: str) -> str:
+    normalized_detail = " ".join(detail.split())
+    if _looks_like_ssh_auth_issue(normalized_detail):
+        ssh_target = _build_ssh_target(target, user)
+        hint = (
+            f"{action}失败：{ssh_target} 需要先在终端完成 SSH 认证。"
+            f" 浏览器插件和 gateway 不会交互输入密码；请先执行 `ssh {ssh_target}` 完成一次认证后再重试。"
+        )
+        if _ssh_uses_gssapi(target, user) or _looks_like_kerberos_issue(normalized_detail):
+            hint += " 如果该主机走 Kerberos/GSSAPI，再先执行 `kinit <邮箱前缀>@BYTEDANCE.COM`。"
+        if normalized_detail:
+            hint += f" 原始错误：{normalized_detail}"
+        return hint
+    if normalized_detail:
+        return f"{action}失败：{normalized_detail}"
+    return f"{action}失败"
+
+
+def _looks_like_ssh_auth_issue(detail: str) -> bool:
+    lowered = detail.lower()
+    return any(
+        token in lowered
+        for token in (
+            "permission denied",
+            "password:",
+            "passphrase",
+            "keyboard-interactive",
+            "gssapi",
+            "kerberos",
+            "kinit",
+            "credentials cache",
+            "no credentials were supplied",
+            "host key verification failed",
+            "could not resolve hostname",
+        )
+    )
+
+
+def _looks_like_kerberos_issue(detail: str) -> bool:
+    lowered = detail.lower()
+    return any(
+        token in lowered
+        for token in (
+            "gssapi",
+            "kerberos",
+            "kinit",
+            "credentials cache",
+            "no credentials were supplied",
+        )
+    )
+
+
+def _ssh_uses_gssapi(target: str, user: str) -> bool:
+    ssh_target = _build_ssh_target(target, user)
+    try:
+        result = subprocess.run(
+            ["ssh", "-G", ssh_target],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    if result.returncode != 0:
+        return False
+    lowered = result.stdout.lower()
+    return "gssapiauthentication yes" in lowered or "preferredauthentications gssapi-with-mic" in lowered
 
 
 def _wait_for_health(url: str, *, timeout: float, interval: float = 0.2) -> bool:

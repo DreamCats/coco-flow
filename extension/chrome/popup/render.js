@@ -34,6 +34,10 @@ export function renderRemote(elements, state) {
   elements.remoteHealth.textContent = loadingStatus ? "Checking..." : connection?.local_healthy ? "Healthy" : "Unknown";
   elements.remoteConnect.textContent = state.activeOperationKind === "remote.connect" ? "Connecting..." : "Connect";
   elements.remoteDisconnect.textContent = state.activeOperationKind === "remote.disconnect" ? "Disconnecting..." : "Disconnect";
+  const sshTarget = connection?.ssh_target || (selected ? `${selected.user ? `${selected.user}@` : ""}${selected.host}` : "");
+  elements.remoteAuthCopy.textContent = sshTarget
+    ? `如果 Connect 失败并提示认证，先在终端执行 ssh ${sshTarget} 完成认证；若该主机依赖 Kerberos/GSSAPI，再先执行 kinit <邮箱前缀>@BYTEDANCE.COM。`
+    : "如果 remote 依赖 SSH 密码或 Kerberos/GSSAPI，先在终端完成认证，再回来点击 Connect。";
   paintChip(
     elements.remoteConnectedChip,
     loadingStatus ? "Checking..." : connection?.local_healthy ? "Connected" : "Idle",

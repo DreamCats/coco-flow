@@ -35,6 +35,7 @@ export function getPopupElements() {
     remoteDisconnect: document.getElementById("remote-disconnect"),
     remoteOpen: document.getElementById("remote-open"),
     remoteRefresh: document.getElementById("remote-refresh"),
+    remoteAuthCopy: document.getElementById("remote-auth-copy"),
     remoteEmptyCopy: document.getElementById("remote-empty-copy"),
     openOptions: document.getElementById("open-options"),
   };

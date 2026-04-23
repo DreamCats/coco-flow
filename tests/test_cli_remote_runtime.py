@@ -269,6 +269,28 @@ class RemoteRuntimeTest(unittest.TestCase):
             "/home/maifeng/.local/bin/coco-flow start --detach --host 127.0.0.1 --port 4318",
         )
 
+    def test_format_ssh_action_error_suggests_terminal_auth_and_kinit(self) -> None:
+        with patch("coco_flow.cli.remote_runtime._ssh_uses_gssapi", return_value=True):
+            message = remote_runtime._format_ssh_action_error(
+                "sgdev",
+                "maifeng",
+                action="建立本地 SSH 隧道",
+                detail="Permission denied (gssapi-with-mic,password).",
+            )
+
+        self.assertIn("ssh maifeng@sgdev", message)
+        self.assertIn("kinit <邮箱前缀>@BYTEDANCE.COM", message)
+        self.assertIn("Permission denied", message)
+
+    def test_run_ssh_command_uses_batch_mode(self) -> None:
+        with patch("coco_flow.cli.remote_runtime.subprocess.run") as run_mock:
+            run_mock.return_value.returncode = 0
+            remote_runtime._run_ssh_command("sgdev", "maifeng", "echo ok")
+
+        args = run_mock.call_args.args[0]
+        self.assertEqual(args[:3], ["ssh", "-o", "BatchMode=yes"])
+        self.assertEqual(args[3], "maifeng@sgdev")
+
     def test_wait_for_health_retries_before_failing(self) -> None:
         with patch("coco_flow.cli.remote_runtime._probe_health", side_effect=[False, False, True]):
             ok = remote_runtime._wait_for_health("http://127.0.0.1:4318/healthz", timeout=0.6, interval=0.0)

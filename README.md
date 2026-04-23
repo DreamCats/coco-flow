@@ -147,6 +147,8 @@ coco-flow remote disconnect
 Notes:
 
 - if your SSH config already defines `User`, you usually do not need `--user`
+- `remote connect` uses non-interactive SSH in managed flows; if the target still needs password, passphrase, host-key confirmation, or Kerberos, first run `ssh <target>` in a terminal to finish that step, then retry
+- if your remote host relies on Kerberos/GSSAPI (common for internal aliases such as `sgdev`), first run `kinit <mail-prefix>@BYTEDANCE.COM` in a terminal, then retry `remote connect`
 - `remote connect` now compares the local build fingerprint with the running remote service; if they differ, it will print a warning and suggest `--restart`
 - after `coco-flow update`, the remote installation also rebuilds the bundled Web UI; `coco-flow start` and `coco-flow ui serve` will additionally rebuild when `web/dist` is stale
 - `remote disconnect` currently stops the local tunnel only; it does not stop the remote `coco-flow` service
@@ -281,6 +283,7 @@ Current shape:
 - the Chrome extension popup talks to the gateway over HTTP
 - `Local` and `Remote` entry actions are available in the popup
 - remote profile management lives in the extension options page
+- remote auth is still terminal-driven; if SSH asks for password, passphrase, host-key confirmation, or `kinit`, do that in a terminal first and then retry from the popup
 
 Run the gateway locally:
 
