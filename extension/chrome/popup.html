@@ -72,8 +72,13 @@
         </section>
 
         <section id="remote-panel" class="panel card hidden">
-          <p class="eyebrow">Remote</p>
-          <h2 class="title">Connect to remote machine</h2>
+          <div class="panel-head">
+            <div class="panel-head__copy">
+              <p class="eyebrow">Remote</p>
+              <h2 class="title">Connect to remote machine</h2>
+            </div>
+            <div id="remote-refreshing" class="inline-status hidden">Refreshing...</div>
+          </div>
           <label class="field">
             <span class="field__label">Saved remotes</span>
             <select id="remote-select" class="select"></select>

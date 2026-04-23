@@ -2,10 +2,11 @@ import { clearNotice as clearNoticeEl, hide, show, setStatusBadge, showNotice as
 
 export function renderLocal(elements, state) {
   const status = state.localStatus;
-  elements.localRunning.textContent = status?.running ? "Running" : "Stopped";
-  elements.localHealth.textContent = status?.healthy ? "Healthy" : "Unhealthy";
-  elements.localUrl.textContent = status?.url || "-";
-  elements.localPid.textContent = status?.pid ? String(status.pid) : "-";
+  const loading = state.localLoading && !status;
+  elements.localRunning.textContent = loading ? "Checking..." : status?.running ? "Running" : "Stopped";
+  elements.localHealth.textContent = loading ? "Checking..." : status?.healthy ? "Healthy" : "Unhealthy";
+  elements.localUrl.textContent = loading ? "Checking..." : status?.url || "-";
+  elements.localPid.textContent = loading ? "Checking..." : status?.pid ? String(status.pid) : "-";
   elements.localStart.textContent = state.activeOperationKind === "local.start" ? "Starting..." : "Start";
   elements.localStop.textContent = state.activeOperationKind === "local.stop" ? "Stopping..." : "Stop";
 }
@@ -13,25 +14,60 @@ export function renderLocal(elements, state) {
 export function renderRemote(elements, state) {
   const connection = state.selectedRemoteStatus?.connections?.[0] || null;
   const selected = state.remotes.find((remote) => remote.name === state.selectedRemoteName) || null;
-  elements.remoteEmptyCopy.classList.toggle("hidden", Boolean(selected));
-  elements.remoteHost.textContent = connection?.host || selected?.host || "-";
-  elements.remoteSsh.textContent = connection?.ssh_target || (selected ? `${selected.user ? `${selected.user}@` : ""}${selected.host}` : "-");
-  elements.remoteUrl.textContent = connection?.local_url || "-";
-  elements.remoteHealth.textContent = connection?.local_healthy ? "Healthy" : "Unknown";
+  const loadingStatus = state.remoteStatusLoading && Boolean(selected) && !connection;
+  elements.remoteRefreshing.classList.toggle("hidden", !(state.remoteStatusLoading || state.remotesLoading));
+  elements.remoteEmptyCopy.classList.toggle("hidden", Boolean(selected) || state.remotesLoading);
+  if (state.remotesLoading && !selected) {
+    elements.remoteEmptyCopy.classList.remove("hidden");
+    elements.remoteEmptyCopy.textContent = "Loading saved remotes…";
+  } else if (loadingStatus) {
+    elements.remoteEmptyCopy.classList.remove("hidden");
+    elements.remoteEmptyCopy.textContent = "Checking remote status… 网络慢时会稍后补齐。";
+  } else {
+    elements.remoteEmptyCopy.textContent = "No saved remotes yet. Add one from Manage remotes.";
+  }
+  elements.remoteHost.textContent = loadingStatus ? (selected?.host || "Checking...") : connection?.host || selected?.host || "-";
+  elements.remoteSsh.textContent = loadingStatus
+    ? (selected ? `${selected.user ? `${selected.user}@` : ""}${selected.host}` : "Checking...")
+    : connection?.ssh_target || (selected ? `${selected.user ? `${selected.user}@` : ""}${selected.host}` : "-");
+  elements.remoteUrl.textContent = loadingStatus ? "Checking..." : connection?.local_url || "-";
+  elements.remoteHealth.textContent = loadingStatus ? "Checking..." : connection?.local_healthy ? "Healthy" : "Unknown";
   elements.remoteConnect.textContent = state.activeOperationKind === "remote.connect" ? "Connecting..." : "Connect";
   elements.remoteDisconnect.textContent = state.activeOperationKind === "remote.disconnect" ? "Disconnecting..." : "Disconnect";
-  paintChip(elements.remoteConnectedChip, connection?.local_healthy ? "Connected" : "Idle", connection?.local_healthy ? "ready" : "checking");
-  paintChip(elements.remoteTunnelChip, connection?.tunnel_alive ? "Tunnel alive" : "Tunnel idle", connection?.tunnel_alive ? "ready" : "checking");
+  paintChip(
+    elements.remoteConnectedChip,
+    loadingStatus ? "Checking..." : connection?.local_healthy ? "Connected" : "Idle",
+    loadingStatus ? "checking" : connection?.local_healthy ? "ready" : "checking",
+  );
+  paintChip(
+    elements.remoteTunnelChip,
+    loadingStatus ? "Checking..." : connection?.tunnel_alive ? "Tunnel alive" : "Tunnel idle",
+    loadingStatus ? "checking" : connection?.tunnel_alive ? "ready" : "checking",
+  );
   const fingerprintState = connection?.fingerprint_match;
   paintChip(
     elements.remoteFingerprintChip,
-    fingerprintState === true ? "Fingerprint ok" : fingerprintState === false ? "Fingerprint mismatch" : "Fingerprint unknown",
-    fingerprintState === false ? "missing" : fingerprintState === true ? "ready" : "checking",
+    loadingStatus
+      ? "Checking..."
+      : fingerprintState === true
+        ? "Fingerprint ok"
+        : fingerprintState === false
+          ? "Fingerprint mismatch"
+          : "Fingerprint unknown",
+    loadingStatus ? "checking" : fingerprintState === false ? "missing" : fingerprintState === true ? "ready" : "checking",
   );
 }
 
 export function renderRemoteSelect(elements, state) {
   elements.remoteSelect.innerHTML = "";
+  if (state.remotesLoading && !state.remotes.length) {
+    const option = document.createElement("option");
+    option.value = state.selectedRemoteName;
+    option.textContent = "Loading remotes…";
+    elements.remoteSelect.append(option);
+    elements.remoteSelect.value = state.selectedRemoteName;
+    return;
+  }
   if (!state.remotes.length) {
     const option = document.createElement("option");
     option.value = "";

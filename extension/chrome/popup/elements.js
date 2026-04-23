@@ -9,6 +9,7 @@ export function getPopupElements() {
     appShell: document.getElementById("app-shell"),
     localPanel: document.getElementById("local-panel"),
     remotePanel: document.getElementById("remote-panel"),
+    remoteRefreshing: document.getElementById("remote-refreshing"),
     operationPanel: document.getElementById("operation-panel"),
     operationTitle: document.getElementById("operation-title"),
     operationMessage: document.getElementById("operation-message"),

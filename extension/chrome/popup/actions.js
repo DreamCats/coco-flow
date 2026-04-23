@@ -1,6 +1,6 @@
 import { INSTALL_COMMAND, START_COMMAND } from "../lib/constants.js";
 import { gatewayFetch } from "../lib/gateway-client.js";
-import { loadPopupPrefs, savePopupMode, saveSelectedRemoteName } from "../lib/storage.js";
+import { loadPopupPrefs, saveCachedRemoteStatus, saveCachedRemotes, savePopupMode, saveSelectedRemoteName } from "../lib/storage.js";
 import {
   autoHideOperationPanel,
   cancelOperationAutohide,
@@ -25,6 +25,15 @@ export function createPopupActions(state, elements) {
       const stored = await loadPopupPrefs()
       state.mode = stored.popupMode
       state.selectedRemoteName = stored.selectedRemoteName
+      state.remotes = stored.cachedRemotes
+      state.cachedRemoteStatuses = stored.cachedRemoteStatuses
+      if (!state.selectedRemoteName && state.remotes.length > 0) {
+        state.selectedRemoteName = state.remotes[0].name
+      }
+      if (state.selectedRemoteName && state.cachedRemoteStatuses[state.selectedRemoteName]) {
+        state.selectedRemoteStatus = state.cachedRemoteStatuses[state.selectedRemoteName]
+        state.selectedRemoteStatusStale = true
+      }
       await this.refreshGateway()
     },
 
@@ -34,13 +43,24 @@ export function createPopupActions(state, elements) {
       setGatewayState(elements, "checking", "Checking...")
       cancelOperationAutohide(elements)
       hideOperationPanel(elements)
+      state.localLoading = true
+      state.remotesLoading = true
+      state.remoteStatusLoading = false
+      state.localStatus = null
+      if (!state.selectedRemoteStatus && state.selectedRemoteName && state.cachedRemoteStatuses[state.selectedRemoteName]) {
+        state.selectedRemoteStatus = state.cachedRemoteStatuses[state.selectedRemoteName]
+        state.selectedRemoteStatusStale = true
+      }
       try {
         await gatewayFetch("/healthz")
         state.gatewayReady = true
         setGatewayState(elements, "ready", "Gateway Ready")
         showGatewayReady(elements)
-        await Promise.all([this.loadLocalStatus(), this.loadRemoteList()])
+        renderLocal(elements, state)
+        renderRemoteSelect(elements, state)
+        renderRemote(elements, state)
         this.setMode(state.mode)
+        await Promise.all([this.loadLocalStatus(), this.loadRemoteList()])
       } catch (_error) {
         state.gatewayReady = false
         setGatewayState(elements, "missing", "Gateway Missing")
@@ -52,28 +72,46 @@ export function createPopupActions(state, elements) {
     },
 
     async loadLocalStatus() {
+      state.localLoading = true
+      renderLocal(elements, state)
       try {
         state.localStatus = await gatewayFetch("/local/status")
         renderLocal(elements, state)
       } catch (error) {
         showNotice(elements, error.message, "error")
+      } finally {
+        state.localLoading = false
+        renderLocal(elements, state)
       }
     },
 
     async loadRemoteList() {
+      state.remotesLoading = true
+      renderRemoteSelect(elements, state)
+      renderRemote(elements, state)
       try {
         const payload = await gatewayFetch("/remote/list")
         state.remotes = Array.isArray(payload.remotes) ? payload.remotes : []
+        await saveCachedRemotes(state.remotes)
         if (!state.selectedRemoteName && state.remotes.length > 0) {
           state.selectedRemoteName = state.remotes[0].name
         }
         if (state.selectedRemoteName && !state.remotes.find((remote) => remote.name === state.selectedRemoteName)) {
           state.selectedRemoteName = state.remotes[0]?.name || ""
         }
+        if (state.selectedRemoteName && state.cachedRemoteStatuses[state.selectedRemoteName]) {
+          state.selectedRemoteStatus = state.cachedRemoteStatuses[state.selectedRemoteName]
+          state.selectedRemoteStatusStale = true
+        }
+        state.remotesLoading = false
         renderRemoteSelect(elements, state)
+        renderRemote(elements, state)
         await saveSelectedRemoteName(state.selectedRemoteName)
         await this.loadRemoteStatus()
       } catch (error) {
+        state.remotesLoading = false
+        renderRemoteSelect(elements, state)
+        renderRemote(elements, state)
         showNotice(elements, error.message, "error")
       }
     },
@@ -81,14 +119,35 @@ export function createPopupActions(state, elements) {
     async loadRemoteStatus() {
       if (!state.selectedRemoteName) {
         state.selectedRemoteStatus = null
+        state.selectedRemoteStatusStale = false
+        state.remoteStatusLoading = false
         renderRemote(elements, state)
         return
       }
+      state.remoteStatusLoading = true
+      if (state.cachedRemoteStatuses[state.selectedRemoteName]) {
+        state.selectedRemoteStatus = state.cachedRemoteStatuses[state.selectedRemoteName]
+        state.selectedRemoteStatusStale = true
+      } else {
+        state.selectedRemoteStatus = null
+        state.selectedRemoteStatusStale = false
+      }
+      renderRemote(elements, state)
       try {
         state.selectedRemoteStatus = await gatewayFetch(`/remote/${encodeURIComponent(state.selectedRemoteName)}/status`)
+        state.cachedRemoteStatuses[state.selectedRemoteName] = state.selectedRemoteStatus
+        state.selectedRemoteStatusStale = false
+        await saveCachedRemoteStatus(state.selectedRemoteName, state.selectedRemoteStatus)
         renderRemote(elements, state)
       } catch (error) {
-        showNotice(elements, error.message, "error")
+        if (state.selectedRemoteStatusStale) {
+          showNotice(elements, "Remote 刷新变慢，先展示上一次成功状态。", "warning")
+        } else {
+          showNotice(elements, error.message, "error")
+        }
+      } finally {
+        state.remoteStatusLoading = false
+        renderRemote(elements, state)
       }
     },
 
