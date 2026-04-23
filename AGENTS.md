@@ -104,7 +104,7 @@ uv run python -m py_compile src/coco_flow/engines/plan/__init__.py
 uv run python -m py_compile src/coco_flow/engines/plan/source.py
 uv run python -m py_compile src/coco_flow/engines/plan/task_outline.py
 uv run python -m py_compile src/coco_flow/engines/shared/models.py
-uv run python -m py_compile src/coco_flow/engines/plan_knowledge.py
+uv run python -m py_compile src/coco_flow/engines/plan_skills.py
 uv run python -m py_compile src/coco_flow/engines/shared/research.py
 uv run python -m py_compile src/coco_flow/services/tasks/plan.py
 uv run python -m py_compile src/coco_flow/services/tasks/code.py
@@ -196,7 +196,7 @@ uv run python -m unittest discover -s tests -v
   - `src/coco_flow/engines/plan/generate.py`：生成 `plan.md`
   - `src/coco_flow/engines/plan/graph.py`、`validation.py`、`verify.py`：执行图、验证矩阵与 verify
   - `src/coco_flow/engines/shared/models.py`、`shared/research.py`：Design / Plan 共用的共享模型与 repo research 能力
-  - `src/coco_flow/engines/plan_knowledge.py`：approved knowledge 的规则筛选与 brief 构建
+  - `src/coco_flow/engines/plan_skills.py`：selected skills 的规则筛选与 brief 构建
 - `native plan` 当前已升级成三段式 LLM 编排：
   - `scope extractor`
   - `plan generator`

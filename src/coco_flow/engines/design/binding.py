@@ -105,7 +105,7 @@ def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding
     )
 
 
-def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, knowledge_brief_markdown: str, on_log) -> DesignRepoBinding:
+def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, skills_brief_markdown: str, on_log) -> DesignRepoBinding:
     """确定 Design 阶段最终承诺的 repo 集合和 scope tier。
 
     native 模式会先让 agent 生成 binding 草稿，再和本地 responsibility
@@ -143,7 +143,7 @@ def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, knowle
             build_design_repo_binding_agent_prompt(
                 title=prepared.title,
                 refined_markdown=prepared.refined_markdown,
-                knowledge_brief_markdown=knowledge_brief_markdown,
+                skills_brief_markdown=skills_brief_markdown,
                 responsibility_matrix_payload=prepared.responsibility_matrix_payload,
                 repo_research_payload=repo_research_payload,
                 template_path=str(template_path),
@@ -226,7 +226,7 @@ def _local_scope_tier(
     refined_text = " ".join(
         [
             prepared.refined_markdown.lower(),
-            prepared.refine_knowledge_read_markdown.lower(),
+            prepared.refine_skills_read_markdown.lower(),
         ]
     )
     if len(prepared.repo_researches) == 1 and score > 0:

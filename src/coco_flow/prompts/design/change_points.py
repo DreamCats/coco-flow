@@ -24,7 +24,7 @@ def build_design_change_points_agent_prompt(
     *,
     title: str,
     refined_markdown: str,
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     seed_change_points: list[str],
     template_path: str,
 ) -> str:
@@ -50,7 +50,7 @@ def build_design_change_points_agent_prompt(
             build_design_input_section(
                 title=title,
                 refined_markdown=refined_markdown,
-                knowledge_brief_markdown=knowledge_brief_markdown,
+                skills_brief_markdown=skills_brief_markdown,
             ),
             PromptSection(
                 title="Seed Change Points",

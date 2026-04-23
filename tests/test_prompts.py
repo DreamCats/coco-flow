@@ -7,8 +7,8 @@ from coco_flow.prompts.refine import (
     build_refine_generate_agent_prompt,
     build_refine_intent_agent_prompt,
     build_refine_intent_template_json,
-    build_refine_knowledge_read_agent_prompt,
-    build_refine_knowledge_read_template_markdown,
+    build_refine_skills_read_agent_prompt,
+    build_refine_skills_read_template_markdown,
     build_refine_shortlist_agent_prompt,
     build_refine_shortlist_template_json,
     build_refine_template_markdown,
@@ -61,7 +61,7 @@ class PromptSystemTest(unittest.TestCase):
             ],
             template_path="/tmp/refine-shortlist.json",
         )
-        self.assertIn("候选知识卡片", rendered)
+        self.assertIn("候选 Skills 卡片", rendered)
         self.assertIn("```yaml", rendered)
         self.assertIn("id: k1", rendered)
         self.assertIn("__FILL__", build_refine_shortlist_template_json())
@@ -78,7 +78,7 @@ class PromptSystemTest(unittest.TestCase):
             source_markdown="# PRD Source\n\n---\n\n这里是正文。",
             supplement="补充说明",
             intent_payload={"goal": "测试目标"},
-            knowledge_read_markdown="## 术语解释\n- 术语A",
+            skills_read_markdown="## 术语解释\n- 术语A",
             template_path="/tmp/prd-refined.template.md",
         )
         self.assertIn("需要编辑的模板文件", rendered)
@@ -88,8 +88,8 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("“待确认项”必须使用“问题：...；当前假设：...；影响范围：...”结构", rendered)
         self.assertIn("确保最终文件可以直接作为需求确认书使用", rendered)
 
-    def test_refine_knowledge_read_prompt_contains_file_cards(self) -> None:
-        rendered = build_refine_knowledge_read_agent_prompt(
+    def test_refine_skills_read_prompt_contains_file_cards(self) -> None:
+        rendered = build_refine_skills_read_agent_prompt(
             intent_payload={"goal": "测试"},
             knowledge_documents=[
                 {
@@ -105,7 +105,7 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("已选 Skills 文件", rendered)
         self.assertIn("/tmp/k1.md", rendered)
         self.assertIn("```yaml", rendered)
-        self.assertIn("待补充", build_refine_knowledge_read_template_markdown())
+        self.assertIn("待补充", build_refine_skills_read_template_markdown())
 
     def test_refine_verify_prompt_contains_json_result_contract(self) -> None:
         rendered = build_refine_verify_agent_prompt(

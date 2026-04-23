@@ -10,15 +10,15 @@ from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.models import KnowledgeDocument
 from coco_flow.prompts.refine import (
-    build_refine_knowledge_read_agent_prompt,
-    build_refine_knowledge_read_template_markdown,
+    build_refine_skills_read_agent_prompt,
+    build_refine_skills_read_template_markdown,
     build_refine_shortlist_agent_prompt,
     build_refine_shortlist_template_json,
 )
 from coco_flow.services.queries.knowledge import KIND_DIRS, KnowledgeStore
 from coco_flow.services.queries.skills import SkillPackage, SkillStore
 
-from .models import EXECUTOR_NATIVE, KnowledgeCard, RefineIntent, RefineKnowledgeRead, RefineKnowledgeSelection, RefinePreparedInput
+from .models import EXECUTOR_NATIVE, KnowledgeCard, RefineIntent, RefinePreparedInput, RefineSkillsRead, RefineSkillsSelection
 
 SHORTLIST_CHUNK_SIZE = 8
 SHORTLIST_BATCH_MAX_CARDS = 30
@@ -37,13 +37,13 @@ def build_refine_query(prepared: RefinePreparedInput, intent: RefineIntent) -> d
     }
 
 
-def shortlist_refine_knowledge(
+def shortlist_refine_skills(
     *,
     prepared: RefinePreparedInput,
     intent: RefineIntent,
     settings: Settings,
     on_log,
-) -> tuple[list[RefineSourceDocument], RefineKnowledgeSelection]:
+) -> tuple[list[RefineSourceDocument], RefineSkillsSelection]:
     skill_store = SkillStore(settings)
     skill_candidates = skill_store.list_packages()
     if skill_candidates:
@@ -67,7 +67,7 @@ def shortlist_refine_knowledge(
     on_log(f"skills_shortlist_card_count: {len(cards)}")
     if not cards:
         on_log("skills_shortlist_mode: empty")
-        selection = RefineKnowledgeSelection(
+        selection = RefineSkillsSelection(
             selected_skill_ids=[],
             rejected_skill_ids=[],
             reason="no_approved_refine_knowledge",
@@ -86,16 +86,16 @@ def shortlist_refine_knowledge(
     return selected_docs, selection
 
 
-def read_selected_knowledge(
+def read_selected_skills(
     *,
     prepared: RefinePreparedInput,
     intent: RefineIntent,
     selected_documents: list[RefineSourceDocument],
     settings: Settings,
     on_log,
-) -> RefineKnowledgeRead:
+) -> RefineSkillsRead:
     if not selected_documents:
-        return RefineKnowledgeRead(markdown="", selected_skill_ids=[], selected_skill_titles=[])
+        return RefineSkillsRead(markdown="", selected_skill_ids=[], selected_skill_titles=[])
 
     if isinstance(selected_documents[0], SkillPackage):
         return _read_selected_skills(
@@ -117,7 +117,7 @@ def read_selected_knowledge(
     template_path = _write_knowledge_read_template(prepared.task_dir)
     try:
         reply = client.run_agent(
-            build_refine_knowledge_read_agent_prompt(
+            build_refine_skills_read_agent_prompt(
                 intent_payload=intent.to_payload(),
                 knowledge_documents=[
                     {
@@ -142,7 +142,7 @@ def read_selected_knowledge(
             raise ValueError("empty_knowledge_read")
         on_log(f"skills_read_mode: agent ({len(selected_documents)} docs)")
         _ = reply
-        return RefineKnowledgeRead(
+        return RefineSkillsRead(
             markdown=markdown.rstrip() + "\n",
             selected_skill_ids=[document.id for document in selected_documents],
             selected_skill_titles=[document.title for document in selected_documents],
@@ -162,7 +162,7 @@ def _shortlist_refine_skills(
     settings: Settings,
     on_log,
     candidates: list[SkillPackage],
-) -> tuple[list[SkillPackage], RefineKnowledgeSelection]:
+) -> tuple[list[SkillPackage], RefineSkillsSelection]:
     cards = [_skill_to_card(skill) for skill in candidates]
     scored_cards = _score_cards(cards, candidates, prepared, intent)
     on_log(f"skills_shortlist_card_count: {len(cards)}")
@@ -177,11 +177,11 @@ def _shortlist_refine_skills(
     return selected_skills, selection
 
 
-def _rule_select(cards: list[KnowledgeCard], scored_cards: list[tuple[int, KnowledgeCard]]) -> RefineKnowledgeSelection:
+def _rule_select(cards: list[KnowledgeCard], scored_cards: list[tuple[int, KnowledgeCard]]) -> RefineSkillsSelection:
     selected_cards = [card for score, card in scored_cards if score > 0][:4]
     rejected_ids = [card.id for card in cards if card.id not in {item.id for item in selected_cards}]
     reason = "rule_scored_from_frontmatter"
-    return RefineKnowledgeSelection(
+    return RefineSkillsSelection(
         selected_skill_ids=[card.id for card in selected_cards],
         rejected_skill_ids=rejected_ids,
         reason=reason,
@@ -198,7 +198,7 @@ def _native_select(
     intent: RefineIntent,
     settings: Settings,
     on_log,
-) -> RefineKnowledgeSelection:
+) -> RefineSkillsSelection:
     client = CocoACPClient(
         settings.coco_bin,
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
@@ -222,7 +222,7 @@ def _native_select_batch(
     settings: Settings,
     client: CocoACPClient,
     on_log,
-) -> RefineKnowledgeSelection:
+) -> RefineSkillsSelection:
     template_path = _write_shortlist_template(prepared.task_dir)
     try:
         client.run_agent(
@@ -262,7 +262,7 @@ def _native_select_chunked(
     settings: Settings,
     client: CocoACPClient,
     on_log,
-) -> RefineKnowledgeSelection:
+) -> RefineSkillsSelection:
     selected_ids: list[str] = []
     reasons: list[str] = []
     total_chunks = ceil(len(cards) / SHORTLIST_CHUNK_SIZE)
@@ -333,7 +333,7 @@ def _score_cards(
     return scored
 
 
-def _read_knowledge_locally(selected_documents: list[KnowledgeDocument]) -> RefineKnowledgeRead:
+def _read_knowledge_locally(selected_documents: list[KnowledgeDocument]) -> RefineSkillsRead:
     lines = ["# Refine Skills Read", ""]
     for document in selected_documents:
         lines.extend(
@@ -349,7 +349,7 @@ def _read_knowledge_locally(selected_documents: list[KnowledgeDocument]) -> Refi
                 "",
             ]
         )
-    return RefineKnowledgeRead(
+    return RefineSkillsRead(
         markdown="\n".join(lines).rstrip() + "\n",
         selected_skill_ids=[document.id for document in selected_documents],
         selected_skill_titles=[document.title for document in selected_documents],
@@ -363,9 +363,9 @@ def _read_selected_skills(
     selected_skills: list[SkillPackage],
     settings: Settings,
     on_log,
-) -> RefineKnowledgeRead:
+) -> RefineSkillsRead:
     if not selected_skills:
-        return RefineKnowledgeRead(markdown="", selected_skill_ids=[], selected_skill_titles=[])
+        return RefineSkillsRead(markdown="", selected_skill_ids=[], selected_skill_titles=[])
 
     if settings.refine_executor.strip().lower() != EXECUTOR_NATIVE:
         return _read_skills_locally(selected_skills)
@@ -379,7 +379,7 @@ def _read_selected_skills(
     template_path = _write_knowledge_read_template(prepared.task_dir)
     try:
         reply = client.run_agent(
-            build_refine_knowledge_read_agent_prompt(
+            build_refine_skills_read_agent_prompt(
                 intent_payload=intent.to_payload(),
                 knowledge_documents=prompt_documents,
                 template_path=str(template_path),
@@ -395,7 +395,7 @@ def _read_selected_skills(
             raise ValueError("empty_knowledge_read")
         on_log(f"skills_read_mode: agent ({len(prompt_documents)} docs)")
         _ = reply
-        return RefineKnowledgeRead(
+        return RefineSkillsRead(
             markdown=markdown.rstrip() + "\n",
             selected_skill_ids=[skill.id for skill in selected_skills],
             selected_skill_titles=[skill.name for skill in selected_skills],
@@ -408,7 +408,7 @@ def _read_selected_skills(
             template_path.unlink()
 
 
-def _read_skills_locally(selected_skills: list[SkillPackage]) -> RefineKnowledgeRead:
+def _read_skills_locally(selected_skills: list[SkillPackage]) -> RefineSkillsRead:
     lines = ["# Refine Skills Read", ""]
     for skill in selected_skills:
         lines.extend(
@@ -424,7 +424,7 @@ def _read_skills_locally(selected_skills: list[SkillPackage]) -> RefineKnowledge
                 "",
             ]
         )
-    return RefineKnowledgeRead(
+    return RefineSkillsRead(
         markdown="\n".join(lines).rstrip() + "\n",
         selected_skill_ids=[skill.id for skill in selected_skills],
         selected_skill_titles=[skill.name for skill in selected_skills],
@@ -486,7 +486,7 @@ def _write_knowledge_read_template(task_dir: Path) -> Path:
         suffix=".md",
         delete=False,
     ) as handle:
-        handle.write(build_refine_knowledge_read_template_markdown())
+        handle.write(build_refine_skills_read_template_markdown())
         handle.flush()
         return Path(handle.name)
 
@@ -641,13 +641,13 @@ def _finalize_selection(
     reason: str,
     mode: str,
     on_log,
-) -> RefineKnowledgeSelection:
+) -> RefineSkillsSelection:
     normalized_ids = _ordered_unique(selected_ids)[:4]
     guarded_ids, guard_rejections = _guard_selected_ids(normalized_ids, cards, scored_cards, prepared, intent)
     if guard_rejections:
         on_log(f"skills_guard_rejected_ids: {', '.join(guard_rejections)}")
     if not guarded_ids:
-        return RefineKnowledgeSelection(
+        return RefineSkillsSelection(
             selected_skill_ids=[],
             rejected_skill_ids=[card.id for card in cards],
             reason=reason or "llm_shortlist_empty",
@@ -657,7 +657,7 @@ def _finalize_selection(
     rejected_ids = [card.id for card in cards if card.id not in set(guarded_ids)]
     if guard_rejections:
         rejected_ids = _ordered_unique(rejected_ids + guard_rejections)
-    return RefineKnowledgeSelection(
+    return RefineSkillsSelection(
         selected_skill_ids=guarded_ids,
         rejected_skill_ids=rejected_ids,
         reason=reason,

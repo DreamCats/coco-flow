@@ -4,7 +4,7 @@ from coco_flow.config import Settings
 
 from .generate import generate_native_plan_markdown, generate_plan_markdown
 from .graph import build_plan_execution_graph
-from .knowledge import build_plan_knowledge_bundle
+from .skills import build_plan_skills_bundle
 from .models import PlanEngineResult, STATUS_PLANNED
 from .source import prepare_plan_input
 from .task_outline import build_plan_work_items
@@ -30,17 +30,17 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     on_log(f"plan_prepare_ok: repos={len(prepared.repo_scopes)}, title={prepared.title}")
 
     on_log("plan_skills_start: true")
-    knowledge_brief_markdown, selection_payload, selected_ids = build_plan_knowledge_bundle(prepared, settings)
-    prepared.knowledge_brief_markdown = knowledge_brief_markdown
-    prepared.knowledge_selection_payload = selection_payload
-    prepared.selected_skill_ids = selected_ids
-    artifacts["plan-skills-selection.json"] = selection_payload
-    if knowledge_brief_markdown.strip():
-        artifacts["plan-skills-brief.md"] = knowledge_brief_markdown
-    on_log(f"plan_skills_ok: selected={len(selected_ids)}")
+    skills_brief_markdown, skills_selection_payload, selected_skill_ids = build_plan_skills_bundle(prepared, settings)
+    prepared.skills_brief_markdown = skills_brief_markdown
+    prepared.skills_selection_payload = skills_selection_payload
+    prepared.selected_skill_ids = selected_skill_ids
+    artifacts["plan-skills-selection.json"] = skills_selection_payload
+    if skills_brief_markdown.strip():
+        artifacts["plan-skills-brief.md"] = skills_brief_markdown
+    on_log(f"plan_skills_ok: selected={len(selected_skill_ids)}")
 
     on_log("plan_task_outline_start: true")
-    work_items, outline_payload = build_plan_work_items(prepared, settings, knowledge_brief_markdown, on_log)
+    work_items, outline_payload = build_plan_work_items(prepared, settings, skills_brief_markdown, on_log)
     if not work_items:
         raise ValueError("plan 未生成任何 work item")
     artifacts["plan-task-outline.json"] = outline_payload
@@ -117,7 +117,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
         "repo_count": len({item.repo_id for item in work_items}),
         "critical_path_length": len(graph.critical_path),
         "parallel_group_count": len(graph.parallel_groups),
-        "selected_skill_ids": selected_ids,
+        "selected_skill_ids": selected_skill_ids,
         "artifacts": sorted(artifacts.keys()) + ["plan.md"],
     }
     on_log(f"status: {STATUS_PLANNED}")

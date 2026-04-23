@@ -3,8 +3,8 @@ from __future__ import annotations
 from .models import DesignPreparedInput
 
 
-def build_design_knowledge_brief(prepared: DesignPreparedInput) -> str:
-    markdown = prepared.refine_knowledge_read_markdown.strip()
+def build_design_skills_brief(prepared: DesignPreparedInput) -> str:
+    markdown = prepared.refine_skills_read_markdown.strip()
     if not markdown:
         return ""
     lines = [

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from coco_flow.prompts.core import PromptDocument, PromptSection, render_prompt
 
-from .shared import REFINE_OUTPUT_CONTRACT, build_intent_json_section, build_knowledge_cards_section
+from .shared import REFINE_OUTPUT_CONTRACT, build_intent_json_section, build_skill_cards_section
 
 
 def build_refine_shortlist_template_json() -> str:
@@ -22,12 +22,12 @@ def build_refine_shortlist_agent_prompt(
     template_path: str,
 ) -> str:
     document = PromptDocument(
-        intro="你在做 coco-flow Refine 的知识候选筛选。",
-        goal="只基于候选知识卡片，编辑指定 JSON 文件，选出最适合当前 refine 使用的 0 到 4 篇知识文档。",
+        intro="你在做 coco-flow Refine 的 skills 候选筛选。",
+        goal="只基于候选 Skills 卡片，编辑指定 JSON 文件，选出最适合当前 refine 使用的 0 到 4 个 skill。",
         requirements=[
-            "只基于候选知识卡片判断，不要假设正文内容。",
-            "优先选择对术语消歧、稳定规则补充、冲突识别有帮助的文档。",
-            "如果某篇文档看起来更像实现背景，而不是 refine 辅助知识，应剔除。",
+            "只基于候选 Skills 卡片判断，不要假设正文内容。",
+            "优先选择对术语消歧、稳定规则补充、冲突识别有帮助的 skill。",
+            "如果某个候选看起来更像实现背景，而不是 refine 辅助 skill，应剔除。",
             "如果没有明显相关的 skills，selected_skill_ids 必须返回空数组，不要为了凑数强行选择。",
             "只有在 title、desc、domain_name 与当前需求存在明显术语/领域/目标匹配时才允许选中。",
             "候选卡片可能是压缩摘要格式；`summary` 和 `heuristic_score` 只作为辅助信号，不能覆盖 title / domain / desc 的实际匹配。",
@@ -45,7 +45,7 @@ def build_refine_shortlist_agent_prompt(
                 body=f"- file: {template_path}\n- 直接编辑这个 JSON 文件，替换所有 __FILL__ 占位符。",
             ),
             build_intent_json_section(intent_payload),
-            build_knowledge_cards_section(knowledge_cards),
+            build_skill_cards_section(knowledge_cards),
         ],
     )
     return render_prompt(document)

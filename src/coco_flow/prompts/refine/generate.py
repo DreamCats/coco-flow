@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from coco_flow.prompts.core import PromptDocument, PromptSection, render_prompt
 
-from .shared import REFINE_OUTPUT_CONTRACT, build_input_bundle_section, build_intent_json_section, build_knowledge_read_section
+from .shared import REFINE_OUTPUT_CONTRACT, build_input_bundle_section, build_intent_json_section, build_skills_read_section
 
 
 def build_refine_template_markdown() -> str:
@@ -27,12 +27,12 @@ def build_refine_generate_agent_prompt(
     source_markdown: str,
     supplement: str,
     intent_payload: dict[str, object],
-    knowledge_read_markdown: str,
+    skills_read_markdown: str,
     template_path: str,
 ) -> str:
     document = PromptDocument(
         intro="你在做 coco-flow Refine 的文档生成。",
-        goal="基于输入材料、Refine Intent 和知识深读结果，编辑本地模板文件，产出最终需求确认书。",
+        goal="基于输入材料、Refine Intent 和 Skills 深读结果，编辑本地模板文件，产出最终需求确认书。",
         requirements=[
             "必须直接编辑指定模板文件，不要把结果只输出在回复文本里。",
             "保留模板的一级标题和五个二级标题，不要增删改章节名。",
@@ -53,7 +53,7 @@ def build_refine_generate_agent_prompt(
             ),
             build_input_bundle_section(title=title, source_markdown=source_markdown, supplement=supplement),
             build_intent_json_section(intent_payload),
-            build_knowledge_read_section(knowledge_read_markdown),
+            build_skills_read_section(skills_read_markdown),
         ],
         closing="请现在开始编辑模板文件，确保最终文件可以直接作为需求确认书使用。",
     )

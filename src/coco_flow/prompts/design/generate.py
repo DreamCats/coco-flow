@@ -29,7 +29,7 @@ def build_design_generate_agent_prompt(
     refined_markdown: str,
     repo_binding_payload: dict[str, object],
     sections_payload: dict[str, object],
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     template_path: str,
     regeneration_issues: list[str] | None = None,
     previous_design_markdown: str = "",
@@ -70,7 +70,7 @@ def build_design_generate_agent_prompt(
                 [PromptSection(title="上一版 Design 草稿", body=previous_design_markdown.strip())]
                 if previous_design_markdown.strip() else []
             ),
-            build_design_input_section(title=title, refined_markdown=refined_markdown, knowledge_brief_markdown=knowledge_brief_markdown),
+            build_design_input_section(title=title, refined_markdown=refined_markdown, skills_brief_markdown=skills_brief_markdown),
             build_repo_binding_section(repo_binding_payload),
             build_design_sections_section(sections_payload),
         ],

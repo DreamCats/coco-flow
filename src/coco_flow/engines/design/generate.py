@@ -20,7 +20,7 @@ _HEADING_RE = re.compile(r"(?m)^#\s+Design\s*$")
 _FILE_PATH_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]+")
 
 
-def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_payload: dict[str, object], knowledge_brief_markdown: str) -> dict[str, object]:
+def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_payload: dict[str, object], skills_brief_markdown: str) -> dict[str, object]:
     """组装渲染 design.md 所需的结构化 section 模型。
 
     这是最后一层纯结构化步骤；有了这些 sections，后面就可以渲染成本地版
@@ -112,7 +112,7 @@ def build_design_sections_payload(prepared: DesignPreparedInput, repo_binding_pa
         "critical_flows": critical_flows,
         "interface_changes": _build_interface_changes(prepared, repo_decisions),
         "risk_boundaries": _build_risk_boundaries(prepared, repo_decisions),
-        "knowledge_brief_used": bool(knowledge_brief_markdown.strip()),
+        "skills_brief_used": bool(skills_brief_markdown.strip()),
     }
 
 
@@ -120,7 +120,7 @@ def generate_design_markdown(
     prepared: DesignPreparedInput,
     repo_binding_payload: dict[str, object],
     sections_payload: dict[str, object],
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     settings: Settings,
     artifacts: dict[str, str | dict[str, object]],
     on_log,
@@ -128,17 +128,17 @@ def generate_design_markdown(
     """渲染最终 design.md；能走 native 就走 native，否则回退到 local。"""
     if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
-            return generate_native_design_markdown(prepared, repo_binding_payload, sections_payload, knowledge_brief_markdown, settings, artifacts, on_log)
+            return generate_native_design_markdown(prepared, repo_binding_payload, sections_payload, skills_brief_markdown, settings, artifacts, on_log)
         except ValueError as error:
             on_log(f"native_design_fallback: {error}")
-    return generate_local_design_markdown(prepared, repo_binding_payload, sections_payload, knowledge_brief_markdown)
+    return generate_local_design_markdown(prepared, repo_binding_payload, sections_payload, skills_brief_markdown)
 
 
 def generate_local_design_markdown(
     prepared: DesignPreparedInput,
     repo_binding_payload: dict[str, object],
     sections_payload: dict[str, object],
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
 ) -> str:
     """基于结构化 payload，渲染一份确定性的本地 design markdown。"""
     repo_bindings = [item for item in repo_binding_payload.get("repo_bindings", []) if isinstance(item, dict) and str(item.get("decision") or "") == "in_scope"]
@@ -232,7 +232,7 @@ def generate_local_design_markdown(
             lines.append(f"- {label}（{item.get('level') or '中'}）：{item.get('title') or ''}；建议应对：{item.get('mitigation') or ''}")
     else:
         lines.append("- 当前未沉淀出额外技术风险或待确认项。")
-    if knowledge_brief_markdown.strip():
+    if skills_brief_markdown.strip():
         lines.append("- 已参考继承自 Refine 的知识结果。")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -241,7 +241,7 @@ def generate_native_design_markdown(
     prepared: DesignPreparedInput,
     repo_binding_payload: dict[str, object],
     sections_payload: dict[str, object],
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     settings: Settings,
     artifacts: dict[str, str | dict[str, object]],
     on_log,
@@ -257,7 +257,7 @@ def generate_native_design_markdown(
         prepared=prepared,
         repo_binding_payload=repo_binding_payload,
         sections_payload=sections_payload,
-        knowledge_brief_markdown=knowledge_brief_markdown,
+        skills_brief_markdown=skills_brief_markdown,
         settings=settings,
     )
 
@@ -281,7 +281,7 @@ def generate_native_design_markdown(
             prepared=prepared,
             repo_binding_payload=repo_binding_payload,
             sections_payload=sections_payload,
-            knowledge_brief_markdown=knowledge_brief_markdown,
+            skills_brief_markdown=skills_brief_markdown,
             settings=settings,
             regeneration_issues=retry_issues,
             previous_design_markdown=content,
@@ -316,7 +316,7 @@ def _run_design_generation_once(
     prepared: DesignPreparedInput,
     repo_binding_payload: dict[str, object],
     sections_payload: dict[str, object],
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     settings: Settings,
     regeneration_issues: list[str] | None = None,
     previous_design_markdown: str = "",
@@ -329,7 +329,7 @@ def _run_design_generation_once(
                 refined_markdown=prepared.refined_markdown,
                 repo_binding_payload=repo_binding_payload,
                 sections_payload=sections_payload,
-                knowledge_brief_markdown=knowledge_brief_markdown,
+                skills_brief_markdown=skills_brief_markdown,
                 template_path=str(template_path),
                 regeneration_issues=regeneration_issues,
                 previous_design_markdown=previous_design_markdown,

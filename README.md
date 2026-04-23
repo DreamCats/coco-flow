@@ -391,7 +391,7 @@ uv run python -m py_compile src/coco_flow/engines/plan/__init__.py
 uv run python -m py_compile src/coco_flow/engines/plan/source.py
 uv run python -m py_compile src/coco_flow/engines/plan/task_outline.py
 uv run python -m py_compile src/coco_flow/engines/shared/models.py
-uv run python -m py_compile src/coco_flow/engines/plan_knowledge.py
+uv run python -m py_compile src/coco_flow/engines/plan_skills.py
 uv run python -m py_compile src/coco_flow/engines/shared/research.py
 uv run python -m py_compile src/coco_flow/services/tasks/plan.py
 uv run python -m py_compile src/coco_flow/services/tasks/code.py

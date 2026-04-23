@@ -119,7 +119,7 @@ def generate_native_plan_markdown(
                 title=prepared.title,
                 design_markdown=prepared.design_markdown,
                 refined_markdown=prepared.refined_markdown,
-                knowledge_brief_markdown=prepared.knowledge_brief_markdown,
+                skills_brief_markdown=prepared.skills_brief_markdown,
                 work_items_payload={"work_items": [item.to_payload() for item in work_items]},
                 execution_graph_payload=graph.to_payload(),
                 validation_payload=validation_payload,

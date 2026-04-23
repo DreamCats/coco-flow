@@ -160,7 +160,7 @@ class RefineTaskTest(unittest.TestCase):
             self.assertEqual(result["skills_used"], True)
             self.assertEqual(result["selected_skill_ids"], ["auction-domain"])
 
-    def test_local_refine_can_use_skill_packages_without_knowledge_docs(self) -> None:
+    def test_local_refine_can_use_skill_packages_without_legacy_docs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             skill_store = SkillStore(settings)
@@ -322,7 +322,7 @@ class RefineTaskTest(unittest.TestCase):
             self.assertEqual(selection["mode"], "llm_batch")
             self.assertEqual(selection["selected_skill_ids"], ["auction-flow"])
 
-    def test_native_refine_shortlist_guard_rejects_low_relevance_knowledge(self) -> None:
+    def test_native_refine_shortlist_guard_rejects_low_relevance_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), refine_executor="native")
             now = datetime.now().astimezone()

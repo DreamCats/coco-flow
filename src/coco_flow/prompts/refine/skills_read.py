@@ -6,7 +6,7 @@ from coco_flow.prompts.sections import render_yaml_cards
 from .shared import REFINE_OUTPUT_CONTRACT, build_intent_json_section
 
 
-def build_refine_knowledge_read_template_markdown() -> str:
+def build_refine_skills_read_template_markdown() -> str:
     return (
         "# Refine Skills Read\n\n"
         "## 术语解释\n"
@@ -20,7 +20,7 @@ def build_refine_knowledge_read_template_markdown() -> str:
     )
 
 
-def build_refine_knowledge_read_agent_prompt(
+def build_refine_skills_read_agent_prompt(
     *,
     intent_payload: dict[str, object],
     knowledge_documents: list[dict[str, str]],

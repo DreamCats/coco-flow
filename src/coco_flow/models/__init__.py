@@ -1,4 +1,4 @@
-from .knowledge import (
+from .skill_sources import (
     CreateKnowledgeDocumentRequest,
     KnowledgeDocument,
     KnowledgeEvidence,

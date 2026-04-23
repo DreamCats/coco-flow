@@ -73,7 +73,7 @@ class KnowledgeCard:
 
 
 @dataclass
-class RefineKnowledgeSelection:
+class RefineSkillsSelection:
     selected_skill_ids: list[str]
     rejected_skill_ids: list[str]
     reason: str
@@ -91,7 +91,7 @@ class RefineKnowledgeSelection:
 
 
 @dataclass
-class RefineKnowledgeRead:
+class RefineSkillsRead:
     markdown: str
     selected_skill_ids: list[str]
     selected_skill_titles: list[str]

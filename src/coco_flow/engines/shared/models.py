@@ -223,8 +223,8 @@ class PlanBuild:
     finding: ResearchFinding
     research_signals: DesignResearchSignals
     assessment: ComplexityAssessment
-    knowledge_brief_markdown: str = ""
-    knowledge_selection_payload: dict[str, object] = field(default_factory=dict)
+    skills_brief_markdown: str = ""
+    skills_selection_payload: dict[str, object] = field(default_factory=dict)
     selected_skill_ids: list[str] = field(default_factory=list)
     llm_scope: PlanScope = field(default_factory=PlanScope)
 
@@ -238,7 +238,7 @@ class PlanEngineResult:
 
 
 @dataclass
-class KnowledgeDocumentLike:
+class SkillSourceDocument:
     id: str
     kind: str
     status: str

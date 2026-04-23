@@ -41,7 +41,7 @@ def build_design_repo_binding_agent_prompt(
     *,
     title: str,
     refined_markdown: str,
-    knowledge_brief_markdown: str,
+    skills_brief_markdown: str,
     responsibility_matrix_payload: dict[str, object],
     repo_research_payload: dict[str, object],
     template_path: str,
@@ -69,7 +69,7 @@ def build_design_repo_binding_agent_prompt(
         output_contract=DESIGN_OUTPUT_CONTRACT,
         sections=[
             PromptSection(title="需要编辑的模板文件", body=f"- file: {template_path}\n- 直接编辑这个 JSON 文件，替换所有 __FILL__ 占位符。"),
-            build_design_input_section(title=title, refined_markdown=refined_markdown, knowledge_brief_markdown=knowledge_brief_markdown),
+            build_design_input_section(title=title, refined_markdown=refined_markdown, skills_brief_markdown=skills_brief_markdown),
             PromptSection(title="Responsibility Matrix", body=render_json_block(responsibility_matrix_payload)),
             PromptSection(title="Repo Research", body=render_json_block(repo_research_payload)),
         ],

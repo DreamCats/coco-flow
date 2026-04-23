@@ -73,8 +73,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n## 功能点\n- 添加 two sum 算法\n- 添加两数之和 golang 文件\n- 仅处理 two sum\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[],
                 repo_researches=[],
@@ -136,8 +136,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- demo\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[],
                 repo_researches=[],
@@ -193,8 +193,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- demo\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[],
                 repo_researches=[],
@@ -352,8 +352,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[],
@@ -480,8 +480,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[],
@@ -542,8 +542,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[],
@@ -607,8 +607,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[],
                 repo_researches=[],
@@ -679,8 +679,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[
@@ -732,8 +732,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[
@@ -799,8 +799,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[],
@@ -874,8 +874,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[
                     RepoScope(repo_id="live_pack", repo_path=str(live_pack)),
@@ -971,8 +971,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 添加 two sum 算法\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[
                     RepoScope(repo_id="demo", repo_path=str(demo)),
@@ -1046,8 +1046,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 添加 two sum 算法\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[],
                 repo_researches=[],
@@ -1121,8 +1121,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 支持讲解卡状态提示。\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[
                     RepoScope(repo_id="repo_a", repo_path=str(repo_a)),
@@ -1223,8 +1223,8 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 refined_markdown="# PRD Refined\n\n- 统一成功态\n",
                 input_meta={},
                 refine_intent_payload={},
-                refine_knowledge_selection_payload={},
-                refine_knowledge_read_markdown="",
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
                 repo_lines=[],
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path=str(repo_root))],
                 repo_researches=[
@@ -1443,7 +1443,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertFalse((task_dir / "plan.log").exists())
             self.assertFalse((task_dir / "plan-result.json").exists())
 
-    def test_design_can_infer_repos_from_selected_knowledge_when_repos_empty(self) -> None:
+    def test_design_can_infer_repos_from_selected_reference_doc_when_repos_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             repo_root = Path(tmp) / "repo"
@@ -1498,7 +1498,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 ),
             )
 
-            task_id = "task-design-knowledge-discovery"
+            task_id = "task-design-reference-discovery"
             task_dir = settings.task_root / task_id
             task_dir.mkdir(parents=True)
             now = timestamp.isoformat()
@@ -1674,7 +1674,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             design_log = (task_dir / "design.log").read_text(encoding="utf-8")
             self.assertIn("design_repo_discovery_ok: mode=skills_selection, bound=0, inferred=1", design_log)
 
-    def test_design_can_infer_repo_from_knowledge_candidate_file(self) -> None:
+    def test_design_can_infer_repo_from_reference_candidate_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             repo_root = Path(tmp) / "candidate-file-repo"
@@ -1996,7 +1996,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
             self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["live_shop"])
 
-    def test_local_plan_writes_knowledge_selection_and_brief(self) -> None:
+    def test_local_plan_writes_skills_selection_and_brief(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             repo_root = Path(tmp) / "repo"
@@ -2146,7 +2146,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("## 执行顺序", plan)
             self.assertIn("最小范围验证通过", plan)
 
-    def test_local_plan_can_use_skill_packages_without_knowledge_docs(self) -> None:
+    def test_local_plan_can_use_skill_packages_without_legacy_docs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             repo_root = Path(tmp) / "repo"

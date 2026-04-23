@@ -40,8 +40,8 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
     task_id = task_dir.name
     input_meta = read_json_file(task_dir / "input.json")
     refine_intent_payload = read_json_file(task_dir / "refine-intent.json")
-    refine_knowledge_selection_payload = read_json_file(task_dir / "refine-skills-selection.json")
-    refine_knowledge_read_markdown = read_text_if_exists(task_dir / "refine-skills-read.md")
+    refine_skills_selection_payload = read_json_file(task_dir / "refine-skills-selection.json")
+    refine_skills_read_markdown = read_text_if_exists(task_dir / "refine-skills-read.md")
     refined_markdown = read_text_if_exists(task_dir / "prd-refined.md")
     repos_meta = read_json_file(task_dir / "repos.json")
     title = str(task_meta.get("title") or input_meta.get("title") or task_id)
@@ -51,10 +51,10 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
         "mode": "bound" if bound_repo_scopes else "none",
         "bound_repo_count": len(bound_repo_scopes),
         "inferred_repo_count": 0,
-        "selected_skill_ids": _selection_ids(refine_knowledge_selection_payload),
+        "selected_skill_ids": _selection_ids(refine_skills_selection_payload),
     }
     if not repo_scopes:
-        repo_scopes, repo_discovery_payload = infer_repo_scopes_from_knowledge(settings, refine_knowledge_selection_payload)
+        repo_scopes, repo_discovery_payload = infer_repo_scopes_from_skills(settings, refine_skills_selection_payload)
     repo_lines = [f"- {scope.repo_id} ({scope.repo_path})" for scope in repo_scopes]
     sections = parse_refined_sections(refined_markdown)
     repo_researches = build_repo_researches(repo_scopes, title, sections)
@@ -81,8 +81,8 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
         refined_markdown=refined_markdown,
         input_meta=input_meta,
         refine_intent_payload=refine_intent_payload,
-        refine_knowledge_selection_payload=refine_knowledge_selection_payload,
-        refine_knowledge_read_markdown=refine_knowledge_read_markdown,
+        refine_skills_selection_payload=refine_skills_selection_payload,
+        refine_skills_read_markdown=refine_skills_read_markdown,
         repo_lines=repo_lines,
         repo_scopes=repo_scopes,
         repo_researches=repo_researches,
@@ -96,16 +96,16 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
     )
 
 
-def infer_repo_scopes_from_knowledge(
+def infer_repo_scopes_from_skills(
     settings: Settings,
-    refine_knowledge_selection_payload: dict[str, object],
+    refine_skills_selection_payload: dict[str, object],
 ) -> tuple[list[RepoScope], dict[str, object]]:
     """当 task 没有显式绑定 repo 时，尝试从已选 skills 材料里补 repo scopes。
 
     Design 默认更偏好显式 repo 绑定；这个函数是兜底路径，把 refine 选中的
     material 里 repo 线索转成标准化的 RepoScope。
     """
-    selected_ids = _selection_ids(refine_knowledge_selection_payload)
+    selected_ids = _selection_ids(refine_skills_selection_payload)
     payload = {
         "mode": "none",
         "bound_repo_count": 0,
