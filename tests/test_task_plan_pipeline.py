@@ -34,6 +34,7 @@ from coco_flow.engines.shared.models import (
     ResearchFinding,
 )
 from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
+from coco_flow.services.queries.skills import SkillStore
 from coco_flow.services.tasks.design import design_task, start_designing_task
 from coco_flow.services.tasks.plan import plan_task
 
@@ -2035,6 +2036,128 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("## 任务清单", plan)
             self.assertIn("## 执行顺序", plan)
             self.assertIn("最小范围验证通过", plan)
+
+    def test_local_plan_can_use_skill_packages_without_knowledge_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            repo_root = Path(tmp) / "repo"
+            (repo_root / ".git").mkdir(parents=True)
+            (repo_root / "app" / "explain_card").mkdir(parents=True)
+            (repo_root / "service" / "card_render").mkdir(parents=True)
+            (repo_root / "app" / "explain_card" / "render_handler.go").write_text(
+                "package explain_card\n\nfunc ExplainCardHandler() {}\n",
+                encoding="utf-8",
+            )
+            (repo_root / "service" / "card_render" / "render_service.go").write_text(
+                "package card_render\n\nfunc RenderExplainCard() {}\n",
+                encoding="utf-8",
+            )
+            context_dir = repo_root / ".livecoding" / "context"
+            context_dir.mkdir(parents=True, exist_ok=True)
+            (context_dir / "glossary.md").write_text(
+                "| 业务术语 | 代码标识 | 说明 | 模块 |\n"
+                "| --- | --- | --- | --- |\n"
+                "| 竞拍讲解卡 | ExplainCardHandler | 竞拍讲解卡入口 | app/explain_card |\n",
+                encoding="utf-8",
+            )
+
+            skill_store = SkillStore(settings)
+            _name, package_root, _skill_path = skill_store.create_package(
+                "auction-popcard",
+                description="处理竞拍讲解卡状态提示相关需求。",
+                domain="auction_card",
+            )
+            (package_root / "SKILL.md").write_text(
+                (
+                    "---\n"
+                    "name: auction-popcard\n"
+                    "description: 处理竞拍讲解卡状态提示相关需求。\n"
+                    "domain: auction_card\n"
+                    "---\n\n"
+                    "# Overview\n\n"
+                    "适用于竞拍讲解卡状态提示的 design/plan。\n"
+                ),
+                encoding="utf-8",
+            )
+            (package_root / "references" / "domain.md").write_text(
+                "## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n\n## Risks\n\n- 非竞拍态不展示。\n",
+                encoding="utf-8",
+            )
+            (package_root / "references" / "main-flow.md").write_text(
+                "## Main Flow\n\n- 主链路先进入 ExplainCardHandler，再下发状态提示。\n\n## Validation\n\n- 校验主播侧状态提示与现有讲解卡兼容。\n",
+                encoding="utf-8",
+            )
+
+            task_id = "task-plan-skill"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = datetime.now().astimezone().isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "竞拍讲解卡状态提示调整",
+                        "status": "refined",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "竞拍讲解卡状态提示调整",
+                        "repo_count": 1,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(
+                json.dumps(
+                    {
+                        "repos": [
+                            {
+                                "id": "demo_repo",
+                                "path": str(repo_root),
+                                "status": "refined",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "prd-refined.md").write_text(
+                "# PRD Refined\n\n"
+                "## 需求概述\n\n"
+                "- 竞拍讲解卡需要支持主播侧状态提示。\n\n"
+                "## 功能点\n\n"
+                "- 支持竞拍讲解卡展示主播侧状态提示。\n\n"
+                "## 边界条件\n\n"
+                "- 非竞拍态不展示。\n\n"
+                "## 交互与展示\n\n"
+                "- 保持已有讲解卡样式。\n\n"
+                "## 验收标准\n\n"
+                "- 主播侧状态提示可正确展示。\n\n"
+                "## 业务规则\n\n"
+                "- 非竞拍态保持不展示。\n\n"
+                "## 待确认问题\n\n"
+                "- 是否需要兼容老版本样式。\n",
+                encoding="utf-8",
+            )
+
+            design_status = design_task(task_id, settings=settings)
+            status = plan_task(task_id, settings=settings)
+
+            self.assertEqual(design_status, "designed")
+            self.assertEqual(status, "planned")
+            selection = json.loads((task_dir / "plan-knowledge-selection.json").read_text(encoding="utf-8"))
+            self.assertEqual(selection["selected_ids"], ["auction-popcard"])
+            brief = (task_dir / "plan-knowledge-brief.md").read_text(encoding="utf-8")
+            self.assertIn("Plan Knowledge Brief", brief)
+            self.assertIn("auction-popcard", brief)
+            self.assertIn("决策边界", brief)
+            self.assertIn("稳定规则", brief)
 
     def test_native_plan_runs_scope_and_verify(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

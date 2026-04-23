@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from coco_flow.config import Settings
+from coco_flow.services.queries.skills import SkillPackage, SkillStore
 
 from .shared.models import KnowledgeDocumentLike, RefinedSections, RepoScope
 
@@ -96,6 +97,11 @@ def build_plan_knowledge_brief(
 
 
 def list_plan_knowledge_candidates(settings: Settings) -> list[KnowledgeDocumentLike]:
+    skill_store = SkillStore(settings)
+    skill_packages = skill_store.list_packages()
+    if skill_packages:
+        return [_skill_package_to_document(skill) for skill in skill_packages]
+
     documents: list[KnowledgeDocumentLike] = []
     for kind, directory in KNOWLEDGE_KIND_DIRS.items():
         kind_dir = settings.knowledge_root / directory
@@ -237,6 +243,32 @@ def extract_plan_decision_lines(body: str, keywords: tuple[str, ...]) -> list[st
     lines = [line.strip("- ").strip() for line in body.splitlines() if line.strip()]
     matched = [line for line in lines if any(keyword in line for keyword in keywords)]
     return matched[:4]
+
+
+def _skill_package_to_document(skill: SkillPackage) -> KnowledgeDocumentLike:
+    return KnowledgeDocumentLike(
+        id=skill.id,
+        kind="skill",
+        status="approved",
+        title=skill.name,
+        desc=skill.description,
+        domain_id=skill.domain,
+        domain_name=skill.domain.replace("_", " "),
+        engines=["refine", "plan"],
+        repos=[],
+        body=_skill_combined_body(skill),
+    )
+
+
+def _skill_combined_body(skill: SkillPackage) -> str:
+    parts: list[str] = []
+    if skill.body.strip():
+        parts.append(skill.body.strip())
+    for path in skill.reference_paths:
+        content = path.read_text(encoding="utf-8").strip()
+        if content:
+            parts.append(content)
+    return "\n\n".join(parts)
 
 
 def _render_decision_block(lines: list[str]) -> str:
