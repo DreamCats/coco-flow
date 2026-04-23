@@ -93,6 +93,7 @@ class SkillStore:
         )
         (references_dir / "domain.md").write_text("# Domain\n\n", encoding="utf-8")
         (references_dir / "main-flow.md").write_text("# Main Flow\n\n", encoding="utf-8")
+        (references_dir / "change-workflows.md").write_text("# Change Workflows\n\n", encoding="utf-8")
         return normalized_name, package_root, self._relative_path(skill_path)
 
     def _build_tree_node(self, path: Path, *, root: Path) -> SkillTreeNode:

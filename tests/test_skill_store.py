@@ -44,6 +44,7 @@ class SkillStoreTest(unittest.TestCase):
             self.assertTrue((package_root / "SKILL.md").is_file())
             self.assertTrue((package_root / "references" / "domain.md").is_file())
             self.assertTrue((package_root / "references" / "main-flow.md").is_file())
+            self.assertTrue((package_root / "references" / "change-workflows.md").is_file())
 
             content = (package_root / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn("name: auction-popcard", content)
