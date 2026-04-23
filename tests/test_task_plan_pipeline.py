@@ -1565,6 +1565,115 @@ class PlanTaskPipelineTest(unittest.TestCase):
             design_log = (task_dir / "design.log").read_text(encoding="utf-8")
             self.assertIn("design_repo_discovery_ok: mode=knowledge_selection, bound=0, inferred=1", design_log)
 
+    def test_design_can_infer_repos_from_selected_skill_when_repos_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            repo_root = Path(tmp) / "repo"
+            repo_root.mkdir(parents=True)
+            subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+            (repo_root / "app" / "auction_card").mkdir(parents=True)
+            (repo_root / "app" / "auction_card" / "render_handler.go").write_text(
+                "package auction_card\n\nfunc RenderAuctionCard() {}\n",
+                encoding="utf-8",
+            )
+            context_dir = repo_root / ".livecoding" / "context"
+            context_dir.mkdir(parents=True, exist_ok=True)
+            (context_dir / "glossary.md").write_text(
+                "| 业务术语 | 代码标识 | 说明 | 模块 |\n"
+                "| --- | --- | --- | --- |\n"
+                "| 竞拍奖励卡 | RenderAuctionCard | 竞拍奖励卡入口 | app/auction_card |\n",
+                encoding="utf-8",
+            )
+
+            skill_store = SkillStore(settings)
+            _name, package_root, _skill_path = skill_store.create_package(
+                "auction-reward-card",
+                description="竞拍奖励卡相关 skill。",
+                domain="auction_reward_card",
+            )
+            (package_root / "SKILL.md").write_text(
+                (
+                    "---\n"
+                    "name: auction-reward-card\n"
+                    "description: 竞拍奖励卡相关 skill。\n"
+                    "domain: auction_reward_card\n"
+                    "---\n\n"
+                    "# Overview\n\n"
+                    "适用于竞拍奖励卡相关需求。\n"
+                ),
+                encoding="utf-8",
+            )
+            (package_root / "references" / "main-flow.md").write_text(
+                f"## Main Flow\n\n- 主链路仓库位于 {repo_root}。\n",
+                encoding="utf-8",
+            )
+
+            task_id = "task-design-skill-discovery"
+            task_dir = settings.task_root / task_id
+            task_dir.mkdir(parents=True)
+            now = datetime.now().astimezone().isoformat()
+            (task_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "title": "竞拍奖励卡状态提示调整",
+                        "status": "refined",
+                        "created_at": now,
+                        "updated_at": now,
+                        "source_type": "text",
+                        "source_value": "竞拍奖励卡状态提示调整",
+                        "repo_count": 0,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "refine-knowledge-selection.json").write_text(
+                json.dumps(
+                    {
+                        "selected_ids": ["auction-reward-card"],
+                        "rejected_ids": [],
+                        "reason": "selected for refine",
+                        "candidates": [],
+                        "mode": "rule",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "refine-knowledge-read.md").write_text(
+                "# Refine Knowledge Read\n\n- 竞拍奖励卡主链路与 skill package 强相关。\n",
+                encoding="utf-8",
+            )
+            (task_dir / "prd-refined.md").write_text(
+                "# PRD Refined\n\n"
+                "## 需求概述\n\n"
+                "- 竞拍奖励卡需要补充主播侧状态提示。\n\n"
+                "## 功能点\n\n"
+                "- 支持竞拍奖励卡展示主播侧状态提示。\n\n"
+                "## 边界条件\n\n"
+                "- 非竞拍场景不展示。\n\n"
+                "## 验收标准\n\n"
+                "- 状态提示展示正确。\n",
+                encoding="utf-8",
+            )
+
+            status = design_task(task_id, settings=settings)
+
+            self.assertEqual(status, "designed")
+            research = json.loads((task_dir / "design-research.json").read_text(encoding="utf-8"))
+            self.assertEqual(research["mode"], "local")
+            self.assertEqual(research["prefilter"]["candidate_repo_ids"], ["repo"])
+            repo_binding = json.loads((task_dir / "design-repo-binding.json").read_text(encoding="utf-8"))
+            self.assertEqual(repo_binding["repo_bindings"][0]["repo_id"], "repo")
+            design_log = (task_dir / "design.log").read_text(encoding="utf-8")
+            self.assertIn("design_repo_discovery_ok: mode=skill_selection, bound=0, inferred=1", design_log)
+
     def test_design_can_infer_repo_from_knowledge_candidate_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))

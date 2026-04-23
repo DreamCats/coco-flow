@@ -19,6 +19,7 @@ from coco_flow.engines.shared.research import (
 from coco_flow.services import TaskStore
 from coco_flow.services.queries.knowledge import KnowledgeStore
 from coco_flow.services.queries.repos import list_recent_repos, validate_repo_path
+from coco_flow.services.queries.skills import SkillPackage, SkillStore
 from coco_flow.services.queries.task_detail import read_json_file
 
 from .models import DesignPreparedInput
@@ -126,8 +127,7 @@ def infer_repo_scopes_from_knowledge(
     documents = [document for document_id in selected_ids if (document := store.get_document(document_id)) is not None]
     payload["selected_knowledge_titles"] = [document.title for document in documents]
     if not documents:
-        payload["mode"] = "knowledge_docs_missing"
-        return [], payload
+        return _infer_repo_scopes_from_skills(settings, selected_ids, payload)
 
     recent_repo_entries = list_recent_repos(TaskStore(settings))
     recent_repo_map = _build_recent_repo_map(recent_repo_entries)
@@ -182,6 +182,75 @@ def infer_repo_scopes_from_knowledge(
     ]
     repo_scopes.sort(key=lambda item: item.repo_id)
     payload["mode"] = "knowledge_selection" if repo_scopes else "knowledge_selection_empty"
+    payload["inferred_repo_count"] = len(repo_scopes)
+    payload["unresolved_repo_hints"] = sorted({item for item in unresolved_hints if item.strip()})[:8]
+    return repo_scopes, payload
+
+
+def _infer_repo_scopes_from_skills(
+    settings: Settings,
+    selected_ids: list[str],
+    payload: dict[str, object],
+) -> tuple[list[RepoScope], dict[str, object]]:
+    skill_store = SkillStore(settings)
+    skills = [skill for skill_id in selected_ids if (skill := skill_store.get_package(skill_id)) is not None]
+    payload["selected_knowledge_titles"] = [skill.name for skill in skills]
+    if not skills:
+        payload["mode"] = "knowledge_docs_missing"
+        return [], payload
+
+    recent_repo_entries = list_recent_repos(TaskStore(settings))
+    recent_repo_map = _build_recent_repo_map(recent_repo_entries)
+    candidates: dict[str, dict[str, object]] = {}
+    unresolved_hints: list[str] = []
+
+    for skill in skills:
+        repo_hints, path_hints, candidate_files = _extract_skill_hints(skill)
+        for path_hint in path_hints:
+            resolved_path = _resolve_repo_path_from_path_hint(path_hint)
+            if resolved_path is None:
+                unresolved_hints.append(path_hint)
+                continue
+            _record_repo_candidate(
+                candidates,
+                repo_path=resolved_path,
+                repo_id_hint="",
+                source=f"{skill.id}:path_hint",
+            )
+        for candidate_file in candidate_files:
+            resolved_path = _resolve_repo_path_from_path_hint(candidate_file)
+            if resolved_path is None:
+                unresolved_hints.append(candidate_file)
+                continue
+            _record_repo_candidate(
+                candidates,
+                repo_path=resolved_path,
+                repo_id_hint="",
+                source=f"{skill.id}:candidate_file",
+            )
+        for repo_hint in repo_hints:
+            resolved = _resolve_repo_path_from_repo_hint(repo_hint, recent_repo_map)
+            if resolved is None:
+                unresolved_hints.append(repo_hint)
+                continue
+            resolved_path, repo_id_hint = resolved
+            _record_repo_candidate(
+                candidates,
+                repo_path=resolved_path,
+                repo_id_hint=repo_id_hint or repo_hint,
+                source=f"{skill.id}:repo_hint",
+            )
+
+    repo_scopes = [
+        RepoScope(
+            repo_id=str(candidate.get("repo_id") or derive_repo_id(str(candidate.get("repo_path") or ""))),
+            repo_path=str(candidate.get("repo_path") or ""),
+        )
+        for candidate in candidates.values()
+        if str(candidate.get("repo_path") or "").strip()
+    ]
+    repo_scopes.sort(key=lambda item: item.repo_id)
+    payload["mode"] = "skill_selection" if repo_scopes else "skill_selection_empty"
     payload["inferred_repo_count"] = len(repo_scopes)
     payload["unresolved_repo_hints"] = sorted({item for item in unresolved_hints if item.strip()})[:8]
     return repo_scopes, payload
@@ -341,3 +410,16 @@ def _repo_id_from_hint(repo_hint: str, repo_path: str) -> str:
     if "/" in normalized_hint:
         return normalized_hint.rsplit("/", 1)[-1] or derive_repo_id(repo_path)
     return normalized_hint or derive_repo_id(repo_path)
+
+
+def _extract_skill_hints(skill: SkillPackage) -> tuple[list[str], list[str], list[str]]:
+    text_parts = [skill.name, skill.description, skill.domain, skill.body]
+    for path in skill.reference_paths:
+        text_parts.append(path.read_text(encoding="utf-8"))
+    combined = "\n".join(part for part in text_parts if part.strip())
+
+    repo_hints = sorted(set(re.findall(r"code\.byted\.org/[A-Za-z0-9._/-]+", combined)))
+    path_hints = sorted(set(re.findall(r"/[A-Za-z0-9._/\-]+", combined)))
+    candidate_files = [path for path in path_hints if Path(path).suffix]
+    directory_paths = [path for path in path_hints if path not in set(candidate_files)]
+    return repo_hints, directory_paths[:12], candidate_files[:12]
