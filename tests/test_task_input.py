@@ -8,8 +8,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from coco_flow.config import Settings
+from coco_flow.engines.shared.manual_extract import MANUAL_EXTRACT_HEADING
 from coco_flow.engines.input.sources import fetch_lark_doc_markdown
 from coco_flow.engines.input.lark_markdown import normalize_lark_markdown
+from coco_flow.services.tasks.edit import update_artifact
 from coco_flow.services.tasks.input import create_task, input_task
 
 
@@ -96,7 +98,7 @@ class InputTaskTest(unittest.TestCase):
             task_id, status = create_task(
                 raw_input=long_input,
                 title="长文本需求",
-                supplement="",
+                supplement=build_manual_extract(),
                 repos=[],
                 settings=settings,
                 defer_lark_resolution=True,
@@ -109,11 +111,12 @@ class InputTaskTest(unittest.TestCase):
     def test_create_text_task_marks_input_ready(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
+            supplement = build_manual_extract(scope="统一规则口径", change_point="统一服务端字段与展示口径。")
 
             task_id, status = create_task(
                 raw_input="需求原文第一段\n\n需求原文第二段",
                 title="统一规则口径",
-                supplement="补充说明一",
+                supplement=supplement,
                 repos=[],
                 settings=settings,
                 defer_lark_resolution=True,
@@ -126,9 +129,9 @@ class InputTaskTest(unittest.TestCase):
             source_markdown = (task_dir / "prd.source.md").read_text()
 
             self.assertEqual(task_meta["status"], "input_ready")
-            self.assertEqual(input_meta["supplement"], "补充说明一")
+            self.assertEqual(input_meta["supplement"], supplement)
             self.assertIn("需求原文第一段", source_markdown)
-            self.assertIn("## 研发补充说明", source_markdown)
+            self.assertIn(MANUAL_EXTRACT_HEADING, source_markdown)
 
     def test_create_lark_task_defers_input_processing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -137,7 +140,7 @@ class InputTaskTest(unittest.TestCase):
             task_id, status = create_task(
                 raw_input="https://example.feishu.cn/wiki/abc123",
                 title="飞书需求",
-                supplement="补充说明二",
+                supplement=build_manual_extract(scope="飞书需求接入", change_point="按文档提炼服务端改动点。"),
                 repos=[],
                 settings=settings,
                 defer_lark_resolution=True,
@@ -155,7 +158,7 @@ class InputTaskTest(unittest.TestCase):
             task_id, status = create_task(
                 raw_input="https://example.feishu.cn/wiki/abc123",
                 title="",
-                supplement="补充说明三",
+                supplement=build_manual_extract(scope="飞书正文同步", change_point="拉取后进入 refine。"),
                 repos=[],
                 settings=settings,
                 defer_lark_resolution=True,
@@ -214,6 +217,80 @@ class InputTaskTest(unittest.TestCase):
         self.assertEqual(title, "飞书标题")
         self.assertIn("| **Name** | **Doc** |", markdown)
         self.assertIn("[设计稿](https://bytedance.larkoffice.com/wiki/abc)", markdown)
+
+    def test_create_task_requires_manual_extract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+
+            with self.assertRaisesRegex(ValueError, "人工提炼范围不能为空"):
+                create_task(
+                    raw_input="需求原文",
+                    title="缺少人工提炼",
+                    supplement="",
+                    repos=[],
+                    settings=settings,
+                    defer_lark_resolution=True,
+                )
+
+    def test_create_task_rejects_unchanged_manual_extract_template(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+
+            with self.assertRaisesRegex(ValueError, "人工提炼范围未填写完整"):
+                create_task(
+                    raw_input="需求原文",
+                    title="模板未填写",
+                    supplement=build_manual_extract_template_only(),
+                    repos=[],
+                    settings=settings,
+                    defer_lark_resolution=True,
+                )
+
+    def test_update_prd_source_requires_valid_manual_extract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            task_id, _status = create_task(
+                raw_input="需求原文",
+                title="编辑原文",
+                supplement=build_manual_extract(),
+                repos=[],
+                settings=settings,
+                defer_lark_resolution=True,
+            )
+
+            with self.assertRaisesRegex(ValueError, "人工提炼范围不能为空"):
+                update_artifact(
+                    task_id,
+                    "prd.source.md",
+                    "# PRD Source\n\n---\n\n需求原文\n",
+                    settings=settings,
+                )
+
+
+def build_manual_extract(scope: str = "统一服务端范围", change_point: str = "按状态切分并列出服务端改动点。") -> str:
+    return (
+        "## 本次范围\n"
+        f"- {scope}\n\n"
+        "## 人工提炼改动点\n"
+        f"- {change_point}\n\n"
+        "## 明确不做\n"
+        "- 无\n\n"
+        "## 前置条件 / 待确认项\n"
+        "- 无"
+    )
+
+
+def build_manual_extract_template_only() -> str:
+    return (
+        "## 本次范围\n"
+        "- [必填] 这次只做什么，先用一句话收敛范围。\n\n"
+        "## 人工提炼改动点\n"
+        "- [必填] 按“场景 / 状态 / 改动”逐条列出服务端改动点。\n\n"
+        "## 明确不做\n"
+        "- 如无可写：无\n\n"
+        "## 前置条件 / 待确认项\n"
+        "- 如有实验命中条件、接口依赖、跨端协同点，请写这里；如无可写：无"
+    )
 
 
 if __name__ == "__main__":

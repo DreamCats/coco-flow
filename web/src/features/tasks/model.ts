@@ -54,7 +54,7 @@ function buildFallbackTaskStages(task: TaskRecord): TaskStage[] {
       id: 'input',
       label: 'Input',
       status: task.status === 'input_failed' ? 'failed' : task.status === 'input_processing' ? 'current' : inputReady ? 'done' : 'current',
-      summary: task.status === 'input_processing' ? '正在解析飞书文档并生成标准输入稿。' : task.status === 'input_failed' ? '输入处理失败，请检查链接、权限或手动补充正文。' : '收集 PRD 原文、飞书文档链接和研发补充说明。',
+      summary: task.status === 'input_processing' ? '正在解析飞书文档并生成标准输入稿。' : task.status === 'input_failed' ? '输入处理失败，请检查链接、权限或手动补充正文。' : '收集 PRD 原文、飞书文档链接和服务端人工提炼范围。',
     },
     {
       id: 'refine',

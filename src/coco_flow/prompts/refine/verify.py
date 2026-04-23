@@ -1,52 +1,39 @@
 from __future__ import annotations
 
-from coco_flow.prompts.core import PromptDocument, PromptSection, render_prompt
+from coco_flow.prompts.core import PromptDocument, render_prompt
 
-from .shared import REFINE_OUTPUT_CONTRACT, build_input_bundle_section
-
-
-def build_refine_verify_template_json() -> str:
-    return (
-        '{\n'
-        '  "ok": false,\n'
-        '  "issues": ["__FILL__"],\n'
-        '  "missing_sections": ["__FILL__"],\n'
-        '  "reason": "__FILL__"\n'
-        '}\n'
-    )
+from .shared import build_refine_constraints_section, build_refine_file_section
 
 
 def build_refine_verify_agent_prompt(
     *,
-    title: str,
-    source_markdown: str,
-    supplement: str,
-    refined_markdown: str,
+    brief_draft_path: str,
+    refined_markdown_path: str,
     template_path: str,
 ) -> str:
     document = PromptDocument(
-        intro="你在做 coco-flow Refine 的校验与批注。",
-        goal="检查生成结果是否真正抓住需求边界、验收标准和待确认项，并编辑指定 JSON 文件写入校验结果。",
-        requirements=[
-            "重点检查是否遗漏验收标准、边界与非目标、待确认项。",
-            "重点检查是否被知识或背景信息带偏，偏离当前 PRD。",
-            "如果信息缺失但没有进入待确认项，应明确指出。",
-            "如果“具体变更点”没有使用场景/当前行为/期望行为结构，应明确指出。",
-            "必须直接编辑指定文件，不要只在回复里输出 JSON。",
-            "如果检查通过，ok=true，issues/missing_sections 使用空数组。",
-            "完成后只需简短回复已完成。",
-        ],
-        output_contract=REFINE_OUTPUT_CONTRACT
-        + "\n\n"
-        + "JSON 格式：\n"
-        + '{\n  "ok": true,\n  "issues": ["..."],\n  "missing_sections": ["..."],\n  "reason": "..."\n}',
+        intro="你正在使用 AGENT_MODE。",
+        goal="你是 principal-level requirements verifier，擅长检查需求确认书是否偏离人工提炼范围。",
+        requirements=[],
+        output_contract="完成后只需简短回复已完成。",
         sections=[
-            PromptSection(
-                title="需要编辑的模板文件",
-                body=f"- file: {template_path}\n- 直接编辑这个 JSON 文件，替换所有 __FILL__ 占位符。",
+            build_refine_file_section(
+                title="请先阅读以下文件",
+                paths=[brief_draft_path, refined_markdown_path],
             ),
-            build_input_bundle_section(title=title, source_markdown=source_markdown, supplement=supplement),
-            PromptSection(title="待校验结果", body=refined_markdown.strip()),
+            build_refine_file_section(
+                title="然后只编辑这个 JSON 模板文件",
+                paths=[template_path],
+            ),
+            build_refine_constraints_section(
+                [
+                    "检查是否遗漏 brief draft 的 in_scope 叶子改动点。",
+                    "检查是否把模板提示语或无关链接信息写进结果。",
+                    "检查是否把标题行当成改动点，导致叶子点缺失。",
+                    "检查是否把 out_of_scope 写进主变更点或验收标准。",
+                    "只有问题为空时才允许 ok=true。",
+                ]
+            ),
         ],
     )
     return render_prompt(document)

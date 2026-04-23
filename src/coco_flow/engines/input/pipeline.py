@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable
 
 from coco_flow.config import Settings
+from coco_flow.engines.shared.manual_extract import require_manual_extract
 from coco_flow.services.queries.task_detail import read_json_file
 
 from .models import InputSections
@@ -26,9 +27,11 @@ def create_input_task(
 ) -> InputTaskResult:
     sections = split_input_sections(raw_input, supplement)
     normalized_source_input = sections.source_input.strip()
-    normalized_repos = normalize_repo_paths(repos)
     if not normalized_source_input:
         raise ValueError("input 不能为空")
+    normalized_manual_extract = require_manual_extract(sections.supplement)
+    sections = InputSections(source_input=normalized_source_input, supplement=normalized_manual_extract)
+    normalized_repos = normalize_repo_paths(repos)
 
     resolved_source = resolve_source(
         normalized_source_input,

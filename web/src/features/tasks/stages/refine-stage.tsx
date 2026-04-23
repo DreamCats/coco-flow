@@ -140,30 +140,18 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
 
 function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
   const log = task.artifacts['refine.log'] || ''
-  const selectionArtifact = task.artifacts['refine-skills-selection.json'] || ''
-  const skillsReadArtifact = task.artifacts['refine-skills-read.md'] || ''
   const hasStarted = task.status === 'refining' || task.status === 'refined' || log.includes('=== REFINE START ===')
-  const hasIntent =
-    hasArtifact(task.artifacts['refine-intent.json']) ||
-    log.includes('intent_goal:') ||
-    log.includes('intent_extraction_mode:') ||
-    log.includes('native_intent_fallback:')
-  const hasSkillsSelection = hasArtifact(selectionArtifact) || log.includes('skills_candidates:') || log.includes('selected_skill_ids:')
-  const hasSkillsRead = hasArtifact(skillsReadArtifact) || log.includes('skills_read_mode:') || log.includes('skills_read_fallback:')
-  const hasGenerateStarted = log.includes('generate_agent_start:') || log.includes('generate_mode: local')
-  const hasDraft = hasArtifact(task.artifacts['prd-refined.md']) || log.includes('generate_agent_ok:') || log.includes('generate_mode: local')
-  const hasVerified = hasArtifact(task.artifacts['refine-verify.json']) || task.status === 'refined'
-  const noSkillsSelected =
-    log.includes('selected_skill_ids: 无') ||
-    selectionArtifact.includes('"selected_skill_ids": []')
-  const skillsStageDone = hasSkillsSelection && (hasSkillsRead || noSkillsSelected || hasGenerateStarted || hasDraft || hasVerified)
+  const hasManualExtract = log.includes('manual_change_points_count:') || hasStarted
+  const hasBrief = hasArtifact(task.artifacts['refine-brief.json']) || log.includes('brief_goal:')
+  const hasDraft = hasArtifact(task.artifacts['prd-refined.md']) || task.status === 'refined'
+  const hasVerified = hasArtifact(task.artifacts['refine-verify.json']) || log.includes('verify_ok:') || task.status === 'refined'
 
   if (task.status === 'refined') {
     return [
       { label: '读取输入', done: true, current: false },
-      { label: '提炼意图', done: true, current: false },
-      { label: 'Skills 筛选', done: true, current: false },
-      { label: '生成初稿', done: true, current: false },
+      { label: '解析人工提炼', done: true, current: false },
+      { label: '生成 Brief', done: true, current: false },
+      { label: '渲染文档', done: true, current: false },
       { label: '完成校验', done: true, current: false },
     ]
   }
@@ -180,21 +168,21 @@ function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
 
   const currentStep = !hasStarted
     ? '读取输入'
-    : !hasIntent
-      ? '提炼意图'
-      : !skillsStageDone
-        ? 'Skills 筛选'
+    : !hasManualExtract
+      ? '解析人工提炼'
+      : !hasBrief
+        ? '生成 Brief'
         : !hasDraft
-          ? '生成初稿'
+          ? '渲染文档'
           : !hasVerified
             ? '完成校验'
             : '完成校验'
 
   return [
     { label: '读取输入', done: hasStarted, current: currentStep === '读取输入' },
-    { label: '提炼意图', done: hasIntent, current: currentStep === '提炼意图' },
-    { label: 'Skills 筛选', done: skillsStageDone, current: currentStep === 'Skills 筛选' },
-    { label: '生成初稿', done: hasDraft, current: currentStep === '生成初稿' },
+    { label: '解析人工提炼', done: hasManualExtract, current: currentStep === '解析人工提炼' },
+    { label: '生成 Brief', done: hasBrief, current: currentStep === '生成 Brief' },
+    { label: '渲染文档', done: hasDraft, current: currentStep === '渲染文档' },
     { label: '完成校验', done: hasVerified, current: currentStep === '完成校验' },
   ]
 }

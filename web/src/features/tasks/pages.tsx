@@ -38,8 +38,8 @@ export function TasksIndexPage() {
 export function TaskDetailPage() {
   const { taskId } = useParams({ from: '/tasks/$taskId' })
   const { reload } = useAppData()
-  const detail = useTaskDetail(taskId, reload)
   const [activeStageID, setActiveStageID] = useState<TaskStageID>('input')
+  const detail = useTaskDetail(taskId, reload, setActiveStageID)
 
   const stages = useMemo(() => (detail.task ? buildTaskStages(detail.task) : []), [detail.task])
 

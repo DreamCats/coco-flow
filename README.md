@@ -160,14 +160,16 @@ Notes:
 - `POST /api/tasks` accepts plain text, local file paths, and Lark doc links.
 - Plain text and local files are stored immediately and enter `input_ready`.
 - Lark doc links enter `input_processing`, then finish asynchronously after the document body is fetched.
+- Input now requires a filled manual extract block before downstream stages. The Web UI pre-fills a server-oriented template under `人工提炼范围`, and `refine` is blocked until at least `本次范围` and `人工提炼改动点` are filled.
 - The Input stage writes `input.json` and `input.log`.
 
 ### Refine
 
 - `refine` supports `native` and `local`.
-- `native refine` runs a staged flow around intent extraction, skills selection, skills read, draft generation, and verification.
-- `local refine` produces a structured fallback draft.
-- Typical artifacts include `prd-refined.md`, `refine-intent.json`, `refine-skills-selection.json`, `refine-skills-read.md`, `refine-verify.json`, and `refine-result.json`.
+- The current refine engine is `manual-first`: it treats the Input-stage `人工提炼范围` as the primary source of truth, then turns it into a structured implementation brief.
+- `local` renders directly from the rule-generated brief.
+- `native` now uses `AGENT_MODE`: the controller prepares `manual_extract / brief draft / source excerpt`, then a read-write agent fills the markdown template and a second agent verifies it.
+- Typical artifacts include `refine-brief.json`, compatibility `refine-intent.json`, `prd-refined.md`, `refine-verify.json`, and `refine-result.json`.
 
 ### Design And Plan
 

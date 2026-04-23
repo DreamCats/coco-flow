@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from coco_flow.config import Settings
+from coco_flow.engines.shared.manual_extract import split_source_and_manual_extract
 from coco_flow.services.queries.task_detail import read_json_file
 
-from .models import RefinePreparedInput, SUPPLEMENT_HEADING
+from .models import RefinePreparedInput
 
 
 def locate_task_dir(task_id: str, settings: Settings) -> Path | None:
@@ -38,9 +39,7 @@ def prepare_refine_input(task_dir: Path, task_meta: dict[str, object]) -> Refine
 def extract_source_sections(markdown: str) -> tuple[str, str]:
     separator = "\n---\n"
     content = markdown.split(separator, 1)[1] if separator in markdown else markdown
-    if SUPPLEMENT_HEADING not in content:
-        return content.strip(), ""
-    source, supplement = content.split(SUPPLEMENT_HEADING, 1)
+    source, supplement = split_source_and_manual_extract(content)
     return source.strip(), supplement.strip()
 
 

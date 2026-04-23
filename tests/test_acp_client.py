@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from coco_flow.clients.acp_client import AGENT_MODE, PROMPT_ONLY_MODE, _ACPSessionPool
+from coco_flow.clients.acp_client import AGENT_MODE, _ACPSessionPool
 
 
 class _FakeACPProcess:
@@ -51,7 +51,7 @@ class ACPSessionPoolTest(unittest.TestCase):
             first = pool.run_prompt(
                 coco_bin="coco",
                 cwd="/tmp/demo",
-                mode=PROMPT_ONLY_MODE,
+                mode=AGENT_MODE,
                 query_timeout="90s",
                 prompt="first",
                 idle_timeout_seconds=600.0,
@@ -59,7 +59,7 @@ class ACPSessionPoolTest(unittest.TestCase):
             second = pool.run_prompt(
                 coco_bin="coco",
                 cwd="/tmp/demo",
-                mode=PROMPT_ONLY_MODE,
+                mode=AGENT_MODE,
                 query_timeout="90s",
                 prompt="second",
                 idle_timeout_seconds=600.0,

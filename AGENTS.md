@@ -141,6 +141,10 @@ uv run python -m unittest discover -s tests -v
   - 纯文本 / 本地文件：同步落盘并直接进入 `input_ready`
   - 飞书文档链接：先创建 task，再异步进入 `input_processing` 拉正文
   - 不再在创建后无条件自动启动 `refine`
+- `Input` 现在要求先填写人工提炼范围：
+  - Web UI 会预填服务端模板
+  - 至少补齐“本次范围”和“人工提炼改动点”后，才允许启动 `refine`
+  - API / 服务层也会做同样的硬校验，避免绕过 UI
 - `Input` 当前会额外生成：
   - `input.json`
   - `input.log`
@@ -150,39 +154,25 @@ uv run python -m unittest discover -s tests -v
 ### refine
 
 - `refine` 支持 `native` 和 `local`
-- `native` 通过 ACP 混合模式执行 refine
-  - `intent extraction`：agent（固定 `refine-intent.json` 模板）
-  - `skills shortlist`：agent（固定 `refine-skills-selection.json` 模板）
-  - `skills deep read`：agent（固定 `refine-skills-read.md` 模板）
-  - `generate refined draft`：agent（固定模板文件填充）
-  - `verify`：agent（固定 `refine-verify.json` 模板）
-- `local` 生成结构化兜底稿
-- `refine` 当前已支持业务记忆降级模式：
-  - 默认优先读取 repo 下 `.livecoding/context/`
-  - 若未找到可用上下文，显式降级为 `source_only`
-  - 若只找到部分上下文，标记为 `partial_grounded`
-- `refine` 当前内部已拆成 `prepare -> intent -> skills selection -> skills read -> generate` 多步编排
-- `native refine` 当前已按“controller 建模板 + agent 填文件”的方式组织主要结构化产物
-- `native refine` 会在 frontmatter shortlist 后再做一步 LLM 适用性裁决；`local refine` 保持规则筛选回退
+- `refine` 当前已经切到 `manual-first` 新引擎：
+  - 主输入是 Input 阶段的“人工提炼范围”
+  - 不再运行旧的 `scope -> intent -> skills -> generate -> verify` 多段链路
+  - `local` 直接从规则生成的 brief 渲染文档
+  - `native` 通过 `AGENT_MODE` 读取 `manual_extract / brief draft / source excerpt`，填充模板并做 verify
 - `refine` 当前会额外生成：
+  - `refine-brief.json`
   - `refine-intent.json`
-  - `refine-skills-selection.json`（记录 selected skills 的规则筛选结果）
-  - `refine-skills-read.md`
-  - `refine-verify.json`（仅 native refine 生成）
+  - `refine-verify.json`
 - 飞书文档若暂时拉不到正文，会生成 pending refine 占位稿，状态保持 `initialized`
 - `refine.log` 当前会记录：
   - `=== REFINE START === / === REFINE END ===`
   - `task_id / task_dir / executor`
-  - `context_mode / business_memory_provider / business_memory_used`
-  - `intent_goal / intent_key_terms / intent_terms`
-  - `intent_extraction_mode`
-  - `skills_candidates / selected_skill_ids`
-  - `skills_read_mode / skills_read_fallback`
-  - `verify_start / verify_ok / verify_passed` 或 `verify_failed`
+  - `refine_mode / manual_scope_count / manual_change_points_count`
+  - `brief_target_surface / brief_goal / brief_in_scope / brief_out_of_scope`
+  - `verify_ok`
   - `source_type / source_path / source_url / source_doc_token`
   - `source_length`
-  - `prompt_start / prompt_ok`
-  - `fallback_local_refine` 或 pending 信息
+  - pending 信息
 
 ### plan
 
@@ -258,9 +248,8 @@ uv run python -m unittest discover -s tests -v
   - `design.md`
   - `plan.md`
 - 当前 task 级非编辑 artifact 还包括：
+  - `refine-brief.json`
   - `refine-intent.json`
-  - `refine-skills-selection.json`
-  - `refine-skills-read.md`
   - `refine-verify.json`
   - `refine-result.json`
   - `design-skills-brief.md`

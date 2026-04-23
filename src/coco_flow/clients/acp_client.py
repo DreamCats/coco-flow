@@ -11,7 +11,6 @@ import threading
 import time
 
 from .base import CocoClient
-from .coco_cli import PROMPT_ONLY_DISALLOWED_TOOLS
 from coco_flow.config import Settings, load_settings
 from coco_flow.daemon.client import run_prompt_via_daemon
 
@@ -21,18 +20,9 @@ _DURATION_PART = re.compile(r"(\d+)(ms|s|m|h)")
 @dataclass(frozen=True)
 class _ACPMode:
     name: str
-    disallowed_tools: tuple[str, ...] = ()
     yolo: bool = True
 
 
-PROMPT_ONLY_MODE = _ACPMode(
-    name="prompt_only",
-    disallowed_tools=tuple(PROMPT_ONLY_DISALLOWED_TOOLS),
-)
-EXPLORER_MODE = _ACPMode(
-    name="explorer",
-    disallowed_tools=("Edit", "Write", "Replace"),
-)
 AGENT_MODE = _ACPMode(name="agent")
 
 
@@ -77,45 +67,6 @@ class CocoACPClient(CocoClient):
         self.coco_bin = coco_bin
         self.idle_timeout_seconds = idle_timeout_seconds
         self.settings = settings or load_settings()
-
-    def run_prompt_only(
-        self,
-        prompt: str,
-        query_timeout: str,
-        cwd: str | None = None,
-        *,
-        fresh_session: bool = False,
-    ) -> str:
-        resolved_cwd = os.path.realpath(cwd or os.getcwd())
-        return run_prompt_via_daemon(
-            settings=self.settings,
-            coco_bin=self.coco_bin,
-            cwd=resolved_cwd,
-            mode=PROMPT_ONLY_MODE.name,
-            query_timeout=query_timeout,
-            prompt=prompt,
-            acp_idle_timeout_seconds=self.idle_timeout_seconds,
-            fresh_session=fresh_session,
-        )
-
-    def run_readonly_agent(
-        self,
-        prompt: str,
-        query_timeout: str,
-        cwd: str,
-        *,
-        fresh_session: bool = False,
-    ) -> str:
-        return run_prompt_via_daemon(
-            settings=self.settings,
-            coco_bin=self.coco_bin,
-            cwd=os.path.realpath(cwd),
-            mode=EXPLORER_MODE.name,
-            query_timeout=query_timeout,
-            prompt=prompt,
-            acp_idle_timeout_seconds=self.idle_timeout_seconds,
-            fresh_session=fresh_session,
-        )
 
     def run_agent(
         self,
@@ -476,8 +427,6 @@ def _build_acp_command(coco_bin: str, mode: _ACPMode, query_timeout: str) -> lis
         cmd.append("--yolo")
     if query_timeout:
         cmd.extend(["--query-timeout", query_timeout])
-    for tool in mode.disallowed_tools:
-        cmd.extend(["--disallowed-tool", tool])
     return cmd
 
 
@@ -528,10 +477,6 @@ def run_prompt_with_pool(
 
 
 def _resolve_mode(mode: str) -> _ACPMode:
-    if mode == PROMPT_ONLY_MODE.name:
-        return PROMPT_ONLY_MODE
-    if mode == EXPLORER_MODE.name:
-        return EXPLORER_MODE
     if mode == AGENT_MODE.name:
         return AGENT_MODE
     raise ValueError(f"unknown acp mode: {mode}")

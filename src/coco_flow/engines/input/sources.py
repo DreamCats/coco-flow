@@ -7,8 +7,10 @@ import shutil
 import subprocess
 from urllib.parse import urlparse
 
+from coco_flow.engines.shared.manual_extract import split_source_and_manual_extract
+
 from .lark_markdown import normalize_lark_markdown
-from .models import InputSections, ResolvedSource, SOURCE_TYPE_FILE, SOURCE_TYPE_LARK_DOC, SOURCE_TYPE_TEXT, SUPPLEMENT_HEADING
+from .models import InputSections, ResolvedSource, SOURCE_TYPE_FILE, SOURCE_TYPE_LARK_DOC, SOURCE_TYPE_TEXT
 
 _spacing = re.compile(r"[ \t]+")
 _markdown_title = re.compile(r"(?m)^#\s+(.+?)\s*$")
@@ -21,7 +23,7 @@ def split_input_sections(raw_input: str, supplement: str | None = None) -> Input
     normalized_input = raw_input.strip()
     if normalized_supplement:
         return InputSections(source_input=normalized_input, supplement=normalized_supplement)
-    source_part, parsed_supplement = normalized_input.split(SUPPLEMENT_HEADING, 1) if SUPPLEMENT_HEADING in normalized_input else (normalized_input, "")
+    source_part, parsed_supplement = split_source_and_manual_extract(normalized_input)
     return InputSections(source_input=source_part.strip(), supplement=parsed_supplement.strip())
 
 

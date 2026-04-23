@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createTask } from '../../api'
+import { hasValidManualExtract, manualExtractTemplate, validateManualExtract } from './content'
 
 export function TaskCreateModal({
   onClose,
@@ -10,9 +11,11 @@ export function TaskCreateModal({
 }) {
   const [title, setTitle] = useState('')
   const [source, setSource] = useState('')
-  const [supplement, setSupplement] = useState('')
+  const [supplement, setSupplement] = useState(manualExtractTemplate)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
+  const manualExtractError = validateManualExtract(supplement)
+  const canCreate = source.trim().length > 0 && hasValidManualExtract(supplement)
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -50,7 +53,7 @@ export function TaskCreateModal({
           <div>
             <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Create Task</div>
             <h3 className="mt-2 text-[30px] leading-[1.08] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">新建任务</h3>
-            <p className="mt-3 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">这里只收两类信息：需求原文，以及研发视角下的补充说明。</p>
+            <p className="mt-3 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">这里只收两类信息：需求原文，以及服务端人工提炼范围。人工提炼范围是必填项。</p>
           </div>
           <button
             className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#87867f] transition hover:bg-[#f1ece4] hover:text-[#4d4c48] dark:text-[#8f8a82] dark:hover:bg-[#24221f] dark:hover:text-[#f1ede4]"
@@ -87,14 +90,17 @@ export function TaskCreateModal({
           </section>
 
           <section className="rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-4 dark:border-[#30302e] dark:bg-[#232220]">
-            <div className="text-[10px] uppercase tracking-[0.45em] text-[#87867f] dark:text-[#b0aea5]">补充说明</div>
-            <div className="mt-3 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">研发视角下补充理解、风险、约束，或者贴参考材料。</div>
+            <div className="text-[10px] uppercase tracking-[0.45em] text-[#87867f] dark:text-[#b0aea5]">人工提炼范围（必填）</div>
+            <div className="mt-3 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">先从服务端视角收敛范围。至少补齐“本次范围”和“人工提炼改动点”，再进入 Refine。</div>
             <textarea
               className="mt-4 min-h-[180px] w-full rounded-[18px] border border-dashed border-[#d8d3c8] bg-[#fffdf9] px-4 py-4 text-sm leading-7 text-[#141413] outline-none focus:border-[#3898ec] dark:border-[#3a3937] dark:bg-[#151412] dark:text-[#faf9f5] dark:focus:border-[#3898ec]"
               onChange={(event) => setSupplement(event.target.value)}
-              placeholder={'例如：\n- 我理解这次主要是统一规则定义。\n- 风险是旧链路字段兼容。\n- 可参考历史需求或知识库文档。'}
+              placeholder={manualExtractTemplate}
               value={supplement}
             />
+            <div className={`mt-3 text-sm ${manualExtractError ? 'text-[#b53333]' : 'text-[#5e5d59] dark:text-[#b0aea5]'}`}>
+              {manualExtractError || '服务端建议写清：场景 / 状态 / 改动、明确不做、实验命中条件或待确认项。'}
+            </div>
           </section>
           {error ? <div className="text-sm text-[#b53333]">{error}</div> : null}
         </div>
@@ -102,7 +108,7 @@ export function TaskCreateModal({
         <div className="flex flex-wrap gap-2 border-t border-[#e8e6dc] px-6 py-4 dark:border-[#30302e]">
           <button
             className="rounded-[14px] border border-[#c96442] bg-[#c96442] px-5 py-3 text-sm text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] transition hover:bg-[#d97757] disabled:cursor-not-allowed disabled:opacity-55"
-            disabled={creating || !source.trim()}
+            disabled={creating || !canCreate}
             onClick={() => void handleCreate()}
             type="button"
           >
