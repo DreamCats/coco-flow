@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 import os
 import re
@@ -10,6 +11,18 @@ from coco_flow.config import Settings
 from coco_flow.models.skills import SkillTreeNode
 
 _PACKAGE_NAME_RE = re.compile(r"[^a-z0-9_-]+")
+
+
+@dataclass(frozen=True)
+class SkillPackage:
+    id: str
+    root_path: Path
+    skill_path: Path
+    name: str
+    description: str
+    domain: str
+    body: str
+    reference_paths: list[Path]
 
 
 class SkillStore:
@@ -25,6 +38,28 @@ class SkillStore:
         root = self.ensure_root()
         nodes = [self._build_tree_node(path, root=root) for path in _iter_children(root)]
         return root, nodes
+
+    def list_packages(self) -> list[SkillPackage]:
+        root = self.ensure_root()
+        packages: list[SkillPackage] = []
+        for path in _iter_children(root):
+            if not path.is_dir():
+                continue
+            skill_path = path / "SKILL.md"
+            if not skill_path.is_file():
+                continue
+            packages.append(read_skill_package(path))
+        return packages
+
+    def get_package(self, package_id: str) -> SkillPackage | None:
+        normalized = package_id.strip()
+        if not normalized:
+            return None
+        package_root = self.ensure_root() / normalized
+        skill_path = package_root / "SKILL.md"
+        if not skill_path.is_file():
+            return None
+        return read_skill_package(package_root)
 
     def read_file(self, relative_path: str) -> tuple[str, str]:
         path = self._resolve_path(relative_path, expect_file=True)
@@ -124,6 +159,49 @@ def render_skill_markdown(*, name: str, description: str, domain: str) -> str:
         "# Overview\n\n"
         "Describe when this skill should be used.\n"
     )
+
+
+def read_skill_package(package_root: Path) -> SkillPackage:
+    skill_path = package_root / "SKILL.md"
+    content = skill_path.read_text(encoding="utf-8")
+    meta, body = parse_skill_frontmatter(content)
+    references_dir = package_root / "references"
+    reference_paths = []
+    if references_dir.is_dir():
+        reference_paths = sorted(
+            [
+                path
+                for path in references_dir.rglob("*")
+                if path.is_file() and path.suffix.lower() in {".md", ".markdown"}
+            ],
+            key=lambda path: str(path.relative_to(package_root)).lower(),
+        )
+    return SkillPackage(
+        id=package_root.name,
+        root_path=package_root,
+        skill_path=skill_path,
+        name=str(meta.get("name") or package_root.name),
+        description=str(meta.get("description") or ""),
+        domain=str(meta.get("domain") or ""),
+        body=body,
+        reference_paths=reference_paths,
+    )
+
+
+def parse_skill_frontmatter(content: str) -> tuple[dict[str, object], str]:
+    normalized = content.replace("\r\n", "\n")
+    if not normalized.startswith("---\n"):
+        return {}, normalized.strip()
+    end = normalized.find("\n---\n", 4)
+    if end == -1:
+        return {}, normalized.strip()
+    raw_block = normalized[4:end]
+    try:
+        parsed = yaml.safe_load(raw_block) or {}
+    except yaml.YAMLError:
+        parsed = {}
+    body = normalized[end + 5 :].strip()
+    return parsed if isinstance(parsed, dict) else {}, body
 
 
 def _iter_children(path: Path) -> list[Path]:

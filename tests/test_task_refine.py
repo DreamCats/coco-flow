@@ -10,6 +10,7 @@ from unittest.mock import patch
 from coco_flow.config import Settings
 from coco_flow.engines.refine.generate import parse_refine_verify_output
 from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
+from coco_flow.services.queries.skills import SkillStore
 from coco_flow.services.tasks.refine import refine_task, start_refining_task
 
 
@@ -157,6 +158,59 @@ class RefineTaskTest(unittest.TestCase):
             result = json.loads((task_dir / "refine-result.json").read_text(encoding="utf-8"))
             self.assertEqual(result["knowledge_used"], True)
             self.assertEqual(result["selected_knowledge_ids"], ["auction-domain"])
+
+    def test_local_refine_can_use_skill_packages_without_knowledge_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            skill_store = SkillStore(settings)
+            _name, package_root, _skill_path = skill_store.create_package(
+                "auction-popcard",
+                description="处理竞拍讲解卡相关需求。",
+                domain="auction_pop_card",
+            )
+            (package_root / "SKILL.md").write_text(
+                (
+                    "---\n"
+                    "name: auction-popcard\n"
+                    "description: 处理竞拍讲解卡相关需求。\n"
+                    "domain: auction_pop_card\n"
+                    "---\n\n"
+                    "# Overview\n\n"
+                    "适用于竞拍讲解卡相关 refine。\n"
+                ),
+                encoding="utf-8",
+            )
+            (package_root / "references" / "domain.md").write_text(
+                "## Summary\n\n- 竞拍讲解卡只在竞拍态相关场景下展示。\n",
+                encoding="utf-8",
+            )
+            (package_root / "references" / "main-flow.md").write_text(
+                "## Summary\n\n- 非竞拍态误展示会造成业务口径错误。\n",
+                encoding="utf-8",
+            )
+
+            task_dir = build_task(
+                settings=settings,
+                task_id="task-skill-local",
+                title="竞拍讲解卡增加竞拍态提示",
+                source_markdown=(
+                    "# PRD Source\n\n"
+                    "- title: 竞拍讲解卡增加竞拍态提示\n"
+                    "- source_type: text\n\n"
+                    "---\n\n"
+                    "竞拍讲解卡需要展示竞拍态提示。\n"
+                ),
+            )
+
+            status = refine_task("task-skill-local", settings=settings)
+
+            self.assertEqual(status, "refined")
+            self.assertTrue((task_dir / "refine-knowledge-selection.json").exists())
+            self.assertTrue((task_dir / "refine-knowledge-read.md").exists())
+            result = json.loads((task_dir / "refine-result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["selected_knowledge_ids"], ["auction-popcard"])
+            selection = json.loads((task_dir / "refine-knowledge-selection.json").read_text(encoding="utf-8"))
+            self.assertEqual(selection["selected_ids"], ["auction-popcard"])
 
     def test_native_refine_runs_new_multi_step_prompt_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
