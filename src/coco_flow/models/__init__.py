@@ -6,6 +6,14 @@ from .knowledge import (
     UpdateKnowledgeDocumentContentRequest,
     UpdateKnowledgeDocumentRequest,
 )
+from .skills import (
+    CreateSkillPackageRequest,
+    SkillFileResponse,
+    SkillPackageResponse,
+    SkillTreeNode,
+    SkillTreeResponse,
+    UpdateSkillFileRequest,
+)
 from .task import (
     ArtifactContentResponse,
     ArtifactItem,
@@ -25,6 +33,7 @@ from .task import (
 
 __all__ = [
     "CreateKnowledgeDocumentRequest",
+    "CreateSkillPackageRequest",
     "ArtifactContentResponse",
     "ArtifactItem",
     "CreateTaskRequest",
@@ -33,11 +42,16 @@ __all__ = [
     "KnowledgeEvidence",
     "KnowledgeListResponse",
     "RepoBinding",
+    "SkillFileResponse",
+    "SkillPackageResponse",
+    "SkillTreeNode",
+    "SkillTreeResponse",
     "TaskActionResponse",
     "TaskDetail",
     "TaskListResponse",
     "TaskSummary",
     "TimelineItem",
+    "UpdateSkillFileRequest",
     "UpdateTaskReposRequest",
     "UpdateKnowledgeDocumentContentRequest",
     "UpdateKnowledgeDocumentRequest",

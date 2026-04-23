@@ -12,13 +12,18 @@ from fastapi.staticfiles import StaticFiles
 from coco_flow.models import (
     ArtifactContentResponse,
     CreateKnowledgeDocumentRequest,
+    CreateSkillPackageRequest,
     CreateTaskRequest,
     CreateTaskResponse,
     KnowledgeDocument,
     KnowledgeListResponse,
+    SkillFileResponse,
+    SkillPackageResponse,
+    SkillTreeResponse,
     TaskDetail,
     TaskActionResponse,
     TaskListResponse,
+    UpdateSkillFileRequest,
     UpdateTaskReposRequest,
     UpdateKnowledgeDocumentContentRequest,
     UpdateKnowledgeDocumentRequest,
@@ -41,12 +46,14 @@ from coco_flow.services.tasks.repos import update_task_repos
 from coco_flow.services.tasks.refine import start_refining_task
 from coco_flow.api.presenters import task_detail_item, task_list_item
 from coco_flow.services.queries.knowledge import KnowledgeStore
+from coco_flow.services.queries.skills import SkillStore
 from coco_flow.services.queries.workspace import workspace_summary
 
 
 def create_app(task_store: TaskStore | None = None, static_dir: str | None = None) -> FastAPI:
     store = task_store or TaskStore()
     knowledge_store = KnowledgeStore(store.settings)
+    skill_store = SkillStore(store.settings)
     static_root = Path(static_dir).expanduser().resolve() if static_dir else None
     static_index = static_root / "index.html" if static_root else None
     app = FastAPI(
@@ -137,6 +144,47 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
             return TaskActionResponse(task_id=document_id, status="deleted")
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get("/api/skills/tree", response_model=SkillTreeResponse)
+    def skills_tree() -> SkillTreeResponse:
+        root, nodes = skill_store.list_tree()
+        return SkillTreeResponse(rootPath=str(root), nodes=nodes)
+
+    @app.get("/api/skills/file", response_model=SkillFileResponse)
+    def read_skill_file(path: str) -> SkillFileResponse:
+        try:
+            resolved_path, content = skill_store.read_file(path)
+            return SkillFileResponse(path=resolved_path, content=content)
+        except ValueError as error:
+            message = str(error)
+            status_code = 404 if "not found" in message else 400
+            raise HTTPException(status_code=status_code, detail=message) from error
+
+    @app.put("/api/skills/file", response_model=SkillFileResponse)
+    def update_skill_file(path: str, payload: UpdateSkillFileRequest) -> SkillFileResponse:
+        try:
+            resolved_path, content = skill_store.write_file(path, payload.content)
+            return SkillFileResponse(path=resolved_path, content=content)
+        except ValueError as error:
+            message = str(error)
+            status_code = 404 if "not found" in message else 400
+            raise HTTPException(status_code=status_code, detail=message) from error
+
+    @app.post("/api/skills/package", response_model=SkillPackageResponse, status_code=201)
+    def create_skill_package(payload: CreateSkillPackageRequest) -> SkillPackageResponse:
+        try:
+            name, root_path, skill_path = skill_store.create_package(
+                payload.name,
+                description=payload.description,
+                domain=payload.domain,
+            )
+            return SkillPackageResponse(
+                name=name,
+                rootPath=str(root_path),
+                skillPath=skill_path,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/api/tasks", response_model=CreateTaskResponse, status_code=202)
     def create_task_handler(payload: CreateTaskRequest) -> CreateTaskResponse:

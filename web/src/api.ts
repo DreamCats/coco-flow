@@ -1,4 +1,5 @@
 import type { KnowledgeDocument } from './knowledge/types'
+import type { SkillFile, SkillPackage, SkillTreeResponse } from './skills/types'
 
 export type TaskStatus =
   | 'initialized'
@@ -159,7 +160,7 @@ export type TaskRecord = {
 export type WorkspaceSummary = {
   repoRoot: string
   tasksRoot: string
-  knowledgeRoot: string
+  skillsRoot: string
   worktreeRoot: string
   reposInvolved: string[]
   taskCount: number
@@ -290,6 +291,40 @@ export async function deleteKnowledgeDocument(documentId: string) {
     throw new Error(await response.text())
   }
   return response.json() as Promise<{ task_id: string; status: string }>
+}
+
+export async function getSkillsTree() {
+  return fetchJSON<SkillTreeResponse>('/api/skills/tree')
+}
+
+export async function getSkillFile(path: string) {
+  const query = new URLSearchParams({ path })
+  return fetchJSON<SkillFile>(`/api/skills/file?${query.toString()}`)
+}
+
+export async function updateSkillFile(path: string, content: string) {
+  const query = new URLSearchParams({ path })
+  const response = await fetch(`/api/skills/file?${query.toString()}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<SkillFile>
+}
+
+export async function createSkillPackage(input: { name: string; description: string; domain: string }) {
+  const response = await fetch('/api/skills/package', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<SkillPackage>
 }
 
 export async function createTask(input: CreateTaskRequest) {
