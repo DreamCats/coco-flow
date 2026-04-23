@@ -11,12 +11,9 @@ from fastapi.staticfiles import StaticFiles
 
 from coco_flow.models import (
     ArtifactContentResponse,
-    CreateKnowledgeDocumentRequest,
     CreateSkillPackageRequest,
     CreateTaskRequest,
     CreateTaskResponse,
-    KnowledgeDocument,
-    KnowledgeListResponse,
     SkillFileResponse,
     SkillPackageResponse,
     SkillTreeResponse,
@@ -25,8 +22,6 @@ from coco_flow.models import (
     TaskListResponse,
     UpdateSkillFileRequest,
     UpdateTaskReposRequest,
-    UpdateKnowledgeDocumentContentRequest,
-    UpdateKnowledgeDocumentRequest,
     UpdateArtifactRequest,
     UpdateArtifactResponse,
 )
@@ -45,14 +40,12 @@ from coco_flow.services.queries.repos import list_recent_repos, validate_repo_pa
 from coco_flow.services.tasks.repos import update_task_repos
 from coco_flow.services.tasks.refine import start_refining_task
 from coco_flow.api.presenters import task_detail_item, task_list_item
-from coco_flow.services.queries.knowledge import KnowledgeStore
 from coco_flow.services.queries.skills import SkillStore
 from coco_flow.services.queries.workspace import workspace_summary
 
 
 def create_app(task_store: TaskStore | None = None, static_dir: str | None = None) -> FastAPI:
     store = task_store or TaskStore()
-    knowledge_store = KnowledgeStore(store.settings)
     skill_store = SkillStore(store.settings)
     static_root = Path(static_dir).expanduser().resolve() if static_dir else None
     static_index = static_root / "index.html" if static_root else None
@@ -102,48 +95,6 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         summaries = store.list_tasks(limit=limit)
         items = [task_list_item(summary, store.get_task(summary.task_id)) for summary in summaries]
         return {"tasks": items}
-
-    @app.get("/api/knowledge", response_model=KnowledgeListResponse)
-    def list_knowledge() -> KnowledgeListResponse:
-        return KnowledgeListResponse(documents=knowledge_store.list_documents())
-
-    @app.post("/api/knowledge", response_model=KnowledgeDocument, status_code=201)
-    def create_knowledge_document(payload: CreateKnowledgeDocumentRequest) -> KnowledgeDocument:
-        try:
-            return knowledge_store.create_document(payload.title, payload.content)
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-
-    @app.get("/api/knowledge/{document_id}", response_model=KnowledgeDocument)
-    def get_knowledge(document_id: str) -> KnowledgeDocument:
-        document = knowledge_store.get_document(document_id)
-        if document is None:
-            raise HTTPException(status_code=404, detail=f"knowledge document not found: {document_id}")
-        return document
-
-    @app.put("/api/knowledge/{document_id}", response_model=KnowledgeDocument)
-    def update_knowledge_document(document_id: str, payload: UpdateKnowledgeDocumentRequest) -> KnowledgeDocument:
-        try:
-            return knowledge_store.update_document(document_id, payload.model_dump())
-        except ValueError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @app.put("/api/knowledge/{document_id}/content", response_model=KnowledgeDocument)
-    def update_knowledge_document_content(document_id: str, payload: UpdateKnowledgeDocumentContentRequest) -> KnowledgeDocument:
-        try:
-            return knowledge_store.update_document_content(document_id, payload.content)
-        except ValueError as error:
-            message = str(error)
-            status_code = 404 if "not found" in message else 400
-            raise HTTPException(status_code=status_code, detail=message) from error
-
-    @app.delete("/api/knowledge/{document_id}", response_model=TaskActionResponse)
-    def delete_knowledge_document(document_id: str) -> TaskActionResponse:
-        try:
-            knowledge_store.delete_document(document_id)
-            return TaskActionResponse(task_id=document_id, status="deleted")
-        except ValueError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/api/skills/tree", response_model=SkillTreeResponse)
     def skills_tree() -> SkillTreeResponse:

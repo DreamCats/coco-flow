@@ -361,8 +361,6 @@ class TaskDetailPresenterTest(unittest.TestCase):
                 Settings(
                     config_root=Path(tmp),
                     task_root=task_root,
-                    knowledge_root=Path(tmp) / "knowledge",
-                    knowledge_executor="native",
                     refine_executor="native",
                     plan_executor="native",
                     code_executor="native",

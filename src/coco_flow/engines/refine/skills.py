@@ -4,25 +4,21 @@ import json
 from math import ceil
 from pathlib import Path
 import tempfile
-from typing import TypeAlias
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
-from coco_flow.models import KnowledgeDocument
 from coco_flow.prompts.refine import (
     build_refine_skills_read_agent_prompt,
     build_refine_skills_read_template_markdown,
     build_refine_shortlist_agent_prompt,
     build_refine_shortlist_template_json,
 )
-from coco_flow.services.queries.knowledge import KIND_DIRS, KnowledgeStore
 from coco_flow.services.queries.skills import SkillPackage, SkillStore
 
 from .models import EXECUTOR_NATIVE, KnowledgeCard, RefineIntent, RefinePreparedInput, RefineSkillsRead, RefineSkillsSelection
 
 SHORTLIST_CHUNK_SIZE = 8
 SHORTLIST_BATCH_MAX_CARDS = 30
-RefineSourceDocument: TypeAlias = KnowledgeDocument | SkillPackage
 
 
 def build_refine_query(prepared: RefinePreparedInput, intent: RefineIntent) -> dict[str, object]:
@@ -43,116 +39,46 @@ def shortlist_refine_skills(
     intent: RefineIntent,
     settings: Settings,
     on_log,
-) -> tuple[list[RefineSourceDocument], RefineSkillsSelection]:
+) -> tuple[list[SkillPackage], RefineSkillsSelection]:
     skill_store = SkillStore(settings)
-    skill_candidates = skill_store.list_packages()
-    if skill_candidates:
-        on_log(f"skills_shortlist_source: skills ({len(skill_candidates)})")
-        return _shortlist_refine_skills(
-            prepared=prepared,
-            intent=intent,
-            settings=settings,
-            on_log=on_log,
-            candidates=skill_candidates,
-        )
-
-    store = KnowledgeStore(settings)
-    candidates = [
-        document
-        for document in store.list_documents()
-        if document.status == "approved" and "refine" in document.engines
-    ]
-    cards = [_to_card(document) for document in candidates]
-    scored_cards = _score_cards(cards, candidates, prepared, intent)
-    on_log(f"skills_shortlist_card_count: {len(cards)}")
-    if not cards:
+    candidates = skill_store.list_packages()
+    on_log(f"skills_shortlist_source: skills ({len(candidates)})")
+    if not candidates:
         on_log("skills_shortlist_mode: empty")
         selection = RefineSkillsSelection(
             selected_skill_ids=[],
             rejected_skill_ids=[],
-            reason="no_approved_refine_knowledge",
+            reason="no_skill_packages",
             candidates=[],
             mode="empty",
         )
         return [], selection
-    if settings.refine_executor.strip().lower() != EXECUTOR_NATIVE:
-        on_log("skills_shortlist_mode: rule")
-        selection = _rule_select(cards, scored_cards)
-        selected_docs = _selected_documents(candidates, selection.selected_skill_ids)
-        return selected_docs, selection
-
-    selection = _native_select(cards, candidates, scored_cards, prepared, intent, settings, on_log)
-    selected_docs = _selected_documents(candidates, selection.selected_skill_ids)
-    return selected_docs, selection
+    return _shortlist_refine_skills(
+        prepared=prepared,
+        intent=intent,
+        settings=settings,
+        on_log=on_log,
+        candidates=candidates,
+    )
 
 
 def read_selected_skills(
     *,
     prepared: RefinePreparedInput,
     intent: RefineIntent,
-    selected_documents: list[RefineSourceDocument],
+    selected_documents: list[SkillPackage],
     settings: Settings,
     on_log,
 ) -> RefineSkillsRead:
     if not selected_documents:
         return RefineSkillsRead(markdown="", selected_skill_ids=[], selected_skill_titles=[])
-
-    if isinstance(selected_documents[0], SkillPackage):
-        return _read_selected_skills(
-            prepared=prepared,
-            intent=intent,
-            selected_skills=[document for document in selected_documents if isinstance(document, SkillPackage)],
-            settings=settings,
-            on_log=on_log,
-        )
-
-    if settings.refine_executor.strip().lower() != EXECUTOR_NATIVE:
-        return _read_knowledge_locally([document for document in selected_documents if isinstance(document, KnowledgeDocument)])
-
-    client = CocoACPClient(
-        settings.coco_bin,
-        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
+    return _read_selected_skills(
+        prepared=prepared,
+        intent=intent,
+        selected_skills=selected_documents,
         settings=settings,
+        on_log=on_log,
     )
-    template_path = _write_knowledge_read_template(prepared.task_dir)
-    try:
-        reply = client.run_agent(
-            build_refine_skills_read_agent_prompt(
-                intent_payload=intent.to_payload(),
-                knowledge_documents=[
-                    {
-                        "id": document.id,
-                        "title": document.title,
-                        "kind": document.kind,
-                        "desc": document.desc or "无",
-                        "path": str(_knowledge_document_path(settings, document)),
-                    }
-                    for document in selected_documents
-                ],
-                template_path=str(template_path),
-            ),
-            settings.native_query_timeout,
-            cwd=str(prepared.task_dir),
-            fresh_session=True,
-        )
-        markdown = template_path.read_text(encoding="utf-8").strip() if template_path.exists() else ""
-        if _looks_like_unfilled_knowledge_read(markdown):
-            raise ValueError("knowledge_read_template_unfilled")
-        if not markdown:
-            raise ValueError("empty_knowledge_read")
-        on_log(f"skills_read_mode: agent ({len(selected_documents)} docs)")
-        _ = reply
-        return RefineSkillsRead(
-            markdown=markdown.rstrip() + "\n",
-            selected_skill_ids=[document.id for document in selected_documents],
-            selected_skill_titles=[document.title for document in selected_documents],
-        )
-    except ValueError as error:
-        on_log(f"skills_read_fallback: {error}")
-        return _read_knowledge_locally(selected_documents)
-    finally:
-        if template_path.exists():
-            template_path.unlink()
 
 
 def _shortlist_refine_skills(
@@ -192,7 +118,7 @@ def _rule_select(cards: list[KnowledgeCard], scored_cards: list[tuple[int, Knowl
 
 def _native_select(
     cards: list[KnowledgeCard],
-    documents: list[RefineSourceDocument],
+    documents: list[SkillPackage],
     scored_cards: list[tuple[int, KnowledgeCard]],
     prepared: RefinePreparedInput,
     intent: RefineIntent,
@@ -310,7 +236,7 @@ def _native_select_chunked(
 
 def _score_cards(
     cards: list[KnowledgeCard],
-    documents: list[RefineSourceDocument],
+    documents: list[SkillPackage],
     prepared: RefinePreparedInput,
     intent: RefineIntent,
 ) -> list[tuple[int, KnowledgeCard]]:
@@ -331,29 +257,6 @@ def _score_cards(
     scored = [(score_map[card.id], card) for card in cards]
     scored.sort(key=lambda item: (-item[0], item[1].kind, item[1].title))
     return scored
-
-
-def _read_knowledge_locally(selected_documents: list[KnowledgeDocument]) -> RefineSkillsRead:
-    lines = ["# Refine Skills Read", ""]
-    for document in selected_documents:
-        lines.extend(
-            [
-                f"## {document.title}",
-                "",
-                f"- id: {document.id}",
-                f"- kind: {document.kind}",
-                f"- domain: {document.domainName or document.domainId or 'unknown'}",
-                f"- desc: {document.desc or '无'}",
-                "",
-                _extract_relevant_excerpt(document.body),
-                "",
-            ]
-        )
-    return RefineSkillsRead(
-        markdown="\n".join(lines).rstrip() + "\n",
-        selected_skill_ids=[document.id for document in selected_documents],
-        selected_skill_titles=[document.title for document in selected_documents],
-    )
 
 
 def _read_selected_skills(
@@ -458,11 +361,6 @@ def _split_markdown_sections(content: str) -> dict[str, str]:
     return sections
 
 
-def _knowledge_document_path(settings: Settings, document: KnowledgeDocument) -> Path:
-    kind_dir = KIND_DIRS.get(document.kind, "flows")
-    return settings.knowledge_root / kind_dir / f"{document.id}.md"
-
-
 def _write_shortlist_template(task_dir: Path) -> Path:
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -530,7 +428,7 @@ def _payload_has_fill_marker(value: object) -> bool:
     return False
 
 
-def _selected_documents(documents: list[RefineSourceDocument], selected_ids: list[str]) -> list[RefineSourceDocument]:
+def _selected_documents(documents: list[SkillPackage], selected_ids: list[str]) -> list[SkillPackage]:
     selected_set = set(selected_ids)
     ordered = [document for document in documents if document.id in selected_set]
     ordered.sort(key=lambda item: selected_ids.index(item.id))
@@ -666,18 +564,6 @@ def _finalize_selection(
     )
 
 
-def _to_card(document: KnowledgeDocument) -> KnowledgeCard:
-    return KnowledgeCard(
-        id=document.id,
-        title=document.title,
-        desc=document.desc,
-        kind=document.kind,
-        domain_name=document.domainName or document.domainId or "",
-        priority=document.priority,
-        confidence=document.confidence,
-    )
-
-
 def _skill_to_card(skill: SkillPackage) -> KnowledgeCard:
     return KnowledgeCard(
         id=skill.id,
@@ -690,10 +576,8 @@ def _skill_to_card(skill: SkillPackage) -> KnowledgeCard:
     )
 
 
-def _document_summary_text(document: RefineSourceDocument) -> str:
-    if isinstance(document, SkillPackage):
-        return _skill_combined_body(document)[:600]
-    return document.body[:600]
+def _document_summary_text(document: SkillPackage) -> str:
+    return _skill_combined_body(document)[:600]
 
 
 def _skill_combined_body(skill: SkillPackage) -> str:

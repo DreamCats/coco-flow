@@ -33,7 +33,6 @@ from coco_flow.engines.shared.models import (
     RepoScope,
     ResearchFinding,
 )
-from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
 from coco_flow.services.queries.skills import SkillStore
 from coco_flow.services.tasks.design import design_task, start_designing_task
 from coco_flow.services.tasks.plan import plan_task
@@ -42,14 +41,10 @@ from coco_flow.services.tasks.plan import plan_task
 def make_settings(root: Path, plan_executor: str = "local") -> Settings:
     config_root = root / "config"
     task_root = config_root / "tasks"
-    knowledge_root = config_root / "knowledge"
     task_root.mkdir(parents=True, exist_ok=True)
-    knowledge_root.mkdir(parents=True, exist_ok=True)
     return Settings(
         config_root=config_root,
         task_root=task_root,
-        knowledge_root=knowledge_root,
-        knowledge_executor="local",
         refine_executor="local",
         plan_executor=plan_executor,
         code_executor="local",
@@ -1307,7 +1302,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
     def test_design_writes_design_markdown_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
-            repo_root = Path(tmp) / "repo"
+            repo_root = Path(tmp) / "demo_repo"
             (repo_root / ".git").mkdir(parents=True)
             (repo_root / "app" / "explain_card").mkdir(parents=True)
             (repo_root / "app" / "explain_card" / "render_handler.go").write_text(
@@ -1446,7 +1441,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
     def test_design_can_infer_repos_from_selected_reference_doc_when_repos_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
-            repo_root = Path(tmp) / "repo"
+            repo_root = Path(tmp) / "demo_repo"
             repo_root.mkdir(parents=True)
             subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
             (repo_root / "app" / "auction_card").mkdir(parents=True)
@@ -1464,38 +1459,19 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             timestamp = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "domains" / "auction-reward-card-domain.md",
-                KnowledgeDocument(
-                    id="auction-reward-card-domain",
-                    kind="domain",
-                    status="approved",
-                    title="竞拍奖励卡领域知识",
-                    desc="包含竞拍奖励卡相关仓库线索",
-                    domainId="auction_reward_card",
-                    domainName="竞拍奖励卡",
-                    engines=["refine"],
-                    repos=["demo_repo"],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body=(
+            create_skill_package(
+                settings,
+                package_id="auction-reward-card-domain",
+                description="包含竞拍奖励卡相关仓库线索",
+                domain="auction_reward_card",
+                references={
+                    "domain.md": (
                         "## Summary\n\n"
                         "- 竞拍奖励卡的主逻辑位于主播侧渲染链路。\n"
-                    ),
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=["demo_repo"],
-                        keywordMatches=["竞拍奖励卡"],
-                        pathMatches=[str(repo_root)],
-                        candidateFiles=[],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+                        f"- repo: demo_repo\n"
+                        f"- code path: {repo_root}\n"
+                    )
+                },
             )
 
             task_id = "task-design-reference-discovery"
@@ -1688,35 +1664,18 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             timestamp = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "domains" / "reward-card-candidate-file.md",
-                KnowledgeDocument(
-                    id="reward-card-candidate-file",
-                    kind="domain",
-                    status="approved",
-                    title="奖励卡文件线索",
-                    desc="仅通过 candidateFiles 提供仓库线索",
-                    domainId="reward_card",
-                    domainName="奖励卡",
-                    engines=["refine"],
-                    repos=[],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 奖励卡渲染链路在服务层。\n",
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=[],
-                        keywordMatches=["奖励卡"],
-                        pathMatches=[],
-                        candidateFiles=[str(target_file)],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+            create_skill_package(
+                settings,
+                package_id="reward-card-candidate-file",
+                description="仅通过 candidate file 提供仓库线索",
+                domain="reward_card",
+                references={
+                    "domain.md": (
+                        "## Summary\n\n"
+                        "- 奖励卡渲染链路在服务层。\n"
+                        f"- candidate file: {target_file}\n"
+                    )
+                },
             )
 
             task_id = "task-design-candidate-file-discovery"
@@ -1814,35 +1773,18 @@ class PlanTaskPipelineTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            write_knowledge_document(
-                settings.knowledge_root / "domains" / "auction-card-fuzzy-hint.md",
-                KnowledgeDocument(
-                    id="auction-card-fuzzy-hint",
-                    kind="domain",
-                    status="approved",
-                    title="竞拍卡仓库线索",
-                    desc="repoMatches 与历史 repo id 存在轻微格式差异",
-                    domainId="auction_card",
-                    domainName="竞拍卡",
-                    engines=["refine"],
-                    repos=[],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 主链路仍在 auction card repo。\n",
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=["auction_card_repo"],
-                        keywordMatches=["竞拍卡"],
-                        pathMatches=[],
-                        candidateFiles=[],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+            create_skill_package(
+                settings,
+                package_id="auction-card-fuzzy-hint",
+                description="repo hint 与历史 repo id 存在轻微格式差异",
+                domain="auction_card",
+                references={
+                    "domain.md": (
+                        "## Summary\n\n"
+                        "- 主链路仍在 auction card repo。\n"
+                        "- repo: auction_card_repo\n"
+                    )
+                },
             )
 
             task_id = "task-design-fuzzy-repo-hint"
@@ -1911,35 +1853,18 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             timestamp = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "auction-remote-repo-hint.md",
-                KnowledgeDocument(
-                    id="auction-remote-repo-hint",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍远端 repo 线索",
-                    desc="仅给出 code.byted.org 形式的 repo hint",
-                    domainId="auction_remote",
-                    domainName="竞拍远端仓库",
-                    engines=["refine"],
-                    repos=["code.byted.org/oec/live_shop"],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 竞拍主链路在 live_shop。\n",
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=["code.byted.org/oec/live_shop"],
-                        keywordMatches=["竞拍"],
-                        pathMatches=[],
-                        candidateFiles=[],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+            create_skill_package(
+                settings,
+                package_id="auction-remote-repo-hint",
+                description="仅给出 code.byted.org 形式的 repo hint",
+                domain="auction_remote",
+                references={
+                    "main-flow.md": (
+                        "## Summary\n\n"
+                        "- 竞拍主链路在 live_shop。\n"
+                        "- repo: code.byted.org/oec/live_shop\n"
+                    )
+                },
             )
 
             task_id = "task-design-remote-repo-hint"
@@ -2021,42 +1946,21 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             timestamp = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "flow-auction-card-plan.md",
-                KnowledgeDocument(
-                    id="flow-auction-card-plan",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍讲解卡状态提示链路",
-                    desc="主播侧状态提示的主链路说明",
-                    domainId="auction_card",
-                    domainName="竞拍讲解卡",
-                    engines=["plan"],
-                    repos=["demo_repo"],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body=(
+            create_skill_package(
+                settings,
+                package_id="flow-auction-card-plan",
+                description="主播侧状态提示的主链路说明",
+                domain="auction_card",
+                references={
+                    "main-flow.md": (
                         "## Main Flow\n\n"
                         "- 主链路先进入 ExplainCardHandler，再下发状态提示。\n\n"
                         "## Risks\n\n"
                         "- 需要保持非竞拍态不展示。\n\n"
                         "## Validation\n\n"
                         "- 校验主播侧状态提示与现有讲解卡兼容。\n"
-                    ),
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=["demo_repo"],
-                        keywordMatches=["竞拍讲解卡"],
-                        pathMatches=[str(repo_root)],
-                        candidateFiles=[],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+                    )
+                },
             )
 
             task_id = "task-plan"
@@ -2131,7 +2035,7 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertTrue(validation["task_validations"])
             brief = (task_dir / "plan-skills-brief.md").read_text(encoding="utf-8")
             self.assertIn("Plan Skills Brief", brief)
-            self.assertIn("竞拍讲解卡状态提示链路", brief)
+            self.assertIn("flow-auction-card-plan", brief)
             self.assertIn("决策边界", brief)
             self.assertIn("稳定规则", brief)
             self.assertIn("验证要点", brief)
@@ -2288,42 +2192,21 @@ class PlanTaskPipelineTest(unittest.TestCase):
             )
 
             timestamp = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "flow-auction-card-plan.md",
-                KnowledgeDocument(
-                    id="flow-auction-card-plan",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍讲解卡状态提示链路",
-                    desc="主播侧状态提示的主链路说明",
-                    domainId="auction_card",
-                    domainName="竞拍讲解卡",
-                    engines=["plan"],
-                    repos=["demo_repo"],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=timestamp.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body=(
+            create_skill_package(
+                settings,
+                package_id="flow-auction-card-plan",
+                description="主播侧状态提示的主链路说明",
+                domain="auction_card",
+                references={
+                    "main-flow.md": (
                         "## Main Flow\n\n"
                         "- 主链路先进入 ExplainCardHandler，再下发状态提示。\n\n"
                         "## Risks\n\n"
                         "- 需要保持非竞拍态不展示。\n\n"
                         "## Validation\n\n"
                         "- 校验主播侧状态提示与现有讲解卡兼容。\n"
-                    ),
-                    evidence=KnowledgeEvidence(
-                        inputTitle="",
-                        inputDescription="",
-                        repoMatches=["demo_repo"],
-                        keywordMatches=["竞拍讲解卡"],
-                        pathMatches=[str(repo_root)],
-                        candidateFiles=[],
-                        contextHits=[],
-                        retrievalNotes=[],
-                        openQuestions=[],
-                    ),
-                ),
+                    )
+                },
             )
 
             task_id = "task-plan-native"
@@ -2511,31 +2394,36 @@ class PlanTaskPipelineTest(unittest.TestCase):
             self.assertIn("最小范围验证通过", plan)
 
 
+def create_skill_package(
+    settings: Settings,
+    *,
+    package_id: str,
+    description: str,
+    domain: str,
+    references: dict[str, str],
+) -> Path:
+    skill_store = SkillStore(settings)
+    _name, package_root, _skill_path = skill_store.create_package(
+        package_id,
+        description=description,
+        domain=domain,
+    )
+    (package_root / "SKILL.md").write_text(
+        (
+            "---\n"
+            f"name: {package_id}\n"
+            f"description: {description}\n"
+            f"domain: {domain}\n"
+            "---\n\n"
+            "# Overview\n\n"
+            f"适用于 {package_id} 相关需求。\n"
+        ),
+        encoding="utf-8",
+    )
+    for name, content in references.items():
+        (package_root / "references" / name).write_text(content, encoding="utf-8")
+    return package_root
+
+
 if __name__ == "__main__":
     unittest.main()
-
-
-def write_knowledge_document(path: Path, document: KnowledgeDocument) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    meta = {
-        "kind": document.kind,
-        "id": document.id,
-        "title": document.title,
-        "desc": document.desc,
-        "status": document.status,
-        "engines": document.engines,
-        "domain_id": document.domainId,
-        "domain_name": document.domainName,
-        "repos": document.repos,
-        "priority": document.priority,
-        "confidence": document.confidence,
-        "updated_at": document.updatedAt,
-        "owner": document.owner,
-        "evidence": document.evidence.model_dump(),
-    }
-    frontmatter = ["---"]
-    for key, value in meta.items():
-        serialized = json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else str(value)
-        frontmatter.append(f"{key}: {serialized}")
-    frontmatter.append("---")
-    path.write_text("\n".join(frontmatter) + "\n\n" + document.body.rstrip() + "\n", encoding="utf-8")

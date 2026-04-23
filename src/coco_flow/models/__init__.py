@@ -1,11 +1,3 @@
-from .skill_sources import (
-    CreateKnowledgeDocumentRequest,
-    KnowledgeDocument,
-    KnowledgeEvidence,
-    KnowledgeListResponse,
-    UpdateKnowledgeDocumentContentRequest,
-    UpdateKnowledgeDocumentRequest,
-)
 from .skills import (
     CreateSkillPackageRequest,
     SkillFileResponse,
@@ -32,15 +24,11 @@ from .task import (
 )
 
 __all__ = [
-    "CreateKnowledgeDocumentRequest",
     "CreateSkillPackageRequest",
     "ArtifactContentResponse",
     "ArtifactItem",
     "CreateTaskRequest",
     "CreateTaskResponse",
-    "KnowledgeDocument",
-    "KnowledgeEvidence",
-    "KnowledgeListResponse",
     "RepoBinding",
     "SkillFileResponse",
     "SkillPackageResponse",
@@ -53,8 +41,6 @@ __all__ = [
     "TimelineItem",
     "UpdateSkillFileRequest",
     "UpdateTaskReposRequest",
-    "UpdateKnowledgeDocumentContentRequest",
-    "UpdateKnowledgeDocumentRequest",
     "UpdateArtifactRequest",
     "UpdateArtifactResponse",
     "WorkspaceInfo",

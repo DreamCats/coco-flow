@@ -163,7 +163,7 @@ uv run python -m unittest discover -s tests -v
   - 若只找到部分上下文，标记为 `partial_grounded`
 - `refine` 当前内部已拆成 `prepare -> intent -> skills selection -> skills read -> generate` 多步编排
 - `native refine` 当前已按“controller 建模板 + agent 填文件”的方式组织主要结构化产物
-- `native refine` 还会在规则筛中的 approved knowledge 上额外做一步 LLM 适用性裁决；`local refine` 保持规则筛选回退
+- `native refine` 会在 frontmatter shortlist 后再做一步 LLM 适用性裁决；`local refine` 保持规则筛选回退
 - `refine` 当前会额外生成：
   - `refine-intent.json`
   - `refine-skills-selection.json`（记录 selected skills 的规则筛选结果）

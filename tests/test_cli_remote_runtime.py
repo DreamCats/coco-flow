@@ -14,8 +14,6 @@ class RemoteRuntimeTest(unittest.TestCase):
         return Settings(
             config_root=root,
             task_root=root / "tasks",
-            knowledge_root=root / "knowledge",
-            knowledge_executor="native",
             refine_executor="native",
             plan_executor="native",
             code_executor="native",

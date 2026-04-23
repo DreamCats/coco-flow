@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 from coco_flow.config import Settings
 from coco_flow.engines.refine.generate import parse_refine_verify_output
-from coco_flow.models import KnowledgeDocument, KnowledgeEvidence
 from coco_flow.services.queries.skills import SkillStore
 from coco_flow.services.tasks.refine import refine_task, start_refining_task
 
@@ -17,14 +16,10 @@ from coco_flow.services.tasks.refine import refine_task, start_refining_task
 def make_settings(root: Path, refine_executor: str = "local") -> Settings:
     config_root = root / "config"
     task_root = config_root / "tasks"
-    knowledge_root = config_root / "knowledge"
     task_root.mkdir(parents=True, exist_ok=True)
-    knowledge_root.mkdir(parents=True, exist_ok=True)
     return Settings(
         config_root=config_root,
         task_root=task_root,
-        knowledge_root=knowledge_root,
-        knowledge_executor="local",
         refine_executor=refine_executor,
         plan_executor="local",
         code_executor="local",
@@ -99,32 +94,20 @@ class RefineTaskTest(unittest.TestCase):
     def test_local_refine_outputs_new_five_sections_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
-            now = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "domains" / "auction-domain.md",
-                KnowledgeDocument(
-                    id="auction-domain",
-                    kind="domain",
-                    status="approved",
-                    title="竞拍讲解卡术语说明",
-                    desc="解释竞拍讲解卡、竞拍态和展示边界。",
-                    domainId="auction_pop_card",
-                    domainName="竞拍讲解卡",
-                    engines=["refine"],
-                    repos=[],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=now.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body=(
+            create_skill_package(
+                settings,
+                package_id="auction-domain",
+                description="解释竞拍讲解卡、竞拍态和展示边界。",
+                domain="auction_pop_card",
+                references={
+                    "domain.md": (
                         "## Summary\n\n"
                         "- 竞拍讲解卡只在竞拍态相关场景下展示。\n"
                         "- 竞拍态提示属于展示口径的一部分。\n\n"
                         "## 风险\n\n"
                         "- 非竞拍态误展示会造成业务口径错误。\n"
                     ),
-                    evidence=empty_evidence(),
-                ),
+                },
             )
 
             task_dir = build_task(
@@ -216,26 +199,12 @@ class RefineTaskTest(unittest.TestCase):
     def test_native_refine_runs_new_multi_step_prompt_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), refine_executor="native")
-            now = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "auction-flow.md",
-                KnowledgeDocument(
-                    id="auction-flow",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍讲解卡主链路",
-                    desc="归纳竞拍讲解卡主链路和风险。",
-                    domainId="auction_pop_card",
-                    domainName="竞拍讲解卡",
-                    engines=["refine"],
-                    repos=[],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=now.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n",
-                    evidence=empty_evidence(),
-                ),
+            create_skill_package(
+                settings,
+                package_id="auction-flow",
+                description="归纳竞拍讲解卡主链路和风险。",
+                domain="auction_pop_card",
+                references={"main-flow.md": "## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n"},
             )
             task_dir = build_task(
                 settings=settings,
@@ -325,26 +294,12 @@ class RefineTaskTest(unittest.TestCase):
     def test_native_refine_shortlist_guard_rejects_low_relevance_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), refine_executor="native")
-            now = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "auction-flow.md",
-                KnowledgeDocument(
-                    id="auction-flow",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍讲解卡主链路",
-                    desc="归纳竞拍讲解卡主链路和风险。",
-                    domainId="auction_pop_card",
-                    domainName="竞拍讲解卡",
-                    engines=["refine"],
-                    repos=[],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=now.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n",
-                    evidence=empty_evidence(),
-                ),
+            create_skill_package(
+                settings,
+                package_id="auction-flow",
+                description="归纳竞拍讲解卡主链路和风险。",
+                domain="auction_pop_card",
+                references={"main-flow.md": "## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n"},
             )
             task_dir = build_task(
                 settings=settings,
@@ -425,26 +380,12 @@ class RefineTaskTest(unittest.TestCase):
     def test_native_refine_falls_back_when_verify_rejects_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), refine_executor="native")
-            now = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "auction-flow.md",
-                KnowledgeDocument(
-                    id="auction-flow",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍讲解卡主链路",
-                    desc="归纳竞拍讲解卡主链路和风险。",
-                    domainId="auction_pop_card",
-                    domainName="竞拍讲解卡",
-                    engines=["refine"],
-                    repos=[],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=now.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n",
-                    evidence=empty_evidence(),
-                ),
+            create_skill_package(
+                settings,
+                package_id="auction-flow",
+                description="归纳竞拍讲解卡主链路和风险。",
+                domain="auction_pop_card",
+                references={"main-flow.md": "## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n"},
             )
             task_dir = build_task(
                 settings=settings,
@@ -532,26 +473,12 @@ class RefineTaskTest(unittest.TestCase):
     def test_verify_failure_before_fallback_is_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), refine_executor="native")
-            now = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "auction-flow.md",
-                KnowledgeDocument(
-                    id="auction-flow",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍讲解卡主链路",
-                    desc="归纳竞拍讲解卡主链路和风险。",
-                    domainId="auction_pop_card",
-                    domainName="竞拍讲解卡",
-                    engines=["refine"],
-                    repos=[],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=now.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n",
-                    evidence=empty_evidence(),
-                ),
+            create_skill_package(
+                settings,
+                package_id="auction-flow",
+                description="归纳竞拍讲解卡主链路和风险。",
+                domain="auction_pop_card",
+                references={"main-flow.md": "## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n"},
             )
             task_dir = build_task(
                 settings=settings,
@@ -660,26 +587,12 @@ class RefineTaskTest(unittest.TestCase):
     def test_native_refine_accepts_valid_verify_json_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp), refine_executor="native")
-            now = datetime.now().astimezone()
-            write_knowledge_document(
-                settings.knowledge_root / "flows" / "auction-flow.md",
-                KnowledgeDocument(
-                    id="auction-flow",
-                    kind="flow",
-                    status="approved",
-                    title="竞拍讲解卡主链路",
-                    desc="归纳竞拍讲解卡主链路和风险。",
-                    domainId="auction_pop_card",
-                    domainName="竞拍讲解卡",
-                    engines=["refine"],
-                    repos=[],
-                    priority="high",
-                    confidence="high",
-                    updatedAt=now.strftime("%Y-%m-%d %H:%M"),
-                    owner="tester",
-                    body="## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n",
-                    evidence=empty_evidence(),
-                ),
+            create_skill_package(
+                settings,
+                package_id="auction-flow",
+                description="归纳竞拍讲解卡主链路和风险。",
+                domain="auction_pop_card",
+                references={"main-flow.md": "## Summary\n\n- 竞拍讲解卡属于竞拍展示链路。\n"},
             )
             build_task(
                 settings=settings,
@@ -809,44 +722,35 @@ def build_task(*, settings: Settings, task_id: str, title: str, source_markdown:
     return task_dir
 
 
-def empty_evidence() -> KnowledgeEvidence:
-    return KnowledgeEvidence(
-        inputTitle="",
-        inputDescription="",
-        repoMatches=[],
-        keywordMatches=[],
-        pathMatches=[],
-        candidateFiles=[],
-        contextHits=[],
-        retrievalNotes=[],
-        openQuestions=[],
+def create_skill_package(
+    settings: Settings,
+    *,
+    package_id: str,
+    description: str,
+    domain: str,
+    references: dict[str, str],
+) -> Path:
+    skill_store = SkillStore(settings)
+    _name, package_root, _skill_path = skill_store.create_package(
+        package_id,
+        description=description,
+        domain=domain,
     )
-
-
-def write_knowledge_document(path: Path, document: KnowledgeDocument) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    meta = {
-        "kind": document.kind,
-        "id": document.id,
-        "title": document.title,
-        "desc": document.desc,
-        "status": document.status,
-        "engines": document.engines,
-        "domain_id": document.domainId,
-        "domain_name": document.domainName,
-        "repos": document.repos,
-        "priority": document.priority,
-        "confidence": document.confidence,
-        "updated_at": document.updatedAt,
-        "owner": document.owner,
-        "evidence": document.evidence.model_dump(),
-    }
-    frontmatter = ["---"]
-    for key, value in meta.items():
-        serialized = json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else str(value)
-        frontmatter.append(f"{key}: {serialized}")
-    frontmatter.append("---")
-    path.write_text("\n".join(frontmatter) + "\n\n" + document.body.rstrip() + "\n", encoding="utf-8")
+    (package_root / "SKILL.md").write_text(
+        (
+            "---\n"
+            f"name: {package_id}\n"
+            f"description: {description}\n"
+            f"domain: {domain}\n"
+            "---\n\n"
+            "# Overview\n\n"
+            f"适用于 {package_id} 相关需求。\n"
+        ),
+        encoding="utf-8",
+    )
+    for name, content in references.items():
+        (package_root / "references" / name).write_text(content, encoding="utf-8")
+    return package_root
 
 
 if __name__ == "__main__":

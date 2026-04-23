@@ -43,7 +43,7 @@ Uninstall:
 uv tool uninstall coco-flow
 rm -rf ~/.local/share/coco-flow
 
-# optional: remove local task and knowledge data
+# optional: remove local task and skills data
 rm -rf ~/.config/coco-flow
 ```
 
@@ -64,8 +64,6 @@ coco-flow stop
 
 coco-flow tasks roots
 coco-flow tasks list
-coco-flow knowledge list
-
 coco-flow tasks refine <task_id>
 coco-flow tasks design <task_id>
 coco-flow tasks plan <task_id>
@@ -235,7 +233,7 @@ Current UI capabilities:
 
 - create tasks
 - run `refine`, `design`, `plan`, and `code`
-- browse and edit knowledge documents
+- browse and edit skills packages
 - edit `prd.source.md`, `prd-refined.md`, `design.md`, and `plan.md`
 - reset, archive, and inspect task artifacts
 
@@ -317,7 +315,6 @@ Common environment variables:
 
 ```bash
 export COCO_FLOW_COCO_BIN=/path/to/coco
-export COCO_FLOW_KNOWLEDGE_EXECUTOR=local
 export COCO_FLOW_REFINE_EXECUTOR=local
 export COCO_FLOW_PLAN_EXECUTOR=local
 export COCO_FLOW_CODE_EXECUTOR=local
@@ -338,12 +335,10 @@ Current endpoints:
 - `GET /healthz`
 - `GET /api/meta`
 - `GET /api/workspace`
-- `GET /api/knowledge`
-- `POST /api/knowledge`
-- `GET /api/knowledge/{document_id}`
-- `PUT /api/knowledge/{document_id}`
-- `PUT /api/knowledge/{document_id}/content`
-- `DELETE /api/knowledge/{document_id}`
+- `GET /api/skills/tree`
+- `GET /api/skills/file`
+- `PUT /api/skills/file`
+- `POST /api/skills/package`
 - `GET /api/tasks`
 - `POST /api/tasks`
 - `GET /api/tasks/{task_id}`

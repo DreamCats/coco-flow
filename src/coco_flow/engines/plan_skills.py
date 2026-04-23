@@ -1,22 +1,14 @@
 from __future__ import annotations
 
-import ast
-import json
 import os
 import re
-from pathlib import Path
 
 from coco_flow.config import Settings
 from coco_flow.services.queries.skills import SkillPackage, SkillStore
 
 from .shared.models import RefinedSections, RepoScope, SkillSourceDocument
 
-KNOWLEDGE_KIND_PRIORITY = {"flow": 0, "rule": 1, "domain": 2}
-KNOWLEDGE_KIND_DIRS = {
-    "domain": "domains",
-    "flow": "flows",
-    "rule": "rules",
-}
+SKILL_KIND_PRIORITY = {"skill": 0}
 _PLAN_ASCII_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
 _DEFAULT_STOPWORDS = {
     "the",
@@ -53,7 +45,7 @@ def build_plan_skills_brief(
             scored.append((score, payload, document))
         else:
             unmatched_payloads.append(payload)
-    scored.sort(key=lambda item: (-item[0], KNOWLEDGE_KIND_PRIORITY.get(item[2].kind, 9), item[2].title))
+    scored.sort(key=lambda item: (-item[0], SKILL_KIND_PRIORITY.get(item[2].kind, 9), item[2].title))
     selected = [item[2] for item in scored[:4]]
     skills_selection_payload = {
         "selected_skill_ids": [item.id for item in selected],
@@ -98,78 +90,7 @@ def build_plan_skills_brief(
 
 def list_plan_skill_candidates(settings: Settings) -> list[SkillSourceDocument]:
     skill_store = SkillStore(settings)
-    skill_packages = skill_store.list_packages()
-    if skill_packages:
-        return [_skill_package_to_document(skill) for skill in skill_packages]
-
-    documents: list[SkillSourceDocument] = []
-    for kind, directory in KNOWLEDGE_KIND_DIRS.items():
-        kind_dir = settings.knowledge_root / directory
-        if not kind_dir.is_dir():
-            continue
-        for path in sorted(kind_dir.glob("*.md")):
-            document = read_reference_document_for_plan(path, kind)
-            if document.status == "approved" and "plan" in document.engines:
-                documents.append(document)
-    return documents
-
-
-def read_reference_document_for_plan(path: Path, fallback_kind: str) -> SkillSourceDocument:
-    content = path.read_text(encoding="utf-8")
-    meta, body = parse_frontmatter(content)
-    return SkillSourceDocument(
-        id=str(meta.get("id") or path.stem),
-        kind=str(meta.get("kind") or fallback_kind),
-        status=str(meta.get("status") or "draft"),
-        title=str(meta.get("title") or path.stem),
-        desc=str(meta.get("desc") or ""),
-        domain_id=str(meta.get("domain_id") or ""),
-        domain_name=str(meta.get("domain_name") or ""),
-        engines=as_string_list(meta.get("engines")),
-        repos=as_string_list(meta.get("repos")),
-        body=body,
-    )
-
-
-def parse_frontmatter(content: str) -> tuple[dict[str, object], str]:
-    normalized = content.replace("\r\n", "\n")
-    if not normalized.startswith("---\n"):
-        return {}, normalized.strip()
-    end = normalized.find("\n---\n", 4)
-    if end == -1:
-        return {}, normalized.strip()
-    block = normalized[4:end]
-    body = normalized[end + 5 :].strip()
-    meta: dict[str, object] = {}
-    for line in block.splitlines():
-        current = line.strip()
-        if not current or ":" not in current:
-            continue
-        key, raw_value = current.split(":", 1)
-        meta[key.strip()] = parse_frontmatter_value(raw_value.strip())
-    return meta, body
-
-
-def parse_frontmatter_value(raw: str) -> object:
-    if not raw:
-        return ""
-    if raw.startswith(("[", "{", '"')) or raw in {"true", "false", "null"}:
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            pass
-    if raw.startswith(("['", '["', "{'")):
-        try:
-            return ast.literal_eval(raw)
-        except (SyntaxError, ValueError):
-            pass
-    return raw
-
-
-def as_string_list(value: object) -> list[str]:
-    if isinstance(value, list):
-        return [str(item) for item in value if str(item).strip()]
-    return []
+    return [_skill_package_to_document(skill) for skill in skill_store.list_packages()]
 
 
 def score_plan_skill_document(
@@ -199,10 +120,8 @@ def score_plan_skill_document(
     summary_text = " ".join([title, *sections.change_scope, *sections.key_constraints, *sections.acceptance_criteria])
     if document.domain_name and document.domain_name.lower() in summary_text.lower():
         score += 2
-    if document.kind == "flow":
+    if document.kind == "skill":
         score += 2
-    elif document.kind == "rule":
-        score += 1
     return {
         "id": document.id,
         "title": document.title,

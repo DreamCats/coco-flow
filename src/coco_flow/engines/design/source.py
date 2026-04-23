@@ -17,7 +17,6 @@ from coco_flow.engines.shared.research import (
     score_complexity,
 )
 from coco_flow.services import TaskStore
-from coco_flow.services.queries.knowledge import KnowledgeStore
 from coco_flow.services.queries.repos import list_recent_repos, validate_repo_path
 from coco_flow.services.queries.skills import SkillPackage, SkillStore
 from coco_flow.services.queries.task_detail import read_json_file
@@ -116,69 +115,7 @@ def infer_repo_scopes_from_skills(
     }
     if not selected_ids:
         return [], payload
-
-    store = KnowledgeStore(settings)
-    documents = [document for document_id in selected_ids if (document := store.get_document(document_id)) is not None]
-    payload["selected_skill_titles"] = [document.title for document in documents]
-    if not documents:
-        return _infer_repo_scopes_from_skills(settings, selected_ids, payload)
-
-    recent_repo_entries = list_recent_repos(TaskStore(settings))
-    recent_repo_map = _build_recent_repo_map(recent_repo_entries)
-    candidates: dict[str, dict[str, object]] = {}
-    unresolved_hints: list[str] = []
-
-    for document in documents:
-        repo_id_hints = [item for item in [*document.repos, *document.evidence.repoMatches] if item.strip()]
-        path_match_repo_id_hint = repo_id_hints[0] if len(set(repo_id_hints)) == 1 else ""
-        for path_hint in document.evidence.pathMatches:
-            resolved_path = _resolve_repo_path_from_path_hint(path_hint)
-            if resolved_path is None:
-                unresolved_hints.append(path_hint)
-                continue
-            _record_repo_candidate(
-                candidates,
-                repo_path=resolved_path,
-                repo_id_hint=path_match_repo_id_hint,
-                source=f"{document.id}:path_match",
-            )
-        for candidate_file in document.evidence.candidateFiles:
-            resolved_path = _resolve_repo_path_from_path_hint(candidate_file)
-            if resolved_path is None:
-                unresolved_hints.append(candidate_file)
-                continue
-            _record_repo_candidate(
-                candidates,
-                repo_path=resolved_path,
-                repo_id_hint=path_match_repo_id_hint,
-                source=f"{document.id}:candidate_file",
-            )
-        for repo_hint in repo_id_hints:
-            resolved = _resolve_repo_path_from_repo_hint(repo_hint, recent_repo_map)
-            if resolved is None:
-                unresolved_hints.append(repo_hint)
-                continue
-            resolved_path, repo_id_hint = resolved
-            _record_repo_candidate(
-                candidates,
-                repo_path=resolved_path,
-                repo_id_hint=repo_id_hint or repo_hint,
-                source=f"{document.id}:repo_hint",
-            )
-
-    repo_scopes = [
-        RepoScope(
-            repo_id=str(candidate.get("repo_id") or derive_repo_id(str(candidate.get("repo_path") or ""))),
-            repo_path=str(candidate.get("repo_path") or ""),
-        )
-        for candidate in candidates.values()
-        if str(candidate.get("repo_path") or "").strip()
-    ]
-    repo_scopes.sort(key=lambda item: item.repo_id)
-    payload["mode"] = "skills_selection" if repo_scopes else "skills_selection_empty"
-    payload["inferred_repo_count"] = len(repo_scopes)
-    payload["unresolved_repo_hints"] = sorted({item for item in unresolved_hints if item.strip()})[:8]
-    return repo_scopes, payload
+    return _infer_repo_scopes_from_skills(settings, selected_ids, payload)
 
 
 def _infer_repo_scopes_from_skills(
@@ -417,7 +354,15 @@ def _extract_skill_hints(skill: SkillPackage) -> tuple[list[str], list[str], lis
         text_parts.append(path.read_text(encoding="utf-8"))
     combined = "\n".join(part for part in text_parts if part.strip())
 
-    repo_hints = sorted(set(re.findall(r"code\.byted\.org/[A-Za-z0-9._/-]+", combined)))
+    repo_hints = set(re.findall(r"code\.byted\.org/[A-Za-z0-9._/-]+", combined))
+    repo_hints.update(
+        match.group(1).strip()
+        for match in re.finditer(
+            r"(?im)^\s*(?:[-*]\s*)?repo(?:_hint|_id)?\s*[:：]\s*([A-Za-z0-9._/-]+)\s*$",
+            combined,
+        )
+    )
+    repo_hints = sorted(repo_hints)
     path_hints = sorted(set(re.findall(r"/[A-Za-z0-9._/\-]+", combined)))
     candidate_files = [path for path in path_hints if Path(path).suffix]
     directory_paths = [path for path in path_hints if path not in set(candidate_files)]
