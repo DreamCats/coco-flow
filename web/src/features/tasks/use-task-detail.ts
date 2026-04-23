@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { archiveCode, getTask, resetCode, startCode, startDesign, startPlan, startRefine, type TaskRecord } from '../../api'
+import { extractSourceSections, validateManualExtract } from './content'
+import type { TaskStageID } from './model'
 
 type ConfirmationTone = 'danger' | 'warning' | 'neutral'
 
@@ -14,7 +16,7 @@ type PendingConfirmation = {
   run: () => Promise<void>
 }
 
-export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>) {
+export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>, onNavigateStage?: (stageID: TaskStageID) => void) {
   const [task, setTask] = useState<TaskRecord | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -115,6 +117,23 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
     confirmPendingAction,
     refresh: load,
     startRefineAction: () => {
+      if (task) {
+        const manualExtract = extractSourceSections(task.artifacts['prd.source.md'] || '').supplement
+        const manualExtractError = validateManualExtract(manualExtract)
+        if (manualExtractError) {
+          setPendingConfirmation({
+            eyebrow: 'Manual Extract Required',
+            title: '请先补齐人工提炼范围',
+            description: 'Refine 不再直接猜测原始 PRD。请先在 Input 阶段补齐服务端人工提炼范围，再重新点击“提炼”。',
+            impacts: ['至少填写“本次范围”和“人工提炼改动点”', '服务端建议写清场景 / 状态 / 改动', '补齐后系统才会允许进入 Refine'],
+            confirmLabel: '去 Input 阶段补齐',
+            tone: 'warning',
+            actionKey: 'manual_extract_required',
+            run: async () => onNavigateStage?.('input'),
+          })
+          return Promise.resolve()
+        }
+      }
       if (task && shouldConfirmRefineRestart(task.status)) {
         setPendingConfirmation({
           eyebrow: 'Refine Restart',

@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from coco_flow.config import Settings
 
-from .generate import generate_refine
-from .intent import extract_native_refine_intent, extract_refine_intent
-from .skills import build_refine_query, read_selected_skills, shortlist_refine_skills
-from .models import EXECUTOR_NATIVE, RefineEngineResult, RefineIntent, RefinePreparedInput
+from .brief import (
+    build_compat_intent_payload,
+    build_refine_brief,
+    build_source_excerpt,
+    merge_brief_with_refined_markdown,
+    parse_manual_extract,
+)
+from .generate import generate_refined_markdown
+from .models import RefineEngineResult
 from .source import prepare_refine_input
 
 
@@ -15,68 +20,71 @@ def run_refine_engine(
     settings: Settings,
     on_log,
 ) -> RefineEngineResult:
+    # refine 新主流程：
+    # 1. 读取 Input 产物
+    # 2. 解析“人工提炼范围”模板
+    # 3. 生成规则版 brief draft + source excerpt
+    # 4. local 直接渲染，native 交给 AGENT_MODE 读写模板
+    # 5. 产出最终 markdown 与 verify 结果
     prepared = prepare_refine_input(task_dir, task_meta)
     if not prepared.source_content.strip():
         raise ValueError("prd.source.md 为空，无法执行 refine")
 
-    intent = extract_refine_intent(prepared)
-    intent_payload = intent.to_payload() | {"extraction_mode": "rule"}
-    if settings.refine_executor.strip().lower() == EXECUTOR_NATIVE:
-        intent, intent_payload = maybe_extract_native_intent(prepared, settings, on_log, fallback=intent)
-    on_log(f"intent_goal: {intent.goal}")
-    on_log(f"intent_terms: {', '.join(intent.terms[:8]) if intent.terms else '无'}")
+    manual_extract = parse_manual_extract(prepared.supplement)
+    brief = build_refine_brief(prepared, manual_extract)
+    source_excerpt = build_source_excerpt(prepared, brief)
 
+    manual_extract_payload = manual_extract.to_payload()
+    brief_draft_payload = brief.to_payload()
+    # 这三个中间产物就是 agent 的全部输入，便于复现和排查。
     artifacts: dict[str, str | dict[str, object]] = {
-        "refine-intent.json": intent_payload,
+        "refine-manual-extract.json": manual_extract_payload,
+        "refine-brief.draft.json": brief_draft_payload,
+        "refine-source.excerpt.md": source_excerpt,
+        "refine-brief.json": brief_draft_payload,
+        "refine-intent.json": build_compat_intent_payload(prepared, brief),
     }
 
-    query_payload = build_refine_query(prepared, intent)
-    artifacts["refine-query.json"] = query_payload
-    on_log(f"query_terms: {', '.join([str(item) for item in query_payload.get('terms', [])][:8]) if query_payload.get('terms') else '无'}")
+    manual_extract_path = prepared.task_dir / "refine-manual-extract.json"
+    brief_draft_path = prepared.task_dir / "refine-brief.draft.json"
+    source_excerpt_path = prepared.task_dir / "refine-source.excerpt.md"
+    manual_extract_path.write_text(_json_dump(manual_extract_payload), encoding="utf-8")
+    brief_draft_path.write_text(_json_dump(brief_draft_payload), encoding="utf-8")
+    source_excerpt_path.write_text(source_excerpt.rstrip() + "\n", encoding="utf-8")
 
-    selected_documents, selection = shortlist_refine_skills(
+    refined_markdown, verify = generate_refined_markdown(
         prepared=prepared,
-        intent=intent,
+        brief=brief,
+        manual_extract_path=manual_extract_path,
+        brief_draft_path=brief_draft_path,
+        source_excerpt_path=source_excerpt_path,
         settings=settings,
         on_log=on_log,
     )
-    artifacts["refine-skills-selection.json"] = selection.to_payload()
-    on_log(f"skills_candidates: {len(selection.candidates)}")
-    on_log(f"selected_skill_ids: {', '.join(selection.selected_skill_ids) if selection.selected_skill_ids else '无'}")
+    finalized_brief = merge_brief_with_refined_markdown(brief, refined_markdown)
+    artifacts["refine-verify.json"] = verify.to_payload()
+    artifacts["refine-brief.json"] = finalized_brief.to_payload()
+    artifacts["refine-intent.json"] = build_compat_intent_payload(prepared, finalized_brief)
 
-    skills_read = read_selected_skills(
-        prepared=prepared,
-        intent=intent,
-        selected_documents=selected_documents,
-        settings=settings,
-        on_log=on_log,
+    on_log("refine_mode: manual_first")
+    on_log(f"manual_scope_count: {len(manual_extract.scope)}")
+    on_log(f"manual_change_points_count: {len(manual_extract.change_points)}")
+    on_log(f"brief_target_surface: {brief.target_surface}")
+    on_log(f"brief_goal: {brief.goal}")
+    on_log(f"brief_in_scope: {', '.join(brief.in_scope[:4]) if brief.in_scope else '无'}")
+    on_log(f"brief_out_of_scope: {', '.join(finalized_brief.out_of_scope[:4]) if finalized_brief.out_of_scope else '无'}")
+    on_log(f"verify_ok: {'true' if verify.ok else 'false'}")
+
+    return RefineEngineResult(
+        status="refined",
+        refined_markdown=refined_markdown,
+        skills_used=settings.refine_executor.strip().lower() == "native",
+        selected_skill_ids=["agent_refine"] if settings.refine_executor.strip().lower() == "native" else [],
+        intermediate_artifacts=artifacts,
     )
-    if skills_read.markdown.strip():
-        artifacts["refine-skills-read.md"] = skills_read.markdown
-
-    result = generate_refine(
-        prepared=prepared,
-        intent=intent,
-        skills_read=skills_read,
-        settings=settings,
-        artifacts=artifacts,
-        on_log=on_log,
-    )
-    return result
 
 
-def maybe_extract_native_intent(
-    prepared: RefinePreparedInput,
-    settings: Settings,
-    on_log,
-    *,
-    fallback: RefineIntent,
-) -> tuple[RefineIntent, dict[str, object]]:
-    try:
-        intent = extract_native_refine_intent(prepared, settings)
-        on_log("intent_extraction_mode: llm")
-        return intent, intent.to_payload() | {"extraction_mode": "llm"}
-    except ValueError as error:
-        on_log(f"native_intent_fallback: {error}")
-        on_log("intent_extraction_mode: rule_fallback")
-        return fallback, fallback.to_payload() | {"extraction_mode": "rule_fallback", "fallback_reason": str(error)}
+def _json_dump(payload: dict[str, object]) -> str:
+    import json
+
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"

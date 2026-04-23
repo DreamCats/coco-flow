@@ -6,69 +6,9 @@ import subprocess
 from .base import CocoClient
 
 
-PROMPT_ONLY_DISALLOWED_TOOLS = [
-    "Bash",
-    "Edit",
-    "Write",
-    "Replace",
-    "Search",
-    "Glob",
-    "Grep",
-    "Read",
-    "Todo",
-    "TodoRead",
-]
-
-
 class CocoCliClient(CocoClient):
     def __init__(self, coco_bin: str) -> None:
         self.coco_bin = coco_bin
-
-    def run_prompt_only(
-        self,
-        prompt: str,
-        query_timeout: str,
-        cwd: str | None = None,
-        *,
-        fresh_session: bool = False,
-    ) -> str:
-        cmd = [
-            self.coco_bin,
-            "-p",
-            "--json",
-            "--yolo",
-            "--query-timeout",
-            query_timeout,
-        ]
-        for tool in PROMPT_ONLY_DISALLOWED_TOOLS:
-            cmd.extend(["--disallowed-tool", tool])
-        cmd.append(prompt)
-        return self._run_json_command(cmd, cwd=cwd)
-
-    def run_readonly_agent(
-        self,
-        prompt: str,
-        query_timeout: str,
-        cwd: str,
-        *,
-        fresh_session: bool = False,
-    ) -> str:
-        cmd = [
-            self.coco_bin,
-            "-p",
-            "--json",
-            "--yolo",
-            "--query-timeout",
-            query_timeout,
-            "--disallowed-tool",
-            "Edit",
-            "--disallowed-tool",
-            "Write",
-            "--disallowed-tool",
-            "Replace",
-            prompt,
-        ]
-        return self._run_json_command(cmd, cwd=cwd)
 
     def run_agent(
         self,

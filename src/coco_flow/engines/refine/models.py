@@ -4,13 +4,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from coco_flow.engines.shared.manual_extract import MANUAL_EXTRACT_HEADING
+
 STATUS_INITIALIZED = "initialized"
 STATUS_REFINING = "refining"
 STATUS_REFINED = "refined"
 EXECUTOR_NATIVE = "native"
 EXECUTOR_LOCAL = "local"
 SOURCE_TYPE_LARK_DOC = "lark_doc"
-SUPPLEMENT_HEADING = "## 研发补充说明"
+SUPPLEMENT_HEADING = MANUAL_EXTRACT_HEADING
 
 LogHandler = Callable[[str], None]
 
@@ -29,72 +31,65 @@ class RefinePreparedInput:
 
 
 @dataclass
-class RefineIntent:
-    goal: str
+class ManualExtract:
+    scope: list[str]
     change_points: list[str]
-    acceptance_criteria: list[str]
-    terms: list[str]
-    risks_seed: list[str]
-    discussion_seed: list[str]
-    boundary_seed: list[str]
+    out_of_scope: list[str]
+    notes: list[str]
+    gating_conditions: list[str]
+    open_questions: list[str]
+    raw_sections: dict[str, str] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, object]:
         return {
-            "goal": self.goal,
+            "scope": self.scope,
             "change_points": self.change_points,
+            "out_of_scope": self.out_of_scope,
+            "notes": self.notes,
+            "gating_conditions": self.gating_conditions,
+            "open_questions": self.open_questions,
+            "raw_sections": self.raw_sections,
+        }
+
+
+@dataclass
+class RefineBrief:
+    target_surface: str
+    goal: str
+    in_scope: list[str]
+    out_of_scope: list[str]
+    gating_conditions: list[str]
+    acceptance_criteria: list[str]
+    edge_cases: list[str]
+    open_questions: list[str]
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "target_surface": self.target_surface,
+            "goal": self.goal,
+            "in_scope": self.in_scope,
+            "out_of_scope": self.out_of_scope,
+            "gating_conditions": self.gating_conditions,
             "acceptance_criteria": self.acceptance_criteria,
-            "terms": self.terms,
-            "risks_seed": self.risks_seed,
-            "discussion_seed": self.discussion_seed,
-            "boundary_seed": self.boundary_seed,
-        }
-
-
-@dataclass(frozen=True)
-class KnowledgeCard:
-    id: str
-    title: str
-    desc: str
-    kind: str
-    domain_name: str
-    priority: str
-    confidence: str
-
-    def to_payload(self) -> dict[str, object]:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "desc": self.desc,
-            "kind": self.kind,
-            "domain_name": self.domain_name,
-            "priority": self.priority,
-            "confidence": self.confidence,
+            "edge_cases": self.edge_cases,
+            "open_questions": self.open_questions,
         }
 
 
 @dataclass
-class RefineSkillsSelection:
-    selected_skill_ids: list[str]
-    rejected_skill_ids: list[str]
+class RefineVerifyResult:
+    ok: bool
+    issues: list[str]
+    missing_sections: list[str]
     reason: str
-    candidates: list[dict[str, object]]
-    mode: str
 
     def to_payload(self) -> dict[str, object]:
         return {
-            "selected_skill_ids": self.selected_skill_ids,
-            "rejected_skill_ids": self.rejected_skill_ids,
+            "ok": self.ok,
+            "issues": self.issues,
+            "missing_sections": self.missing_sections,
             "reason": self.reason,
-            "candidates": self.candidates,
-            "mode": self.mode,
         }
-
-
-@dataclass
-class RefineSkillsRead:
-    markdown: str
-    selected_skill_ids: list[str]
-    selected_skill_titles: list[str]
 
 
 @dataclass

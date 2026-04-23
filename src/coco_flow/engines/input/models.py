@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from coco_flow.engines.shared.manual_extract import MANUAL_EXTRACT_HEADING
+
 STATUS_INITIALIZED = "initialized"
 STATUS_INPUT_PROCESSING = "input_processing"
 STATUS_INPUT_READY = "input_ready"
@@ -11,7 +13,7 @@ SOURCE_TYPE_TEXT = "text"
 SOURCE_TYPE_FILE = "file"
 SOURCE_TYPE_LARK_DOC = "lark_doc"
 
-SUPPLEMENT_HEADING = "## 研发补充说明"
+SUPPLEMENT_HEADING = MANUAL_EXTRACT_HEADING
 
 
 @dataclass

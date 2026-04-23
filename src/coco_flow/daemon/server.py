@@ -90,7 +90,7 @@ class DaemonServer:
                 content = run_prompt_with_pool(
                     coco_bin=str(raw.get("coco_bin") or self.settings.coco_bin),
                     cwd=str(raw.get("cwd") or os.getcwd()),
-                    mode=str(raw.get("mode") or "prompt_only"),
+                    mode=str(raw.get("mode") or "agent"),
                     query_timeout=str(raw.get("query_timeout") or self.settings.native_query_timeout),
                     prompt=str(raw.get("prompt") or ""),
                     idle_timeout_seconds=float(raw.get("acp_idle_timeout_seconds") or self.settings.acp_idle_timeout_seconds),

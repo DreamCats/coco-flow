@@ -158,14 +158,16 @@ coco-flow remote disconnect
   - 飞书文档链接
 - 纯文本和本地文件会同步落盘，状态进入 `input_ready`
 - 飞书文档链接先进入 `input_processing`，正文拉取完成后异步继续
+- Input 现在要求先填写人工提炼范围。Web UI 会预填服务端模板，至少补齐“本次范围”和“人工提炼改动点”后，才允许进入 Refine。
 - Input 阶段会生成 `input.json` 和 `input.log`
 
 ### Refine
 
 - `refine` 支持 `native` 和 `local`
-- `native refine` 采用 intent、knowledge selection、knowledge brief、draft generate、verify 的多步编排
-- `local refine` 负责结构化兜底
-- 常见产物包括 `prd-refined.md`、`refine-intent.json`、`refine-knowledge-selection.json`、`refine-knowledge-brief.md`、`refine-verify.json`、`refine-result.json`
+- 当前 refine 是 `manual-first`：以 Input 阶段的“人工提炼范围”为主输入，收敛成结构化 implementation brief。
+- `local` 直接基于规则生成的 brief 渲染文档。
+- `native` 现在走 `AGENT_MODE`：controller 先准备 `manual_extract / brief draft / source excerpt`，再由可读写 agent 填充 markdown 模板，并用第二个 agent 做 verify。
+- 常见产物包括 `refine-brief.json`、兼容用的 `refine-intent.json`、`prd-refined.md`、`refine-verify.json`、`refine-result.json`
 
 ### Design 与 Plan
 

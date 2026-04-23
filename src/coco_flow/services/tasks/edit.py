@@ -6,6 +6,7 @@ import json
 import shutil
 
 from coco_flow.config import Settings, load_settings
+from coco_flow.engines.shared.manual_extract import split_source_and_manual_extract, validate_manual_extract
 from coco_flow.services.queries.task_detail import read_artifact_content, read_json_file
 from coco_flow.services.tasks.refine import locate_task_dir
 
@@ -55,12 +56,18 @@ EDIT_RULES = {
         "invalidate": [
             "input.log",
             "prd-refined.md",
+            "refine-manual-extract.json",
+            "refine-brief.draft.json",
+            "refine-source.excerpt.md",
+            "refine-brief.json",
             "refine-intent.json",
+            "refine-verify.json",
+            "refine-result.json",
+            "refine-scope.candidates.json",
+            "refine-scope.json",
             "refine-query.json",
             "refine-skills-selection.json",
             "refine-skills-read.md",
-            "refine-verify.json",
-            "refine-result.json",
             "design.md",
             "design.log",
             "design-change-points.json",
@@ -148,6 +155,12 @@ def update_artifact(
     trimmed = content.strip()
     if not trimmed:
         raise ValueError(f"{name} 不能为空")
+    if name == "prd.source.md":
+        markdown_body = trimmed.split("\n---\n", 1)[1] if "\n---\n" in trimmed else trimmed
+        _source, supplement = split_source_and_manual_extract(markdown_body)
+        error = validate_manual_extract(supplement)
+        if error:
+            raise ValueError(error)
 
     (task_dir / name).write_text(trimmed + "\n")
 

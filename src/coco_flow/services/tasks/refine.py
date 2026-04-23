@@ -7,6 +7,7 @@ import shutil
 
 from coco_flow.config import Settings, load_settings
 from coco_flow.engines.input import STATUS_INPUT_READY
+from coco_flow.engines.shared.manual_extract import split_source_and_manual_extract, validate_manual_extract
 from coco_flow.engines.refine import (
     LogHandler,
     STATUS_INITIALIZED,
@@ -32,6 +33,7 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
     status = str(task_meta.get("status") or "")
     if status not in {STATUS_INITIALIZED, STATUS_INPUT_READY, STATUS_REFINING, STATUS_REFINED}:
         raise ValueError(f"task status {status} does not allow refine")
+    _ensure_manual_extract_ready(task_dir)
 
     logger = on_log or (lambda line: append_refine_log(task_dir, line))
     owns_log_lifecycle = on_log is None
@@ -96,6 +98,7 @@ def start_refining_task(task_id: str, settings: Settings | None = None) -> str:
         "failed",
     }:
         raise ValueError(f"task status {status} does not allow refine")
+    _ensure_manual_extract_ready(task_dir)
 
     _reset_refine_outputs(task_dir)
     task_meta["status"] = STATUS_REFINING
@@ -123,19 +126,33 @@ def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -
 def _reset_refine_outputs(task_dir: Path) -> None:
     for name in (
         "prd-refined.md",
+        "refine-manual-extract.json",
+        "refine-brief.draft.json",
+        "refine-source.excerpt.md",
+        "refine-brief.json",
         "refine-intent.json",
+        "refine-verify.json",
+        "refine-result.json",
+        "refine-scope.candidates.json",
+        "refine-scope.json",
         "refine-query.json",
         "refine-skills-selection.json",
         "refine-skills-read.md",
-        "refine-verify.json",
-        "refine-result.json",
         "refine.log",
     ):
         path = task_dir / name
         if path.exists():
             path.unlink()
-    for path in task_dir.glob(".refine-template-*.md"):
-        path.unlink()
+    for pattern in (
+        ".refine-scope-*.json",
+        ".refine-intent-*.json",
+        ".refine-shortlist-*.json",
+        ".refine-skills-read-*.md",
+        ".refine-template-*.md",
+        ".refine-verify-*.json",
+    ):
+        for path in task_dir.glob(pattern):
+            path.unlink()
     for name in (
         "design.md",
         "design.log",
@@ -190,3 +207,15 @@ def _sync_repo_status(task_dir: Path, status: str) -> None:
         changed = True
     if changed:
         repos_path.write_text(json.dumps(repos_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _ensure_manual_extract_ready(task_dir: Path) -> None:
+    source_markdown = (task_dir / "prd.source.md").read_text(encoding="utf-8") if (task_dir / "prd.source.md").exists() else ""
+    content = source_markdown.split("\n---\n", 1)[1] if "\n---\n" in source_markdown else source_markdown
+    _source, supplement = split_source_and_manual_extract(content)
+    if not supplement:
+        input_meta = read_json_file(task_dir / "input.json")
+        supplement = str(input_meta.get("supplement") or "").strip()
+    error = validate_manual_extract(supplement)
+    if error:
+        raise ValueError(error)
