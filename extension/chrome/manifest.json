@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Coco Flow Launcher",
+  "version": "0.1.0",
+  "description": "Lightweight Chrome entrypoint for local and remote coco-flow workflows.",
+  "permissions": ["storage", "tabs", "clipboardWrite"],
+  "host_permissions": ["http://127.0.0.1:4319/*", "http://localhost:4319/*"],
+  "action": {
+    "default_title": "coco-flow",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
+}

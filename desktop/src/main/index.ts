@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -163,17 +164,32 @@ function runLoginShell(command: string): Promise<ShellResult> {
   })
 }
 
+function binarySearchCandidates(): string[] {
+  const home = process.env.HOME || homedir()
+  return [
+    process.env.COCO_FLOW_BIN || '',
+    join(home, '.local/bin/coco-flow'),
+    '/opt/homebrew/bin/coco-flow',
+    '/usr/local/bin/coco-flow',
+  ].filter(Boolean)
+}
+
 async function ensureBinaryPath(): Promise<string> {
   if (cachedBinaryPath) {
     return cachedBinaryPath
   }
   const result = await runLoginShell('command -v coco-flow')
   const candidate = result.stdout.trim().split('\n').find(Boolean)?.trim() || ''
-  if (!candidate) {
-    throw new Error(result.stderr.trim() || 'coco-flow not found in PATH')
+  if (candidate) {
+    cachedBinaryPath = candidate
+    return candidate
   }
-  cachedBinaryPath = candidate
-  return candidate
+  const fallbackCandidate = binarySearchCandidates().find((path) => existsSync(path))
+  if (fallbackCandidate) {
+    cachedBinaryPath = fallbackCandidate
+    return fallbackCandidate
+  }
+  throw new Error(result.stderr.trim() || 'coco-flow not found in PATH or common install locations')
 }
 
 function emitCommandLog(requestId: string, message: string): void {

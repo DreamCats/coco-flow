@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>coco-flow remotes</title>
+    <link rel="stylesheet" href="./base.css" />
+  </head>
+  <body>
+    <main class="shell options-layout">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Chrome extension</p>
+          <h1 class="brand">Remote manager</h1>
+        </div>
+        <div id="options-gateway-badge" class="status-badge status-badge--checking">Checking...</div>
+      </header>
+
+      <section id="options-notice" class="notice hidden"></section>
+
+      <section id="options-missing" class="panel card hidden">
+        <p class="eyebrow">Gateway missing</p>
+        <h2 class="title">Start the local gateway first.</h2>
+        <p class="copy">管理 remote 之前，先让本地 `gateway` 在线。</p>
+        <div class="command-list">
+          <div class="command-item">
+            <p class="eyebrow">Command</p>
+            <div class="command-block">coco-flow gateway start -d</div>
+          </div>
+        </div>
+        <div class="button-row">
+          <button class="button button--primary" id="options-retry" type="button">Retry</button>
+        </div>
+      </section>
+
+      <section id="options-app" class="options-grid hidden">
+        <section class="panel card">
+          <p class="eyebrow">Add remote</p>
+          <h2 class="title">New machine</h2>
+          <form id="remote-form" class="form">
+            <label class="field">
+              <span class="field__label">Name</span>
+              <input class="input" name="name" required />
+            </label>
+            <label class="field">
+              <span class="field__label">Host</span>
+              <input class="input" name="host" required />
+            </label>
+            <label class="field">
+              <span class="field__label">User</span>
+              <input class="input" name="user" placeholder="Optional" />
+            </label>
+            <div class="field-row">
+              <label class="field">
+                <span class="field__label">Local port</span>
+                <input class="input" name="local_port" type="number" min="1" max="65535" value="4318" required />
+              </label>
+              <label class="field">
+                <span class="field__label">Remote port</span>
+                <input class="input" name="remote_port" type="number" min="1" max="65535" value="4318" required />
+              </label>
+            </div>
+            <div class="button-row">
+              <button class="button button--primary" type="submit">Save remote</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel card">
+          <div class="topbar">
+            <div>
+              <p class="eyebrow">Saved remotes</p>
+              <h2 class="title">Machines</h2>
+            </div>
+            <button class="button button--ghost" id="refresh-remotes" type="button">Refresh</button>
+          </div>
+          <p class="copy" id="options-message">Loading remotes…</p>
+          <div class="remote-list" id="remote-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="./options.js"></script>
+  </body>
+</html>

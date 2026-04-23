@@ -12,7 +12,7 @@
 - 维护人：Maifeng `<maifeng@bytedance.com>`
 - CLI 入口：[`src/coco_flow/cli/__init__.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/cli/__init__.py)
 - Web API 入口：[`src/coco_flow/api/app.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/api/app.py)
-- 技术栈：Python + `uv`、Typer、FastAPI、Vite/React、Electron
+- 技术栈：Python + `uv`、Typer、FastAPI、Vite/React、Electron、Chrome Extension
 - 交互语言：默认中文
 
 ## 先读什么
@@ -22,7 +22,7 @@
 - [`README.md`](/Users/bytedance/Work/tools/bytedance/coco-flow/README.md)
 - [`pyproject.toml`](/Users/bytedance/Work/tools/bytedance/coco-flow/pyproject.toml)
 - [`src/coco_flow/cli/__init__.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/cli/__init__.py)
-- 与当前改动直接相关的 `src/coco_flow/services/`、`src/coco_flow/api/`、`web/src/`、`desktop/src/` 文件
+- 与当前改动直接相关的 `src/coco_flow/services/`、`src/coco_flow/api/`、`web/src/`、`desktop/src/`、`extension/chrome/` 文件
 
 如果发现本文过时，修代码时顺手修正文档，不要把错误上下文继续传给下一个 agent。
 
@@ -61,6 +61,12 @@ uv run coco-flow tasks archive <task_id>
 uv run coco-flow daemon start
 uv run coco-flow daemon status
 uv run coco-flow daemon stop
+
+# gateway
+uv run coco-flow gateway start
+uv run coco-flow gateway start -d
+uv run coco-flow gateway status --json
+uv run coco-flow gateway stop
 ```
 
 前端调试：
@@ -77,6 +83,17 @@ npm run build
 cd /Users/bytedance/Work/tools/bytedance/coco-flow/desktop
 npm install
 npm run build
+npm run dist:dir
+npm run dist:mac
+```
+
+Chrome 插件调试：
+
+```bash
+cd /Users/bytedance/Work/tools/bytedance/coco-flow
+uv run coco-flow gateway start -d
+# 然后在 Chrome 打开 chrome://extensions
+# Load unpacked -> extension/chrome
 ```
 
 定向校验：
@@ -108,6 +125,7 @@ uv run python -m unittest discover -s tests -v
 - [`src/coco_flow/models/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/models)：API response model
 - [`web/`](/Users/bytedance/Work/tools/bytedance/coco-flow/web)：本地 Web UI
 - [`desktop/`](/Users/bytedance/Work/tools/bytedance/coco-flow/desktop)：Electron launcher MVP，复用 `coco-flow remote ...` CLI 做远程连接入口
+- [`extension/chrome/`](/Users/bytedance/Work/tools/bytedance/coco-flow/extension/chrome)：Chrome 插件 MVP，走 `gateway` HTTP 服务做轻入口
 
 ## 核心流程
 
