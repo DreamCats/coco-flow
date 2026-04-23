@@ -140,8 +140,8 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
 
 function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
   const log = task.artifacts['refine.log'] || ''
-  const selectionArtifact = task.artifacts['refine-skills-selection.json'] || task.artifacts['refine-knowledge-selection.json'] || ''
-  const skillsReadArtifact = task.artifacts['refine-skills-read.md'] || task.artifacts['refine-knowledge-read.md'] || ''
+  const selectionArtifact = task.artifacts['refine-skills-selection.json'] || ''
+  const skillsReadArtifact = task.artifacts['refine-skills-read.md'] || ''
   const hasStarted = task.status === 'refining' || task.status === 'refined' || log.includes('=== REFINE START ===')
   const hasIntent =
     hasArtifact(task.artifacts['refine-intent.json']) ||
@@ -155,8 +155,7 @@ function buildRefineProgress(task: TaskRecord): RefineProgressStep[] {
   const hasVerified = hasArtifact(task.artifacts['refine-verify.json']) || task.status === 'refined'
   const noSkillsSelected =
     log.includes('selected_skill_ids: 无') ||
-    selectionArtifact.includes('"selected_skill_ids": []') ||
-    selectionArtifact.includes('"selected_ids": []')
+    selectionArtifact.includes('"selected_skill_ids": []')
   const skillsStageDone = hasSkillsSelection && (hasSkillsRead || noSkillsSelected || hasGenerateStarted || hasDraft || hasVerified)
 
   if (task.status === 'refined') {

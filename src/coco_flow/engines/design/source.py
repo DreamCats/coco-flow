@@ -40,14 +40,8 @@ def prepare_design_input(task_dir: Path, task_meta: dict[str, object], settings:
     task_id = task_dir.name
     input_meta = read_json_file(task_dir / "input.json")
     refine_intent_payload = read_json_file(task_dir / "refine-intent.json")
-    refine_knowledge_selection_payload = _read_selection_payload(
-        task_dir / "refine-skills-selection.json",
-        task_dir / "refine-knowledge-selection.json",
-    )
-    refine_knowledge_read_markdown = _read_first_existing_text(
-        task_dir / "refine-skills-read.md",
-        task_dir / "refine-knowledge-read.md",
-    )
+    refine_knowledge_selection_payload = read_json_file(task_dir / "refine-skills-selection.json")
+    refine_knowledge_read_markdown = read_text_if_exists(task_dir / "refine-skills-read.md")
     refined_markdown = read_text_if_exists(task_dir / "prd-refined.md")
     repos_meta = read_json_file(task_dir / "repos.json")
     title = str(task_meta.get("title") or input_meta.get("title") or task_id)
@@ -274,28 +268,8 @@ def _build_recent_repo_map(recent_repo_entries: list[dict[str, object]]) -> dict
             for normalized_alias in _hint_aliases(alias):
                 mapping.setdefault(normalized_alias, (repo_path, repo_id))
     return mapping
-
-
-def _read_selection_payload(*paths: Path) -> dict[str, object]:
-    for path in paths:
-        payload = read_json_file(path)
-        if payload:
-            return payload
-    return {}
-
-
-def _read_first_existing_text(*paths: Path) -> str:
-    for path in paths:
-        content = read_text_if_exists(path)
-        if content.strip():
-            return content
-    return ""
-
-
 def _selection_ids(payload: dict[str, object]) -> list[str]:
     values = payload.get("selected_skill_ids")
-    if not isinstance(values, list):
-        values = payload.get("selected_ids")
     if not isinstance(values, list):
         return []
     return [str(item).strip() for item in values if str(item).strip()]

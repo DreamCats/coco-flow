@@ -157,8 +157,8 @@ export function DesignStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
 
 function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
   const log = task.artifacts['design.log'] || ''
-  const designSkillsBriefArtifact = task.artifacts['design-skills-brief.md'] || task.artifacts['design-knowledge-brief.md'] || ''
-  const refineSkillsReadArtifact = task.artifacts['refine-skills-read.md'] || task.artifacts['refine-knowledge-read.md'] || ''
+  const designSkillsBriefArtifact = task.artifacts['design-skills-brief.md'] || ''
+  const refineSkillsReadArtifact = task.artifacts['refine-skills-read.md'] || ''
   const hasStarted = task.status === 'designing' || task.status === 'designed' || log.includes('=== DESIGN START ===')
   const hasKnowledge =
     hasArtifact(designSkillsBriefArtifact) ||

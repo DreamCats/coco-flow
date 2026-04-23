@@ -158,9 +158,9 @@ function buildPlanGraph(task: TaskRecord) {
 
 function buildPlanProgress(task: TaskRecord): PlanProgressStep[] {
   const log = task.artifacts['plan.log'] || ''
-  const skillsBriefArtifact = task.artifacts['plan-skills-brief.md'] || task.artifacts['plan-knowledge-brief.md'] || ''
+  const skillsBriefArtifact = task.artifacts['plan-skills-brief.md'] || ''
   const hasStarted = task.status === 'planning' || task.status === 'planned' || log.includes('=== PLAN START ===')
-  const hasKnowledge = hasArtifact(skillsBriefArtifact) || log.includes('plan_skills_ok:') || log.includes('plan_knowledge_ok:')
+  const hasKnowledge = hasArtifact(skillsBriefArtifact) || log.includes('plan_skills_ok:')
   const hasOutline = hasArtifact(task.artifacts['plan-task-outline.json']) || hasArtifact(task.artifacts['plan-work-items.json']) || log.includes('plan_task_outline_ok:')
   const hasGraph = hasArtifact(task.artifacts['plan-execution-graph.json']) || log.includes('plan_graph_ok:')
   const hasValidation = hasArtifact(task.artifacts['plan-validation.json']) || log.includes('plan_validation_ok:')

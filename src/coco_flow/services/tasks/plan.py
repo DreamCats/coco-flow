@@ -120,8 +120,6 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         "plan.log",
         "plan-skills-selection.json",
         "plan-skills-brief.md",
-        "plan-knowledge-selection.json",
-        "plan-knowledge-brief.md",
         "plan-task-outline.json",
         "plan-work-items.json",
         "plan-execution-graph.json",
