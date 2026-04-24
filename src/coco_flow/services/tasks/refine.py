@@ -161,6 +161,14 @@ def _reset_refine_outputs(task_dir: Path) -> None:
     for name in (
         "design.md",
         "design.log",
+        "design-input.json",
+        "design-input.md",
+        "design-research-plan.json",
+        "design-research-summary.json",
+        "design-adjudication.json",
+        "design-review.json",
+        "design-debate.json",
+        "design-decision.json",
         "design-change-points.json",
         "design-repo-assignment.json",
         "design-research.json",
@@ -194,7 +202,7 @@ def _reset_refine_outputs(task_dir: Path) -> None:
         path = task_dir / name
         if path.exists():
             path.unlink()
-    for directory in ("code-results", "code-logs", "code-verify", "diffs"):
+    for directory in ("design-research", "code-results", "code-logs", "code-verify", "diffs"):
         path = task_dir / directory
         if path.exists():
             shutil.rmtree(path)

@@ -88,6 +88,14 @@ def _invalidate_downstream_outputs(task_dir: Path) -> None:
     for name in (
         "design.md",
         "design.log",
+        "design-input.json",
+        "design-input.md",
+        "design-research-plan.json",
+        "design-research-summary.json",
+        "design-adjudication.json",
+        "design-review.json",
+        "design-debate.json",
+        "design-decision.json",
         "design-change-points.json",
         "design-repo-assignment.json",
         "design-research.json",
@@ -121,7 +129,19 @@ def _invalidate_downstream_outputs(task_dir: Path) -> None:
         artifact = task_dir / name
         if artifact.exists():
             artifact.unlink()
-    for pattern in (".design-template-*.md", ".design-research-*.json", ".design-repo-binding-*.json", ".design-verify-*.json"):
+    research_dir = task_dir / "design-research"
+    if research_dir.exists():
+        shutil.rmtree(research_dir)
+    for pattern in (
+        ".design-template-*.md",
+        ".design-research-*.json",
+        ".design-repo-binding-*.json",
+        ".design-verify-*.json",
+        ".design-architect-*.json",
+        ".design-skeptic-*.json",
+        ".design-writer-*.md",
+        ".design-gate-*.json",
+    ):
         for path in task_dir.glob(pattern):
             path.unlink()
     for directory in ("code-results", "code-logs", "code-verify", "diffs"):

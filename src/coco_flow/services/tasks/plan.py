@@ -28,6 +28,7 @@ def plan_task(task_id: str, settings: Settings | None = None, on_log: LogHandler
         raise ValueError(f"task metadata missing: {task_id}")
     if not (task_dir / "design.md").exists():
         raise ValueError(f"task {task_id} 尚未生成 design.md，不能执行 plan")
+    _ensure_design_allows_plan(task_dir)
 
     status = str(task_meta.get("status") or "")
     if status not in {"designed", STATUS_PLANNED, STATUS_PLANNING, STATUS_FAILED}:
@@ -71,6 +72,7 @@ def start_planning_task(task_id: str, settings: Settings | None = None) -> str:
         raise ValueError(f"task metadata missing: {task_id}")
     if not (task_dir / "design.md").exists():
         raise ValueError(f"task {task_id} 尚未生成 design.md，不能执行 plan")
+    _ensure_design_allows_plan(task_dir)
 
     status = str(task_meta.get("status") or "")
     if status not in {"designed", STATUS_PLANNED, STATUS_FAILED}:
@@ -98,6 +100,17 @@ def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return
     path.write_text(payload.rstrip() + "\n", encoding="utf-8")
+
+
+def _ensure_design_allows_plan(task_dir: Path) -> None:
+    design_result = read_json_file(task_dir / "design-result.json")
+    gate_status = str(design_result.get("gate_status") or "")
+    plan_allowed = design_result.get("plan_allowed")
+    if not gate_status:
+        return
+    if plan_allowed is True or gate_status in {"passed", "passed_with_warnings"}:
+        return
+    raise ValueError(f"design gate status {gate_status} does not allow plan")
 
 
 def _update_task_status(task_dir: Path, task_meta: dict[str, object], status: str) -> None:

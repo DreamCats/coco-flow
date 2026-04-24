@@ -171,32 +171,35 @@ export function DesignStage({
 
 function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
   const log = task.artifacts['design.log'] || ''
-  const designSkillsBriefArtifact = task.artifacts['design-skills-brief.md'] || ''
+  const designInputArtifact = task.artifacts['design-input.json'] || ''
   const refineSkillsReadArtifact = task.artifacts['refine-skills-read.md'] || ''
   const hasStarted = task.status === 'designing' || task.status === 'designed' || log.includes('=== DESIGN START ===')
   const hasKnowledge =
-    hasArtifact(designSkillsBriefArtifact) ||
+    hasArtifact(designInputArtifact) ||
     hasArtifact(refineSkillsReadArtifact) ||
-    log.includes('design_skills_ok:') ||
-    log.includes('repo_research_prefilter_candidates:')
+    log.includes('design_v3_prepare_ok:')
   const hasResearch =
-    hasArtifact(task.artifacts['design-research.json']) ||
-    log.includes('repo_research_prefilter_candidates:') ||
-    log.includes('repo_research_agent_ok:') ||
-    log.includes('repo_research_agent_fallback:')
-  const hasBinding = hasArtifact(task.artifacts['design-repo-binding.json']) || log.includes('design_repo_binding: true')
+    hasArtifact(task.artifacts['design-research-summary.json']) ||
+    hasArtifact(task.artifacts['design-research-plan.json']) ||
+    log.includes('design_v3_repo_research_ok:')
+  const hasBinding =
+    hasArtifact(task.artifacts['design-decision.json']) ||
+    hasArtifact(task.artifacts['design-repo-binding.json']) ||
+    log.includes('design_v3_architect_ok:')
   const hasDraft =
     hasArtifact(task.artifacts['design.md']) ||
     hasArtifact(task.artifacts['design-sections.json']) ||
-    log.includes('design_sections: true') ||
-    log.includes('native_design_fallback:')
-  const hasVerified = hasArtifact(task.artifacts['design-verify.json']) || task.status === 'designed' || log.includes('status: designed')
+    log.includes('design_v3_writer_ok:')
+  const hasVerified =
+    hasArtifact(task.artifacts['design-verify.json']) ||
+    task.status === 'designed' ||
+    log.includes('design_v3_gate_ok:')
 
   if (task.status === 'designed') {
     return [
       { label: '继承 Skills', done: true, current: false },
       { label: '仓库探索', done: true, current: false },
-      { label: 'Repo Binding', done: true, current: false },
+      { label: '架构裁决', done: true, current: false },
       { label: '生成成稿', done: true, current: false },
       { label: '完成校验', done: true, current: false },
     ]
@@ -206,7 +209,7 @@ function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
     return [
       { label: '继承 Skills', done: false, current: false },
       { label: '仓库探索', done: false, current: false },
-      { label: 'Repo Binding', done: false, current: false },
+      { label: '架构裁决', done: false, current: false },
       { label: '生成成稿', done: false, current: false },
       { label: '完成校验', done: false, current: false },
     ]
@@ -219,7 +222,7 @@ function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
       : !hasResearch
         ? '仓库探索'
         : !hasBinding
-          ? 'Repo Binding'
+          ? '架构裁决'
           : !hasDraft
             ? '生成成稿'
             : !hasVerified
@@ -229,7 +232,7 @@ function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
   return [
     { label: '继承 Skills', done: hasKnowledge, current: currentStep === '继承 Skills' },
     { label: '仓库探索', done: hasResearch, current: currentStep === '仓库探索' },
-    { label: 'Repo Binding', done: hasBinding, current: currentStep === 'Repo Binding' },
+    { label: '架构裁决', done: hasBinding, current: currentStep === '架构裁决' },
     { label: '生成成稿', done: hasDraft, current: currentStep === '生成成稿' },
     { label: '完成校验', done: hasVerified, current: currentStep === '完成校验' },
   ]

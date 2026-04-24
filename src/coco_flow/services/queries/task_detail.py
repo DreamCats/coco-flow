@@ -44,6 +44,14 @@ TRACKED_ARTIFACTS = [
     "refine-verify.json",
     "refine-diagnosis.json",
     "refine-result.json",
+    "design-input.json",
+    "design-input.md",
+    "design-research-plan.json",
+    "design-research-summary.json",
+    "design-adjudication.json",
+    "design-review.json",
+    "design-debate.json",
+    "design-decision.json",
     "design-change-points.json",
     "design-repo-assignment.json",
     "design-research.json",
@@ -496,12 +504,16 @@ def build_next_action(
     has_refined = (task_dir / "prd-refined.md").exists()
     has_design = (task_dir / "design.md").exists()
     has_plan = has_plan_artifacts(task_dir)
-    if diagnosis and diagnosis.severity == "needs_human":
+    if diagnosis and diagnosis.severity in {"needs_human", "degraded"}:
         if diagnosis.failure_type == "missing_human_scope":
             return f"请先补齐 {task_dir / 'prd.source.md'} 中的人工提炼范围，然后重新执行 coco-flow tasks refine {task_id}"
         if diagnosis.failure_type == "repo_responsibility_uncertain":
             return f"请先确认 {task_dir / 'design-repo-binding.json'} 中的仓库执行职责，然后重新执行 coco-flow tasks design {task_id}"
+        if diagnosis.stage == "design":
+            return f"请先查看 {task_dir / 'design-diagnosis.json'} 和 {task_dir / 'design-decision.json'}，确认后重新执行 coco-flow tasks design {task_id}"
         return "当前阶段需要人工确认，请先查看 diagnosis artifact。"
+    if diagnosis and diagnosis.stage == "design" and not diagnosis.ok:
+        return f"请先查看 {task_dir / 'design-diagnosis.json'}，然后重新执行 coco-flow tasks design {task_id}"
     if status == "input_processing":
         return "Input 正在解析飞书正文，请稍候刷新任务详情。"
     if status == "input_failed":

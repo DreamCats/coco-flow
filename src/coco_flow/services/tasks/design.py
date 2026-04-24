@@ -53,6 +53,9 @@ def design_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
             {
                 "task_id": task_id,
                 "status": result.status,
+                "gate_status": result.gate_status,
+                "agentic_version": "v3",
+                "plan_allowed": result.status == STATUS_DESIGNED,
                 "repo_binding": result.repo_binding_payload,
                 "sections": result.sections_payload,
                 "intermediate_artifacts": sorted(result.intermediate_artifacts.keys()),
@@ -101,6 +104,7 @@ def start_designing_task(task_id: str, settings: Settings | None = None) -> str:
 
 
 def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(payload, dict):
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return
@@ -118,6 +122,14 @@ def _reset_design_outputs(task_dir: Path) -> None:
     for name in (
         "design.md",
         "design.log",
+        "design-input.json",
+        "design-input.md",
+        "design-research-plan.json",
+        "design-research-summary.json",
+        "design-adjudication.json",
+        "design-review.json",
+        "design-debate.json",
+        "design-decision.json",
         "design-change-points.json",
         "design-repo-assignment.json",
         "design-research.json",
@@ -132,7 +144,24 @@ def _reset_design_outputs(task_dir: Path) -> None:
         path = task_dir / name
         if path.exists():
             path.unlink()
-    for pattern in (".design-template-*.md", ".design-research-*.json", ".design-repo-binding-*.json", ".design-verify-*.json"):
+    research_dir = task_dir / "design-research"
+    if research_dir.is_dir():
+        for path in research_dir.glob("*.json"):
+            path.unlink()
+        try:
+            research_dir.rmdir()
+        except OSError:
+            pass
+    for pattern in (
+        ".design-template-*.md",
+        ".design-research-*.json",
+        ".design-repo-binding-*.json",
+        ".design-verify-*.json",
+        ".design-architect-*.json",
+        ".design-skeptic-*.json",
+        ".design-writer-*.md",
+        ".design-gate-*.json",
+    ):
         for path in task_dir.glob(pattern):
             path.unlink()
 

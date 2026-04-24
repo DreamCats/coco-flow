@@ -178,10 +178,47 @@ uv run python -m unittest discover -s tests -v
   - `source_length`
   - pending 信息
 
+### design
+
+- `design` 当前已切到 V3 agentic workflow 骨架：
+  - prepare input bundle
+  - research plan
+  - parallel repo research
+  - architect adjudication
+  - skeptic review
+  - bounded decision
+  - writer
+  - semantic gate
+- 旧的 change points / repo assignment / responsibility matrix / section repair 规则引擎已从主代码删除。
+- 新的机器事实源是：
+  - `design-input.json`
+  - `design-research-plan.json`
+  - `design-research/<repo_id>.json`
+  - `design-research-summary.json`
+  - `design-adjudication.json`
+  - `design-review.json`
+  - `design-debate.json`
+  - `design-decision.json`
+- 兼容产物仍会派生：
+  - `design-repo-binding.json`
+  - `design-sections.json`
+  - `design.md`
+  - `design-verify.json`
+  - `design-diagnosis.json`
+  - `design-result.json`
+- `design-result.json` 的 `gate_status` 使用：
+  - `passed`
+  - `passed_with_warnings`
+  - `needs_human`
+  - `degraded`
+  - `failed`
+- 默认只有 `passed` / `passed_with_warnings` 允许进入 `plan`。
+- local 或 native 失败后的部分产物必须标记为 `degraded`，不得包装成通过。
+
 ### plan
 
 - `plan` 支持 `native` 和 `local`
-- `native` 通过 ACP 的 readonly/explorer 模式生成 `design.md` 和 `plan.md`
+- `native` 基于 Design 结构化产物生成 `plan.md`
 - `local` 会基于 refined PRD、本地 context 和代码调研生成本地方案
 - `plan` 当前内部已拆成 orchestrator + 多模块：
   - `src/coco_flow/engines/plan/pipeline.py`：主流程编排、native/local 调度、artifact 组织
@@ -204,9 +241,8 @@ uv run python -m unittest discover -s tests -v
   - 先生成 `plan-skills-selection.json`
   - 再生成 `plan-skills-brief.md`
   - brief 会尽量压成“决策边界 / 稳定规则 / 验证要点”
-  - native prompt 和 local `design.md` / `plan.md` 都会消费该 brief
-- `design-repo-binding.json` 当前会记录每个 repo 的执行职责 `confidence`；低信心 `must_change` 会写 `failure_type=repo_responsibility_uncertain` 的 `design-diagnosis.json`，但暂不改变 `designed` 状态流转
-- `native design` 当前会先对缺仓库职责角色、候选文件、`validate_only` 验证定位的问题做一次 `分仓库方案` 定点修复，再回退到整稿 regenerate
+  - native prompt 和 local `plan.md` 会消费该 brief
+- `plan` 默认会阻止消费 `degraded` / `needs_human` / `failed` 的 Design V3 结果
 - `plan.log` 当前会记录：
   - `repo_count`
   - 每个 repo 的 `repo_research`
@@ -259,9 +295,20 @@ uv run python -m unittest discover -s tests -v
   - `refine-verify.json`
   - `refine-diagnosis.json`
   - `refine-result.json`
-  - `design-skills-brief.md`
+  - `design-input.json`
+  - `design-input.md`
+  - `design-research-plan.json`
+  - `design-research/<repo_id>.json`
+  - `design-research-summary.json`
+  - `design-adjudication.json`
+  - `design-review.json`
+  - `design-debate.json`
+  - `design-decision.json`
+  - `design-repo-binding.json`
+  - `design-sections.json`
   - `design-verify.json`
   - `design-diagnosis.json`
+  - `design-result.json`
   - `plan-skills-selection.json`
   - `plan-skills-brief.md`
   - `code-dispatch.json`
