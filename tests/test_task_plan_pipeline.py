@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from coco_flow.config import Settings
+from coco_flow.engines.design.pipeline import apply_review_issues_to_decision, normalize_decision_for_gate
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
 
@@ -30,6 +31,52 @@ def make_settings(root: Path, *, plan_executor: str = "local") -> Settings:
 
 
 class DesignV3PipelineTest(unittest.TestCase):
+    def test_revision_removes_blocked_candidate_file(self) -> None:
+        decision = {
+            "repo_decisions": [
+                {
+                    "repo_id": "demo",
+                    "work_type": "must_change",
+                    "candidate_files": ["src/right.py", "src/wrong.py"],
+                    "candidate_dirs": ["src"],
+                }
+            ]
+        }
+        review = {
+            "issues": [
+                {
+                    "severity": "blocking",
+                    "failure_type": "candidate_file_not_proven",
+                    "target": "src/wrong.py",
+                    "suggested_action": "remove wrong candidate",
+                }
+            ]
+        }
+
+        revised, resolutions = apply_review_issues_to_decision(decision, review)
+
+        repo = revised["repo_decisions"][0]
+        self.assertEqual(repo["candidate_files"], ["src/right.py"])
+        self.assertEqual(resolutions[0]["resolution"], "accepted")
+
+    def test_validate_only_decision_does_not_expose_candidate_files(self) -> None:
+        decision = {
+            "repo_decisions": [
+                {
+                    "repo_id": "demo",
+                    "work_type": "validate_only",
+                    "candidate_files": ["src/noisy.py"],
+                    "candidate_dirs": ["src"],
+                }
+            ]
+        }
+
+        normalized = normalize_decision_for_gate(decision, {"issues": []})
+
+        repo = normalized["repo_decisions"][0]
+        self.assertEqual(repo["candidate_files"], [])
+        self.assertEqual(repo["candidate_dirs"], [])
+
     def test_local_design_v3_writes_agentic_artifacts_and_blocks_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

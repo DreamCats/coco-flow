@@ -43,6 +43,7 @@ export function DesignStage({
   const currentDesign = task.artifacts['design.md'] || ''
   const currentValue = editingTab === 'artifact' ? currentDesign : task.artifacts['design.notes.md'] || ''
   const canSave = editingTab === 'artifact' ? draft.trim().length > 0 && draft.trim() !== currentValue.trim() : draft.trim() !== currentValue.trim()
+  const blocker = buildDesignBlocker(task)
 
   useEffect(() => {
     if (openRepoBindingToken > 0) {
@@ -76,6 +77,13 @@ export function DesignStage({
   return (
     <>
       <SectionCard title="阶段详情">
+        {blocker ? (
+          <div className="mb-4 rounded-[14px] border border-[#e7bf7a] bg-[#fff6e6] px-4 py-3 text-sm leading-6 text-[#75510d] dark:border-[#6b5428] dark:bg-[#2d2416] dark:text-[#f0d59b]">
+            <div className="font-medium text-[#5f430d] dark:text-[#f5dfad]">{blocker.title}</div>
+            <div className="mt-1">{blocker.body}</div>
+            {blocker.action ? <div className="mt-2 text-xs text-[#8a6826] dark:text-[#d5bb83]">{blocker.action}</div> : null}
+          </div>
+        ) : null}
         <div className="rounded-[18px] border border-[#ece6da] bg-[#fffdf9] px-4 py-4 dark:border-[#383632] dark:bg-[#151412]">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -167,6 +175,25 @@ export function DesignStage({
       />
     </>
   )
+}
+
+function buildDesignBlocker(task: TaskRecord): { title: string; body: string; action: string } | null {
+  const diagnosis = task.diagnosis
+  if (!diagnosis || diagnosis.stage !== 'design' || diagnosis.ok) {
+    return null
+  }
+  const severity = diagnosis.severity || ''
+  const blocked = severity === 'needs_human' || severity === 'degraded' || task.status === 'failed'
+  if (!blocked) {
+    return null
+  }
+  const reason = diagnosis.reason || 'Design 阶段需要人工确认后才能继续。'
+  const issueText = diagnosis.issueCount > 0 ? `共发现 ${diagnosis.issueCount} 个问题。` : ''
+  return {
+    title: severity === 'degraded' ? 'Design 产物需要人工确认' : 'Design 已被阻断',
+    body: [issueText, reason].filter(Boolean).join(' '),
+    action: task.nextAction || '请查看 design-diagnosis.json 和 design-decision.json，确认后重新执行 Design。',
+  }
 }
 
 function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {

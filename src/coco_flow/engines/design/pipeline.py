@@ -15,6 +15,8 @@ from coco_flow.engines.shared.diagnostics import diagnosis_payload_from_verify, 
 from coco_flow.prompts.design import (
     build_architect_prompt,
     build_architect_template_json,
+    build_revision_prompt,
+    build_revision_template_json,
     build_semantic_gate_prompt,
     build_semantic_gate_template_json,
     build_skeptic_prompt,
@@ -114,13 +116,22 @@ def run_design_engine(
     artifacts["design-review.json"] = review_payload
     on_log(f"design_v3_skeptic_ok: ok={'true' if bool(review_payload.get('ok')) else 'false'} issues={len(_issues(review_payload))}")
 
-    decision_payload, debate_payload = build_final_decision(prepared, adjudication_payload, review_payload)
+    decision_payload, debate_payload = build_final_decision(
+        prepared,
+        adjudication_payload,
+        review_payload,
+        research_summary_payload,
+        settings,
+        native_ok=native_ok and bool(adjudication_payload.get("native")),
+        on_log=on_log,
+    )
     artifacts["design-debate.json"] = debate_payload
     artifacts["design-decision.json"] = decision_payload
     repo_binding_payload = derive_repo_binding(prepared, decision_payload)
     sections_payload = derive_sections(prepared, decision_payload)
     artifacts["design-repo-binding.json"] = repo_binding_payload
     artifacts["design-sections.json"] = sections_payload
+    gate_review_payload = review_payload_after_revision(review_payload, debate_payload)
 
     on_log("design_v3_writer_start: true")
     design_markdown = write_design_markdown(
@@ -139,7 +150,7 @@ def run_design_engine(
         design_markdown,
         settings,
         native_ok=native_ok and bool(adjudication_payload.get("native")),
-        review_payload=review_payload,
+        review_payload=gate_review_payload,
         on_log=on_log,
     )
     gate_status = str(verify_payload.get("gate_status") or GATE_FAILED)
@@ -258,7 +269,9 @@ def research_single_repo(repo_id: str, repo_path: str, repo_plan: dict[str, obje
             seen_files.setdefault(rel, []).append(match)
 
     max_files = int(_budget(repo_plan, "max_files_read", 12))
-    candidate_files = _rank_candidate_files(seen_files)[:max_files]
+    ranked_files = _rank_candidate_files(seen_files)
+    candidate_files = [item for item in ranked_files if bool(item.get("core_evidence"))][:max_files]
+    related_files = [item for item in ranked_files if not bool(item.get("core_evidence"))][:max_files]
     evidence: list[dict[str, object]] = []
     for item in candidate_files:
         first_match = seen_files.get(item["path"], [{}])[0]
@@ -267,6 +280,10 @@ def research_single_repo(repo_id: str, repo_path: str, repo_plan: dict[str, obje
                 "path": item["path"],
                 "line_hint": int(first_match.get("line") or 1),
                 "why_relevant": item["reason"],
+                "scene": item.get("scene", ""),
+                "symbol": item.get("symbol", ""),
+                "matched_behavior": item.get("matched_behavior", ""),
+                "why_core": item.get("why_core", ""),
                 "excerpt": _read_excerpt(root / item["path"], int(first_match.get("line") or 1)),
             }
         )
@@ -285,6 +302,7 @@ def research_single_repo(repo_id: str, repo_path: str, repo_plan: dict[str, obje
         "confidence": confidence,
         "evidence": evidence,
         "candidate_files": candidate_files,
+        "related_files": related_files,
         "boundaries": boundaries,
         "unknowns": [] if candidate_files else ["需要人工确认该仓是否承担核心改造，或补充更明确的搜索术语。"],
         "budget_used": {"search_commands": search_count, "files_read": len(candidate_files)},
@@ -484,15 +502,46 @@ def build_final_decision(
     prepared: DesignInputBundle,
     adjudication_payload: dict[str, object],
     review_payload: dict[str, object],
+    research_summary_payload: dict[str, object],
+    settings: Settings,
+    *,
+    native_ok: bool,
+    on_log,
 ) -> tuple[dict[str, object], dict[str, object]]:
     blocking = [item for item in _issues(review_payload) if str(item.get("severity")) == "blocking"]
-    decision = dict(adjudication_payload)
+    decision = normalize_decision_for_gate(dict(adjudication_payload), review_payload)
+    revision_summary = "skeptic 未发现 blocking issue，无需修订。"
+    issue_resolutions: list[dict[str, object]] = []
     if blocking:
-        decision["unresolved_questions"] = _as_str_list(decision.get("unresolved_questions")) + [
-            str(item.get("suggested_action") or item.get("actual") or "") for item in blocking
-        ]
+        if native_ok:
+            try:
+                revision_payload = _run_agent_json(
+                    prepared,
+                    settings,
+                    build_revision_template_json(),
+                    lambda template_path: build_revision_prompt(
+                        title=prepared.title,
+                        refined_markdown=prepared.refined_markdown,
+                        adjudication_payload=adjudication_payload,
+                        review_payload=review_payload,
+                        research_summary_payload=research_summary_payload,
+                        template_path=template_path,
+                    ),
+                    ".design-revision-",
+                )
+                issue_resolutions = _dict_list(revision_payload.get("issue_resolutions"))
+                raw_decision = revision_payload.get("decision")
+                if isinstance(raw_decision, dict):
+                    decision = normalize_adjudication(prepared, raw_decision, research_summary_payload)
+                    revision_summary = "blocking issue 已触发 architect revision，并生成修订后的 design-decision。"
+            except Exception as error:
+                on_log(f"design_v3_revision_degraded: {error}")
+        if not issue_resolutions:
+            decision, issue_resolutions = apply_review_issues_to_decision(decision, review_payload)
+            revision_summary = "blocking issue 已通过本地通用规则应用到 design-decision。"
+        decision = normalize_decision_for_gate(decision, review_payload)
     decision["review_blocking_count"] = len(blocking)
-    decision["finalized"] = not blocking
+    decision["finalized"] = not any(str(item.get("resolution") or "") != "accepted" for item in issue_resolutions) if blocking else True
     debate = {
         "rounds": [
             {"role": "architect", "artifact": "design-adjudication.json"},
@@ -500,13 +549,98 @@ def build_final_decision(
         ],
         "revision": {
             "applied": bool(blocking),
-            "summary": "blocking issue 已进入 design-decision unresolved_questions，等待 semantic gate 裁决。"
-            if blocking
-            else "skeptic 未发现 blocking issue，无需修订。",
+            "summary": revision_summary,
+            "issue_resolutions": issue_resolutions,
         },
         "task_id": prepared.task_id,
     }
     return decision, debate
+
+
+def review_payload_after_revision(review_payload: dict[str, object], debate_payload: dict[str, object]) -> dict[str, object]:
+    revision = debate_payload.get("revision")
+    if not isinstance(revision, dict):
+        return review_payload
+    accepted_targets = {
+        str(item.get("target") or "")
+        for item in _dict_list(revision.get("issue_resolutions"))
+        if str(item.get("resolution") or "") == "accepted"
+    }
+    if not accepted_targets:
+        return review_payload
+    issues: list[dict[str, object]] = []
+    for issue in _issues(review_payload):
+        if str(issue.get("target") or "") in accepted_targets and str(issue.get("severity") or "") == "blocking":
+            fixed = dict(issue)
+            fixed["severity"] = "info"
+            fixed["suggested_action"] = "该 blocking issue 已由 bounded revision 接受并修订。"
+            issues.append(fixed)
+        else:
+            issues.append(issue)
+    return {"ok": not any(str(item.get("severity") or "") == "blocking" for item in issues), "issues": issues}
+
+
+def apply_review_issues_to_decision(
+    decision_payload: dict[str, object],
+    review_payload: dict[str, object],
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    decision = dict(decision_payload)
+    repo_decisions = [dict(item) for item in _dict_list(decision.get("repo_decisions"))]
+    resolutions: list[dict[str, object]] = []
+    for issue in _issues(review_payload):
+        severity = str(issue.get("severity") or "")
+        if severity != "blocking":
+            continue
+        target = str(issue.get("target") or "")
+        changed = False
+        for repo in repo_decisions:
+            candidate_files = _as_str_list(repo.get("candidate_files"))
+            filtered = [path for path in candidate_files if path not in target and target not in path]
+            if len(filtered) != len(candidate_files):
+                repo["candidate_files"] = filtered
+                repo["candidate_dirs"] = sorted({str(Path(path).parent) for path in filtered if str(Path(path).parent) != "."})[:8]
+                if not filtered and str(repo.get("work_type") or "") in {"must_change", "co_change"}:
+                    repo["work_type"] = "validate_only"
+                    repo["confidence"] = "low"
+                changed = True
+        if not changed:
+            questions = _as_str_list(decision.get("unresolved_questions"))
+            action = str(issue.get("suggested_action") or issue.get("actual") or "").strip()
+            if action:
+                questions.append(action)
+            decision["unresolved_questions"] = _dedupe(questions)
+        resolutions.append(
+            {
+                "failure_type": issue.get("failure_type"),
+                "target": target,
+                "resolution": "accepted",
+                "reason": "本地 revision 接受 blocking issue；删除命中的候选文件或转入待确认项。",
+                "decision_change": "candidate_removed_or_question_added",
+            }
+        )
+    decision["repo_decisions"] = repo_decisions
+    return decision, resolutions
+
+
+def normalize_decision_for_gate(decision_payload: dict[str, object], review_payload: dict[str, object]) -> dict[str, object]:
+    decision = dict(decision_payload)
+    repo_decisions: list[dict[str, object]] = []
+    for raw in _dict_list(decision.get("repo_decisions")):
+        item = dict(raw)
+        work_type = str(item.get("work_type") or "")
+        if work_type in {"validate_only", "reference_only"}:
+            item["candidate_files"] = []
+            item["candidate_dirs"] = []
+        repo_decisions.append(item)
+    decision["repo_decisions"] = repo_decisions
+    blocking_actions = [
+        str(issue.get("suggested_action") or issue.get("actual") or "").strip()
+        for issue in _issues(review_payload)
+        if str(issue.get("severity") or "") == "blocking"
+    ]
+    if blocking_actions:
+        decision["unresolved_questions"] = _dedupe([*_as_str_list(decision.get("unresolved_questions")), *blocking_actions])
+    return decision
 
 
 def derive_repo_binding(prepared: DesignInputBundle, decision_payload: dict[str, object]) -> dict[str, object]:
@@ -609,11 +743,13 @@ def write_design_markdown(
 
 
 def build_local_design_markdown(prepared: DesignInputBundle, decision_payload: dict[str, object]) -> str:
+    blocking_count = int(decision_payload.get("review_blocking_count") or 0)
+    finalized = bool(decision_payload.get("finalized"))
     parts = [
         f"# {prepared.title} Design",
         "",
         "## 结论",
-        str(decision_payload.get("decision_summary") or "本阶段已形成初版设计裁决，但仍需人工确认。"),
+        _local_design_conclusion(decision_payload, blocking_count, finalized),
         "",
         "## 核心改造点",
     ]
@@ -639,10 +775,19 @@ def build_local_design_markdown(prepared: DesignInputBundle, decision_payload: d
             parts.append(f"- {item}")
     else:
         parts.append("- 暂无阻塞性待确认项。")
+    if blocking_count > 0 and not finalized:
+        parts.extend(["", "## 当前阻断", "- Skeptic review 仍存在阻塞问题，当前 Design 不能进入 Plan。"])
     if prepared.sections.non_goals:
         parts.extend(["", "## 明确不做"])
         parts.extend(f"- {item}" for item in prepared.sections.non_goals)
     return "\n".join(parts).rstrip() + "\n"
+
+
+def _local_design_conclusion(decision_payload: dict[str, object], blocking_count: int, finalized: bool) -> str:
+    summary = str(decision_payload.get("decision_summary") or "本阶段已形成初版设计裁决。").strip()
+    if blocking_count > 0 and not finalized:
+        return f"当前不能进入 Plan。{summary}"
+    return summary
 
 
 def run_semantic_gate(
@@ -702,7 +847,7 @@ def local_gate_payload(
         "ok": gate_status in {GATE_PASSED, GATE_PASSED_WITH_WARNINGS},
         "gate_status": gate_status,
         "issues": issues,
-        "reason": _gate_reason(gate_status, prepared),
+        "reason": _normalized_gate_reason(gate_status, issues, _gate_reason(gate_status, prepared)),
     }
 
 
@@ -718,7 +863,7 @@ def normalize_gate_payload(payload: dict[str, object], review_payload: dict[str,
         "ok": gate_status in {GATE_PASSED, GATE_PASSED_WITH_WARNINGS},
         "gate_status": gate_status,
         "issues": issues,
-        "reason": str(payload.get("reason") or ""),
+        "reason": _normalized_gate_reason(gate_status, issues, str(payload.get("reason") or "")),
     }
 
 
@@ -837,13 +982,18 @@ def _parse_rg_line(root: Path, line: str) -> tuple[str, int, str]:
 
 
 def _rank_candidate_files(seen_files: dict[str, list[dict[str, object]]]) -> list[dict[str, object]]:
-    ranked = sorted(seen_files.items(), key=lambda item: (-len(item[1]), item[0]))
+    ranked = sorted(seen_files.items(), key=lambda item: (-_evidence_score(item[0], item[1]), item[0]))
     return [
         {
             "path": path,
             "kind": "core_change",
-            "confidence": "high" if len(matches) >= 3 else "medium",
-            "reason": f"命中 {len(matches)} 条 refined scope 相关搜索证据。",
+            "confidence": "high" if _evidence_score(path, matches) >= 6 else "medium",
+            "reason": _candidate_reason(path, matches),
+            "scene": _path_scene(path),
+            "symbol": _match_symbol(matches),
+            "matched_behavior": _match_terms_text(matches),
+            "why_core": "路径和多组需求术语共同命中，适合作为核心候选。" if _is_core_candidate(path, matches) else "",
+            "core_evidence": _is_core_candidate(path, matches),
         }
         for path, matches in ranked
     ]
@@ -990,6 +1140,68 @@ def _gate_reason(gate_status: str, prepared: DesignInputBundle | None) -> str:
     return "Design V3 failed."
 
 
+def _normalized_gate_reason(gate_status: str, issues: list[dict[str, object]], fallback: str) -> str:
+    blocking = [item for item in issues if str(item.get("severity") or "") == "blocking"]
+    if gate_status in {GATE_NEEDS_HUMAN, GATE_FAILED, GATE_DEGRADED} and blocking:
+        first = blocking[0]
+        target = str(first.get("target") or "design decision")
+        action = str(first.get("suggested_action") or first.get("actual") or "").strip()
+        if action:
+            return f"存在阻塞问题：{target}。{action}"
+        return f"存在阻塞问题：{target}。"
+    if gate_status == GATE_DEGRADED:
+        return _gate_reason(gate_status, None)
+    if gate_status == GATE_NEEDS_HUMAN and "能够支撑" in fallback:
+        return _gate_reason(gate_status, None)
+    return fallback or _gate_reason(gate_status, None)
+
+
+def _evidence_score(path: str, matches: list[dict[str, object]]) -> int:
+    distinct_terms = {str(item.get("term") or "").lower() for item in matches if str(item.get("term") or "").strip()}
+    path_parts = {part.lower() for part in Path(path).parts}
+    score = len(matches) + len(distinct_terms) * 2
+    if any(part in {"test", "tests", "__tests__"} for part in path_parts) or path.endswith(("_test.go", ".test.ts", ".spec.ts")):
+        score -= 4
+    if any(part in {"src", "pkg", "internal", "entities", "converters", "dal", "service", "api"} for part in path_parts):
+        score += 2
+    return score
+
+
+def _is_core_candidate(path: str, matches: list[dict[str, object]]) -> bool:
+    distinct_terms = {str(item.get("term") or "").lower() for item in matches if str(item.get("term") or "").strip()}
+    if path.endswith(("_test.go", ".test.ts", ".spec.ts")):
+        return False
+    return _evidence_score(path, matches) >= 5 and len(distinct_terms) >= 2
+
+
+def _candidate_reason(path: str, matches: list[dict[str, object]]) -> str:
+    distinct_terms = {str(item.get("term") or "") for item in matches if str(item.get("term") or "").strip()}
+    if _is_core_candidate(path, matches):
+        return f"命中 {len(matches)} 条、{len(distinct_terms)} 组 refined scope 相关证据，且路径不像测试或生成产物。"
+    return f"仅作为相关文件：命中 {len(matches)} 条、{len(distinct_terms)} 组证据，尚不足以证明需要修改。"
+
+
+def _path_scene(path: str) -> str:
+    parts = [part for part in Path(path).parts if part not in {"", "."}]
+    if len(parts) <= 1:
+        return parts[0] if parts else ""
+    return "/".join(parts[:-1])
+
+
+def _match_symbol(matches: list[dict[str, object]]) -> str:
+    for item in matches:
+        text = str(item.get("text") or "")
+        match = re.search(r"\b(?:func|type|class|interface|const|var)\s+([A-Za-z_][A-Za-z0-9_]*)", text)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _match_terms_text(matches: list[dict[str, object]]) -> str:
+    terms = _dedupe(str(item.get("term") or "") for item in matches if str(item.get("term") or "").strip())
+    return "、".join(terms[:6])
+
+
 def _as_str_list(value: object) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
@@ -1025,4 +1237,3 @@ def _dedupe(values: Iterable[str]) -> list[str]:
 
 def _safe_artifact_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip()) or "repo"
-

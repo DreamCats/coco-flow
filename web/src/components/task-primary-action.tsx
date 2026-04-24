@@ -167,7 +167,7 @@ export function TaskPrimaryAction({
       </div>
 
       {diagnosis ? (
-        <NoticeBox tone={diagnosis.ok ? 'emerald' : diagnosis.severity === 'needs_human' ? 'amber' : 'rose'}>
+        <NoticeBox tone={diagnosis.ok ? 'emerald' : ['needs_human', 'degraded'].includes(diagnosis.severity) ? 'amber' : 'rose'}>
           {renderDiagnosisSummary(diagnosis)}
         </NoticeBox>
       ) : null}
