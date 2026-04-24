@@ -134,7 +134,9 @@ def _reset_design_outputs(task_dir: Path) -> None:
         "design-repo-assignment.json",
         "design-research.json",
         "design-repo-responsibility-matrix.json",
+        "design-skills-selection.json",
         "design-skills-brief.md",
+        "design-search-hints.json",
         "design-repo-binding.json",
         "design-sections.json",
         "design-verify.json",
@@ -159,6 +161,7 @@ def _reset_design_outputs(task_dir: Path) -> None:
         ".design-verify-*.json",
         ".design-architect-*.json",
         ".design-skeptic-*.json",
+        ".design-search-hints-*.json",
         ".design-writer-*.md",
         ".design-gate-*.json",
     ):

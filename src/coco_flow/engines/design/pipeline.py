@@ -28,6 +28,7 @@ from .models import (
 )
 from .research import build_research_plan, build_research_summary, run_parallel_repo_research, safe_artifact_name
 from .search_hints import build_search_hints
+from .skills import build_design_skills_bundle
 from .source import prepare_design_input
 from .utils import issues
 from .writer import write_design_markdown
@@ -41,21 +42,23 @@ def run_design_engine(
 ) -> DesignEngineResult:
     """执行 Design V3 的有限轮 agentic workflow。
 
-    流程固定为 9 步：
+    流程固定为 10 步：
     1. 准备输入 bundle，并落 `design-input.*`
-    2. 将 refined PRD 转成结构化搜索线索
-    3. 生成 repo research plan
-    4. 并发做 repo evidence research
-    5. Architect 做跨仓裁决
-    6. Skeptic 做对抗审查
-    7. 有界 revision 生成最终 decision，并派生兼容 artifact
-    8. Writer 把 decision 写成 `design.md`
-    9. Semantic gate 决定是否允许进入 Plan
+    2. 检索 Design skills，并生成 SOP/repo role brief
+    3. 将 refined PRD 转成结构化搜索线索
+    4. 生成 repo research plan
+    5. 并发做 repo evidence research
+    6. Architect 做跨仓裁决
+    7. Skeptic 做对抗审查
+    8. 有界 revision 生成最终 decision，并派生兼容 artifact
+    9. Writer 把 decision 写成 `design.md`
+    10. Semantic gate 决定是否允许进入 Plan
     """
     artifacts: dict[str, str | dict[str, object]] = {}
 
     prepared = _prepare(task_dir, task_meta, settings, artifacts, on_log)
     native_ok = settings.plan_executor.strip().lower() == EXECUTOR_NATIVE
+    _skills(prepared, settings, artifacts, on_log)
     search_hints_payload = _search_hints(prepared, settings, native_ok, artifacts, on_log)
     research_plan_payload, research_summary_payload = _research(prepared, search_hints_payload, artifacts, on_log)
     adjudication_payload = _architect(prepared, research_plan_payload, research_summary_payload, settings, native_ok, artifacts, on_log)
@@ -116,6 +119,25 @@ def _prepare(
     artifacts["design-input.md"] = build_design_input_markdown(prepared)
     on_log(f"design_v3_prepare_ok: repos={len(prepared.repo_scopes)} refined_chars={len(prepared.refined_markdown.strip())}")
     return prepared
+
+
+def _skills(
+    prepared,
+    settings: Settings,
+    artifacts: dict[str, str | dict[str, object]],
+    on_log,
+) -> None:
+    on_log("design_v3_skills_start: true")
+    brief_markdown, selection_payload, selected_skill_ids = build_design_skills_bundle(prepared, settings)
+    prepared.design_skills_selection_payload = selection_payload
+    prepared.design_skills_brief_markdown = brief_markdown
+    prepared.design_selected_skill_ids = selected_skill_ids
+    artifacts["design-skills-selection.json"] = selection_payload
+    if brief_markdown.strip():
+        artifacts["design-skills-brief.md"] = brief_markdown
+    artifacts["design-input.json"] = build_design_input_payload(prepared)
+    artifacts["design-input.md"] = build_design_input_markdown(prepared)
+    on_log(f"design_v3_skills_ok: selected={len(selected_skill_ids)}")
 
 
 def _search_hints(

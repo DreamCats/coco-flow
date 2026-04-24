@@ -37,7 +37,7 @@ def build_architect_adjudication(
                 lambda template_path: build_architect_prompt(
                     title=prepared.title,
                     refined_markdown=prepared.refined_markdown,
-                    skills_brief_markdown=prepared.refine_skills_read_markdown,
+                    skills_brief_markdown=prepared.design_skills_brief_markdown or prepared.refine_skills_read_markdown,
                     research_plan_payload=research_plan_payload,
                     research_summary_payload=research_summary_payload,
                     template_path=template_path,

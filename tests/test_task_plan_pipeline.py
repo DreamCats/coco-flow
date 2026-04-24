@@ -12,6 +12,7 @@ from coco_flow.engines.design.gate import local_gate_payload
 from coco_flow.engines.design.pipeline import apply_review_issues_to_decision, normalize_decision_for_gate
 from coco_flow.engines.design.adjudication import normalize_adjudication, review_payload_after_revision
 from coco_flow.engines.design.research import build_research_plan, research_single_repo
+from coco_flow.engines.design.skills import build_design_skills_bundle
 from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
@@ -152,6 +153,47 @@ class DesignV3PipelineTest(unittest.TestCase):
         self.assertEqual(repo_plan["negative_terms"], ["legacy"])
         self.assertEqual(repo_plan["search_hints_source"], "native")
 
+    def test_design_skills_selects_auction_pop_card_and_builds_brief(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            self._write_skill(
+                settings.config_root / "skills" / "auction-pop-card",
+                skill_body=(
+                    "适用于竞拍讲解卡需求。\n"
+                    "公共配置 / 实验开关 通常关注 live_common，再看业务仓如何消费。\n"
+                ),
+                references={
+                    "references/change-workflows.md": (
+                        "## Stable Repo Roles\n"
+                        "- `live_pack` 更偏竞拍卡数据编排、状态收敛。\n"
+                        "- `live_common` 更偏 AB/TCC/schema 开关。\n"
+                        "## Stable Multi-Repo Patterns\n"
+                        "- `live_common + 业务仓` AB 参数、实验开关、共享配置。\n"
+                        "### 数据编排 / 状态口径对齐\n"
+                        "- 常见模块: entities/converters/auction_converters/*\n"
+                        "### 公共配置 / 实验开关\n"
+                        "- 常见模块: live_common/abtest/*\n"
+                    )
+                },
+            )
+            prepared = self._design_bundle(
+                repo_scopes=[
+                    RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                    RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+                ],
+                title="竞拍讲解卡文案实验",
+                refined_markdown="命中实验时，普通竞拍和 surprise set 展示 Starting bid。",
+            )
+
+            brief, selection, selected_ids = build_design_skills_bundle(prepared, settings)
+
+            self.assertEqual(selected_ids, ["auction-pop-card"])
+            self.assertEqual(selection["selected_skill_ids"], ["auction-pop-card"])
+            self.assertIn("Stable Repo Roles", brief)
+            self.assertIn("live_common + 业务仓", brief)
+            self.assertIn("Design 必须说明实验字段来源", brief)
+
     def test_repo_research_uses_file_pattern_hints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_dir = Path(tmp) / "repo"
@@ -284,6 +326,7 @@ class DesignV3PipelineTest(unittest.TestCase):
             self.assertEqual(status, "failed")
             self.assertTrue((task_dir / "design-input.json").exists())
             self.assertTrue((task_dir / "design-research-plan.json").exists())
+            self.assertTrue((task_dir / "design-skills-selection.json").exists())
             self.assertTrue((task_dir / "design-search-hints.json").exists())
             self.assertTrue((task_dir / "design-research" / "demo.json").exists())
             self.assertTrue((task_dir / "design-research-summary.json").exists())
@@ -337,12 +380,18 @@ class DesignV3PipelineTest(unittest.TestCase):
         )
         return task_dir, repo_dir
 
-    def _design_bundle(self, *, repo_scopes: list[RepoScope]) -> DesignInputBundle:
+    def _design_bundle(
+        self,
+        *,
+        repo_scopes: list[RepoScope],
+        title: str = "Demo",
+        refined_markdown: str = "demo",
+    ) -> DesignInputBundle:
         return DesignInputBundle(
             task_dir=Path("/tmp/task"),
             task_id="task",
-            title="Demo",
-            refined_markdown="demo",
+            title=title,
+            refined_markdown=refined_markdown,
             input_meta={},
             refine_brief_payload={},
             refine_intent_payload={},
@@ -359,6 +408,22 @@ class DesignV3PipelineTest(unittest.TestCase):
                 raw="",
             ),
         )
+
+    def _write_skill(self, root: Path, *, skill_body: str, references: dict[str, str]) -> None:
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "SKILL.md").write_text(
+            "---\n"
+            "name: auction-pop-card\n"
+            "description: 竞拍讲解卡获取数据及打包链路\n"
+            "domain: auction-pop-card\n"
+            "---\n\n"
+            f"{skill_body}\n",
+            encoding="utf-8",
+        )
+        for rel, content in references.items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
 
     def _write_json(self, path: Path, payload: dict[str, object]) -> None:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

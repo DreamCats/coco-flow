@@ -39,6 +39,9 @@ class DesignInputBundle:
     repo_scopes: list[RepoScope]
     sections: RefinedSections
     selected_skill_ids: list[str] = field(default_factory=list)
+    design_skills_selection_payload: dict[str, object] = field(default_factory=dict)
+    design_skills_brief_markdown: str = ""
+    design_selected_skill_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -49,4 +52,3 @@ class DesignEngineResult:
     repo_binding_payload: dict[str, object]
     sections_payload: dict[str, object]
     intermediate_artifacts: dict[str, str | dict[str, object]] = field(default_factory=dict)
-

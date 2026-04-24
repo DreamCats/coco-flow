@@ -41,11 +41,13 @@ class PromptSystemTest(unittest.TestCase):
         rendered = build_search_hints_prompt(
             title="更新成功态",
             refined_markdown="需要更新 BidSuccessToast。",
+            design_skills_brief_markdown="RegularAuctionConverter 是常见搜索线索。",
             repo_context_payload=[{"repo_id": "demo", "repo_name": "demo-repo"}],
             template_path="/tmp/search-hints.json",
         )
 
         self.assertIn("不要读取、遍历或推断仓库代码内容", rendered)
+        self.assertIn("RegularAuctionConverter", rendered)
         self.assertIn("/tmp/search-hints.json", rendered)
         self.assertIn("BidSuccessToast", rendered)
 
