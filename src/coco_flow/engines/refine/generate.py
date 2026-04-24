@@ -65,7 +65,7 @@ def render_refined_markdown(brief: RefineBrief) -> str:
         "## 需求概述\n"
         f"{_render_paragraph(overview_lines)}\n\n"
         "## 具体变更点\n"
-        f"{_render_bullets(brief.in_scope)}\n\n"
+        f"{_render_change_scope(brief)}\n\n"
         "## 验收标准\n"
         f"{_render_bullets(brief.acceptance_criteria)}\n\n"
         "## 边界与非目标\n"
@@ -91,6 +91,11 @@ def verify_refine_output(brief: RefineBrief, refined_markdown: str) -> RefineVer
     acceptance_section = _extract_markdown_section(refined_markdown, "验收标准")
     if "未纳入范围" in acceptance_section or "不扩大到" in acceptance_section:
         issues.append("验收标准混入了边界说明。")
+    change_section = _extract_markdown_section(refined_markdown, "具体变更点")
+    for condition in brief.gating_conditions:
+        if not _contains_condition(change_section, condition):
+            issues.append(f"具体变更点缺少适用条件：{condition}")
+            break
     for item in brief.in_scope:
         if item not in refined_markdown:
             issues.append(f"缺少 in_scope 叶子项：{item}")
@@ -264,6 +269,10 @@ def _repair_refined_markdown(
             _strip_boundary_acceptance_items(acceptance_section) or _extract_markdown_section(canonical, "验收标准"),
         )
         notes.append("acceptance_boundary_mixed")
+    change_section = _extract_markdown_section(repaired, "具体变更点")
+    if any(not _contains_condition(change_section, condition) for condition in brief.gating_conditions):
+        repaired = _replace_markdown_section(repaired, "具体变更点", _extract_markdown_section(canonical, "具体变更点"))
+        notes.append("gating_condition_missing")
 
     return repaired.rstrip() + "\n", notes
 
@@ -303,6 +312,8 @@ def _classify_refine_failure(issues: list[str], missing_sections: list[str]) -> 
         return "missing_acceptance_criteria"
     if any("验收标准混入了边界说明" in issue for issue in issues):
         return "acceptance_boundary_mixed"
+    if any("具体变更点缺少适用条件" in issue for issue in issues):
+        return "missing_gating_condition"
     if any("in_scope" in issue for issue in issues):
         return "missing_in_scope"
     if any("out_of_scope" in issue for issue in issues):
@@ -405,6 +416,14 @@ def _render_bullets(items: list[str]) -> str:
     return "\n".join(f"- {item}" for item in normalized) if normalized else "- 无"
 
 
+def _render_change_scope(brief: RefineBrief) -> str:
+    items: list[str] = []
+    if brief.gating_conditions:
+        items.append("适用条件：" + "；".join(brief.gating_conditions))
+    items.extend(brief.in_scope)
+    return _render_bullets(items)
+
+
 def _render_paragraph(lines: list[str]) -> str:
     normalized = [line.rstrip() for line in lines if line.strip()]
     return "\n".join(normalized) if normalized else "当前需求目标待补充。"
@@ -414,3 +433,13 @@ def _extract_markdown_section(markdown: str, title: str) -> str:
     pattern = rf"(?ms)^## {re.escape(title)}\n(.*?)(?=^## |\Z)"
     matched = re.search(pattern, markdown)
     return matched.group(1).strip() if matched else ""
+
+
+def _contains_condition(section_body: str, condition: str) -> bool:
+    condition_norm = _normalize_condition_text(condition)
+    section_norm = _normalize_condition_text(section_body)
+    return bool(condition_norm) and condition_norm in section_norm
+
+
+def _normalize_condition_text(value: str) -> str:
+    return re.sub(r"[\s。.,，:：；;]+", "", value.strip())

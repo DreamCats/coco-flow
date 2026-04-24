@@ -38,6 +38,7 @@ def build_refine_generate_agent_prompt(
                     "不得把模板提示语、占位语、链接清单、Figma/Legal/Starling 信息写进最终结果。",
                     "必须保留模板中的标题结构，不新增章节。",
                     "具体变更点应尽量保留叶子改动点，不要把纯标题行单独写成改动点。",
+                    "如果 brief draft 有 gating_conditions，必须在“具体变更点”开头写一条“适用条件：...”。",
                     "验收标准要改写成“当...时，应该...”的可验证句子。",
                 ]
             ),

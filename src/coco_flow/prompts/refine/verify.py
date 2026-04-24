@@ -30,6 +30,7 @@ def build_refine_verify_agent_prompt(
                     "检查是否遗漏 brief draft 的 in_scope 叶子改动点。",
                     "检查是否把模板提示语或无关链接信息写进结果。",
                     "检查是否把标题行当成改动点，导致叶子点缺失。",
+                    "如果 brief draft 有 gating_conditions，检查它是否出现在“具体变更点”的适用条件中，不能只出现在验收标准。",
                     "检查是否把 out_of_scope 写进主变更点或验收标准。",
                     "只有问题为空时才允许 ok=true。",
                 ]

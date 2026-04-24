@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from coco_flow.config import Settings
 from coco_flow.engines.refine.brief import build_refine_brief, merge_brief_with_refined_markdown, parse_manual_extract
-from coco_flow.engines.refine.generate import _extract_markdown_section, _verify_with_local_repair, verify_refine_output
+from coco_flow.engines.refine.generate import _extract_markdown_section, _verify_with_local_repair, render_refined_markdown, verify_refine_output
 from coco_flow.services.tasks.refine import refine_task, start_refining_task
 
 
@@ -110,6 +110,32 @@ class RefineTaskTest(unittest.TestCase):
         self.assertIn("不改横滑和震感。", brief.out_of_scope)
         self.assertEqual(len(brief.acceptance_criteria), 2)
 
+    def test_render_refined_markdown_writes_gating_condition_in_change_scope(self) -> None:
+        brief = build_refine_brief(
+            type(
+                "Prepared",
+                (),
+                {
+                    "title": "竞拍讲解卡爽感增强",
+                    "supplement": "",
+                    "source_content": "",
+                },
+            )(),
+            parse_manual_extract(
+                "## 本次范围\n"
+                "- 只处理服务端文案实验范围。\n\n"
+                "## 人工提炼改动点\n"
+                "命中第一个实验， 会改动以下：\n"
+                "- 普通竞拍预热态：{起拍价} + Starting bid。\n"
+            ),
+        )
+
+        refined = render_refined_markdown(brief)
+
+        change_section = _extract_markdown_section(refined, "具体变更点")
+        self.assertIn("适用条件：命中第一个实验", change_section)
+        self.assertIn("普通竞拍预热态", change_section)
+
     def test_merge_brief_with_refined_markdown_syncs_agent_added_boundary(self) -> None:
         brief = build_refine_brief(
             type(
@@ -137,7 +163,7 @@ class RefineTaskTest(unittest.TestCase):
             (
                 "# 需求确认书\n\n"
                 "## 需求概述\nA\n\n"
-                "## 具体变更点\n- 普通竞拍预热态：{起拍价} + Starting bid。\n\n"
+                "## 具体变更点\n- 适用条件：命中第一个实验。\n- 普通竞拍预热态：{起拍价} + Starting bid。\n\n"
                 "## 验收标准\n- 当命中第一个实验时，普通竞拍预热态正确生效。\n\n"
                 "## 边界与非目标\n- 不改横滑和震感。\n- 购物袋商卡和Maxbid面板卡片先不改。\n\n"
                 "## 待确认项\n- 无\n"
@@ -145,6 +171,44 @@ class RefineTaskTest(unittest.TestCase):
         )
 
         self.assertIn("购物袋商卡和Maxbid面板卡片先不改。", merged.out_of_scope)
+        self.assertEqual(merged.in_scope, ["普通竞拍预热态：{起拍价} + Starting bid。"])
+
+    def test_verify_rejects_gating_condition_only_in_acceptance(self) -> None:
+        brief = build_refine_brief(
+            type(
+                "Prepared",
+                (),
+                {
+                    "title": "竞拍讲解卡爽感增强",
+                    "supplement": "",
+                    "source_content": "",
+                },
+            )(),
+            parse_manual_extract(
+                "## 本次范围\n"
+                "- 只处理服务端文案实验范围。\n\n"
+                "## 人工提炼改动点\n"
+                "命中第一个实验， 会改动以下：\n"
+                "- 普通竞拍预热态：{起拍价} + Starting bid。\n"
+            ),
+        )
+
+        verify = verify_refine_output(
+            brief,
+            (
+                "# 需求确认书\n\n"
+                "## 需求概述\nA\n\n"
+                "## 具体变更点\n- 普通竞拍预热态：{起拍价} + Starting bid。\n\n"
+                "## 验收标准\n- 当命中第一个实验时，普通竞拍预热态正确生效。\n\n"
+                "## 边界与非目标\n- 不扩大到人工提炼范围之外的 UI、动效、交互或相邻系统改动。\n\n"
+                "## 待确认项\n- 无\n"
+            ),
+        )
+
+        self.assertFalse(verify.ok)
+        self.assertIn("具体变更点缺少适用条件：命中第一个实验", verify.issues)
+        self.assertEqual(verify.failure_type, "missing_gating_condition")
+
 
     def test_verify_rejects_boundary_sentence_inside_acceptance(self) -> None:
         brief = build_refine_brief(
@@ -222,6 +286,7 @@ class RefineTaskTest(unittest.TestCase):
         self.assertTrue(verify.ok)
         self.assertEqual(verify.repair_attempts, 1)
         self.assertIn("## 待确认项", repaired)
+        self.assertIn("适用条件：命中第一个实验", _extract_markdown_section(repaired, "具体变更点"))
         self.assertNotIn("待补充", repaired)
         self.assertNotIn("未纳入范围", _extract_markdown_section(repaired, "验收标准"))
         self.assertTrue(any("refine_repair_attempt: 1" in line for line in logs))
