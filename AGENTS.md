@@ -270,6 +270,7 @@ uv run python -m unittest discover -s tests -v
   - `plan-verify.json`
   - `plan-diagnosis.json`
 - 任务详情 API 会额外暴露最新阶段的 diagnosis 摘要，供 UI 直接展示 `severity / failureType / nextAction`
+- 最新 diagnosis 为 `needs_human` 时，任务详情的顶层 `nextAction` 会优先提示用户编辑或确认对应 artifact 后重跑该阶段
 
 ### daemon / ACP
 

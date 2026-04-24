@@ -180,6 +180,7 @@ Notes:
 - `native plan` runs staged scope extraction, generation, and verification.
 - Typical artifacts include `design.md`, `design-skills-brief.md`, `design-verify.json`, `design-diagnosis.json`, `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-diagnosis.json`, `plan-skills-selection.json`, and `plan-skills-brief.md`.
 - Task detail responses also expose the latest stage diagnosis summary so the UI can show `severity`, `failureType`, and `nextAction` without parsing artifacts.
+- When the latest diagnosis requires human input, the task detail `nextAction` points to the artifact the user should edit or confirm before rerunning the stage.
 - `design-repo-binding.json` includes per-repo execution responsibility confidence; low-confidence `must_change` bindings produce a `needs_human` design diagnosis without changing the current stage transition.
 
 ### Code

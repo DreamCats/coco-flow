@@ -89,6 +89,7 @@ def build_task_detail(
     code_progress = read_json_file(task_dir / "code-progress.json")
     design_repo_binding = read_json_file(task_dir / "design-repo-binding.json")
     repos = parse_repos(repos_meta, task_dir, code_dispatch, code_progress, design_repo_binding)
+    diagnosis = build_latest_diagnosis(task_dir)
 
     return TaskDetail(
         task_id=task_id,
@@ -103,11 +104,11 @@ def build_task_detail(
         repo_count=int(metadata.get("repo_count") or len(repos)),
         task_dir=str(task_dir),
         source_label=source_label,
-        next_action=build_next_action(task_id, status, task_dir, repos),
+        next_action=build_next_action(task_id, status, task_dir, repos, diagnosis),
         repos=repos,
         code_dispatch=build_code_dispatch_summary(code_dispatch),
         code_progress=build_code_progress_summary(status, repos, code_dispatch, code_progress),
-        diagnosis=build_latest_diagnosis(task_dir),
+        diagnosis=diagnosis,
         timeline=build_timeline(status, task_dir),
         artifacts=build_artifacts(task_dir),
     )
@@ -486,11 +487,21 @@ def _string_list(value: object) -> list[str]:
 
 
 def build_next_action(
-    task_id: str, status: str, task_dir: Path, repos: list[RepoBinding]
+    task_id: str,
+    status: str,
+    task_dir: Path,
+    repos: list[RepoBinding],
+    diagnosis: DiagnosisSummary | None = None,
 ) -> str:
     has_refined = (task_dir / "prd-refined.md").exists()
     has_design = (task_dir / "design.md").exists()
     has_plan = has_plan_artifacts(task_dir)
+    if diagnosis and diagnosis.severity == "needs_human":
+        if diagnosis.failure_type == "missing_human_scope":
+            return f"请先补齐 {task_dir / 'prd.source.md'} 中的人工提炼范围，然后重新执行 coco-flow tasks refine {task_id}"
+        if diagnosis.failure_type == "repo_responsibility_uncertain":
+            return f"请先确认 {task_dir / 'design-repo-binding.json'} 中的仓库执行职责，然后重新执行 coco-flow tasks design {task_id}"
+        return "当前阶段需要人工确认，请先查看 diagnosis artifact。"
     if status == "input_processing":
         return "Input 正在解析飞书正文，请稍候刷新任务详情。"
     if status == "input_failed":
