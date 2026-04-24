@@ -13,6 +13,27 @@ class PromptRequest(TypedDict):
     acp_idle_timeout_seconds: float
 
 
+class SessionNewRequest(TypedDict):
+    type: str
+    coco_bin: str
+    cwd: str
+    mode: str
+    query_timeout: str
+    acp_idle_timeout_seconds: float
+    role: str
+
+
+class SessionPromptRequest(TypedDict):
+    type: str
+    handle_id: str
+    prompt: str
+
+
+class SessionCloseRequest(TypedDict):
+    type: str
+    handle_id: str
+
+
 class PingRequest(TypedDict):
     type: str
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from json import JSONDecodeError, JSONDecoder
 import json
 import os
@@ -9,10 +9,16 @@ import re
 import subprocess
 import threading
 import time
+import uuid
 
 from .base import CocoClient
 from coco_flow.config import Settings, load_settings
-from coco_flow.daemon.client import run_prompt_via_daemon
+from coco_flow.daemon.client import (
+    close_session_via_daemon,
+    new_session_via_daemon,
+    prompt_session_via_daemon,
+    run_prompt_via_daemon,
+)
 
 _DURATION_PART = re.compile(r"(\d+)(ms|s|m|h)")
 
@@ -32,6 +38,23 @@ class _SessionKey:
     cwd: str
     mode: _ACPMode
     query_timeout: str
+
+
+@dataclass(frozen=True)
+class AgentSessionHandle:
+    handle_id: str
+    cwd: str
+    mode: str
+    query_timeout: str
+    role: str
+
+
+@dataclass(frozen=True)
+class _ExplicitSession:
+    key: _SessionKey
+    session_id: str
+    role: str
+    created_at: float
 
 
 @dataclass
@@ -87,10 +110,42 @@ class CocoACPClient(CocoClient):
             fresh_session=fresh_session,
         )
 
+    def new_agent_session(
+        self,
+        *,
+        query_timeout: str,
+        cwd: str,
+        role: str,
+    ) -> AgentSessionHandle:
+        payload = new_session_via_daemon(
+            settings=self.settings,
+            coco_bin=self.coco_bin,
+            cwd=os.path.realpath(cwd),
+            mode=AGENT_MODE.name,
+            query_timeout=query_timeout,
+            acp_idle_timeout_seconds=self.idle_timeout_seconds,
+            role=role,
+        )
+        return _agent_session_handle_from_payload(payload)
+
+    def prompt_agent_session(self, handle: AgentSessionHandle, prompt: str) -> str:
+        return prompt_session_via_daemon(
+            settings=self.settings,
+            handle_id=handle.handle_id,
+            prompt=prompt,
+        )
+
+    def close_agent_session(self, handle: AgentSessionHandle) -> None:
+        close_session_via_daemon(
+            settings=self.settings,
+            handle_id=handle.handle_id,
+        )
+
 
 class _ACPSessionPool:
     def __init__(self) -> None:
         self._sessions: dict[_SessionKey, _PooledSession] = {}
+        self._explicit_sessions: dict[str, _ExplicitSession] = {}
         self._lock = threading.Lock()
         self._reaper_started = False
 
@@ -107,15 +162,53 @@ class _ACPSessionPool:
         self._ensure_reaper_started()
         key = _SessionKey(coco_bin=coco_bin, cwd=cwd, mode=mode, query_timeout=query_timeout)
         with self._lock:
-            session = self._sessions.get(key)
-            if session is None:
-                session = _PooledSession(
-                    key=key,
-                    coco_bin=coco_bin,
-                    idle_timeout_seconds=idle_timeout_seconds,
-                )
-                self._sessions[key] = session
+            session = self._get_or_create_session_locked(key, coco_bin, idle_timeout_seconds)
         return session.prompt(prompt, fresh_session=fresh_session)
+
+    def new_session(
+        self,
+        coco_bin: str,
+        cwd: str,
+        mode: _ACPMode,
+        query_timeout: str,
+        idle_timeout_seconds: float,
+        role: str,
+    ) -> AgentSessionHandle:
+        self._ensure_reaper_started()
+        key = _SessionKey(coco_bin=coco_bin, cwd=cwd, mode=mode, query_timeout=query_timeout)
+        with self._lock:
+            session = self._get_or_create_session_locked(key, coco_bin, idle_timeout_seconds)
+        session_id = session.new_explicit_session()
+        handle_id = uuid.uuid4().hex
+        explicit_session = _ExplicitSession(
+            key=key,
+            session_id=session_id,
+            role=role,
+            created_at=time.monotonic(),
+        )
+        with self._lock:
+            self._explicit_sessions[handle_id] = explicit_session
+        return AgentSessionHandle(
+            handle_id=handle_id,
+            cwd=cwd,
+            mode=mode.name,
+            query_timeout=query_timeout,
+            role=role,
+        )
+
+    def prompt_session(self, handle_id: str, prompt: str) -> str:
+        with self._lock:
+            explicit_session = self._explicit_sessions.get(handle_id)
+            if explicit_session is None:
+                raise ValueError(f"unknown acp session handle: {handle_id}")
+            session = self._sessions.get(explicit_session.key)
+            if session is None:
+                raise ValueError(f"acp session handle is no longer active: {handle_id}")
+        return session.prompt_explicit_session(explicit_session.session_id, prompt)
+
+    def close_session(self, handle_id: str) -> None:
+        with self._lock:
+            self._explicit_sessions.pop(handle_id, None)
 
     def reap_idle_sessions(self) -> None:
         while True:
@@ -127,6 +220,13 @@ class _ACPSessionPool:
                     if session.should_close(now)
                 ]
                 stale_sessions = [self._sessions.pop(key) for key in stale_keys]
+                stale_key_set = set(stale_keys)
+                if stale_key_set:
+                    self._explicit_sessions = {
+                        handle_id: explicit_session
+                        for handle_id, explicit_session in self._explicit_sessions.items()
+                        if explicit_session.key not in stale_key_set
+                    }
             for session in stale_sessions:
                 session.close()
 
@@ -136,6 +236,22 @@ class _ACPSessionPool:
                 return
             threading.Thread(target=self.reap_idle_sessions, name="coco-flow-acp-reaper", daemon=True).start()
             self._reaper_started = True
+
+    def _get_or_create_session_locked(
+        self,
+        key: _SessionKey,
+        coco_bin: str,
+        idle_timeout_seconds: float,
+    ) -> "_PooledSession":
+        session = self._sessions.get(key)
+        if session is None:
+            session = _PooledSession(
+                key=key,
+                coco_bin=coco_bin,
+                idle_timeout_seconds=idle_timeout_seconds,
+            )
+            self._sessions[key] = session
+        return session
 
 
 class _PooledSession:
@@ -166,6 +282,25 @@ class _PooledSession:
                 self._restart()
                 assert self._process is not None
                 session_id = self._new_session_id() if fresh_session else self._session_id
+                result = self._process.prompt(session_id, prompt)
+            finally:
+                self._last_used = time.monotonic()
+                self._busy = False
+            return result
+
+    def new_explicit_session(self) -> str:
+        with self._lock:
+            self._ensure_running()
+            self._last_used = time.monotonic()
+            return self._new_session_id()
+
+    def prompt_explicit_session(self, session_id: str, prompt: str) -> str:
+        with self._lock:
+            self._busy = True
+            if self._process is None or not self._process.is_running():
+                self._busy = False
+                raise ValueError("explicit acp session is no longer running")
+            try:
                 result = self._process.prompt(session_id, prompt)
             finally:
                 self._last_used = time.monotonic()
@@ -476,7 +611,60 @@ def run_prompt_with_pool(
     )
 
 
+def new_session_with_pool(
+    *,
+    coco_bin: str,
+    cwd: str,
+    mode: str,
+    query_timeout: str,
+    idle_timeout_seconds: float,
+    role: str,
+) -> AgentSessionHandle:
+    resolved_mode = _resolve_mode(mode)
+    return _SESSION_POOL.new_session(
+        coco_bin=coco_bin,
+        cwd=os.path.realpath(cwd),
+        mode=resolved_mode,
+        query_timeout=query_timeout,
+        idle_timeout_seconds=idle_timeout_seconds,
+        role=role,
+    )
+
+
+def prompt_session_with_pool(*, handle_id: str, prompt: str) -> str:
+    return _SESSION_POOL.prompt_session(handle_id, prompt)
+
+
+def close_session_with_pool(*, handle_id: str) -> None:
+    _SESSION_POOL.close_session(handle_id)
+
+
 def _resolve_mode(mode: str) -> _ACPMode:
     if mode == AGENT_MODE.name:
         return AGENT_MODE
     raise ValueError(f"unknown acp mode: {mode}")
+
+
+def _agent_session_handle_from_payload(payload: dict[str, object]) -> AgentSessionHandle:
+    handle_id = payload.get("handle_id")
+    cwd = payload.get("cwd")
+    mode = payload.get("mode")
+    query_timeout = payload.get("query_timeout")
+    role = payload.get("role")
+    if not isinstance(handle_id, str) or not handle_id.strip():
+        raise ValueError("daemon session_new response missing handle_id")
+    if not isinstance(cwd, str) or not cwd.strip():
+        raise ValueError("daemon session_new response missing cwd")
+    if not isinstance(mode, str) or not mode.strip():
+        raise ValueError("daemon session_new response missing mode")
+    if not isinstance(query_timeout, str) or not query_timeout.strip():
+        raise ValueError("daemon session_new response missing query_timeout")
+    if not isinstance(role, str) or not role.strip():
+        raise ValueError("daemon session_new response missing role")
+    return AgentSessionHandle(
+        handle_id=handle_id,
+        cwd=cwd,
+        mode=mode,
+        query_timeout=query_timeout,
+        role=role,
+    )

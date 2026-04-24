@@ -106,6 +106,46 @@ class ACPSessionPoolTest(unittest.TestCase):
             [("session-1", "pooled"), ("session-2", "fresh")],
         )
 
+    def test_explicit_session_handle_supports_multiple_prompts(self) -> None:
+        pool = _ACPSessionPool()
+        with patch("coco_flow.clients.acp_client._ACPProcess", _FakeACPProcess):
+            handle = pool.new_session(
+                coco_bin="coco",
+                cwd="/tmp/demo",
+                mode=AGENT_MODE,
+                query_timeout="180s",
+                idle_timeout_seconds=600.0,
+                role="refine_generate",
+            )
+            first = pool.prompt_session(handle.handle_id, "bootstrap")
+            second = pool.prompt_session(handle.handle_id, "generate")
+
+        self.assertEqual(handle.role, "refine_generate")
+        self.assertEqual(first, "reply:session-2")
+        self.assertEqual(second, "reply:session-2")
+        self.assertEqual(len(_FakeACPProcess.instances), 1)
+        process = _FakeACPProcess.instances[0]
+        self.assertEqual(process.new_session_calls, 2)
+        self.assertEqual(
+            process.prompt_calls,
+            [("session-2", "bootstrap"), ("session-2", "generate")],
+        )
+
+    def test_closed_explicit_session_handle_cannot_prompt(self) -> None:
+        pool = _ACPSessionPool()
+        with patch("coco_flow.clients.acp_client._ACPProcess", _FakeACPProcess):
+            handle = pool.new_session(
+                coco_bin="coco",
+                cwd="/tmp/demo",
+                mode=AGENT_MODE,
+                query_timeout="180s",
+                idle_timeout_seconds=600.0,
+                role="refine_verify",
+            )
+            pool.close_session(handle.handle_id)
+            with self.assertRaisesRegex(ValueError, "unknown acp session handle"):
+                pool.prompt_session(handle.handle_id, "verify")
+
 
 if __name__ == "__main__":
     unittest.main()
