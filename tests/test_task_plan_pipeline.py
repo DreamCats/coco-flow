@@ -16,6 +16,7 @@ from coco_flow.engines.design.matrix import (
     build_design_responsibility_matrix_payload,
     build_local_design_responsibility_matrix_payload,
 )
+from coco_flow.engines.design.pipeline import build_repo_binding_diagnosis
 from coco_flow.engines.design.generate import (
     build_design_sections_payload,
     collect_design_contract_issues,
@@ -950,8 +951,74 @@ class PlanTaskPipelineTest(unittest.TestCase):
             binding = build_local_repo_binding(prepared).to_payload()
             by_repo = {item["repo_id"]: item for item in binding["repo_bindings"]}
             self.assertEqual(by_repo["live_pack"]["scope_tier"], "must_change")
+            self.assertEqual(by_repo["live_pack"]["confidence"], "high")
             self.assertEqual(by_repo["live_shopapi"]["scope_tier"], "validate_only")
             self.assertEqual(by_repo["live_common"]["scope_tier"], "reference_only")
+
+    def test_local_repo_binding_marks_must_change_without_candidates_as_low_confidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            demo = Path(tmp) / "demo"
+            demo.mkdir()
+            prepared = DesignPreparedInput(
+                task_dir=Path(tmp),
+                task_id="task-design-low-confidence-binding",
+                title="补充状态",
+                refined_markdown="# PRD Refined\n\n- 补充状态\n",
+                input_meta={},
+                refine_intent_payload={},
+                refine_skills_selection_payload={},
+                refine_skills_read_markdown="",
+                repo_lines=[],
+                repo_scopes=[RepoScope(repo_id="demo", repo_path=str(demo))],
+                repo_researches=[
+                    RepoResearch(
+                        repo_id="demo",
+                        repo_path=str(demo),
+                        context=ContextSnapshot(available=False),
+                        finding=ResearchFinding(
+                            matched_terms=[],
+                            unmatched_terms=[],
+                            candidate_files=[],
+                            candidate_dirs=[],
+                            notes=[],
+                        ),
+                    )
+                ],
+                repo_ids={"demo"},
+                repo_root=str(demo),
+                sections=RefinedSections(
+                    change_scope=["补充状态"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=[],
+                    open_questions=[],
+                    raw="",
+                ),
+                research_signals=DesignResearchSignals(),
+                assessment=ComplexityAssessment(dimensions=[], total=2, level="low", conclusion="低复杂度"),
+                change_points_payload={"change_points": [{"id": 1, "title": "补充状态"}]},
+                responsibility_matrix_payload={
+                    "repos": [
+                        {"repo_id": "demo", "recommended_scope_tier": "must_change", "reasoning": "可能定义状态"},
+                    ]
+                },
+                repo_assignment_payload={
+                    "repo_briefs": [
+                        {"repo_id": "demo", "primary_change_points": [1], "secondary_change_points": []},
+                    ]
+                },
+                research_payload={"repos": [{"repo_id": "demo", "confidence": "low", "candidate_files": [], "candidate_dirs": []}]},
+            )
+
+            binding = build_local_repo_binding(prepared).to_payload()
+            diagnosis = build_repo_binding_diagnosis(binding)
+
+            self.assertEqual(binding["repo_bindings"][0]["scope_tier"], "must_change")
+            self.assertEqual(binding["repo_bindings"][0]["confidence"], "low")
+            self.assertIsNotNone(diagnosis)
+            self.assertEqual(diagnosis["severity"], "needs_human")
+            self.assertEqual(diagnosis["failure_type"], "repo_responsibility_uncertain")
+            self.assertEqual(diagnosis["issues"][0]["repo_id"], "demo")
 
     def test_local_repo_binding_marks_single_repo_choice_as_tiebreak_when_alternatives_are_comparable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

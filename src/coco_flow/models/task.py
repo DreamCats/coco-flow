@@ -24,6 +24,7 @@ class RepoBinding(BaseModel):
     path: str
     status: str | None = None
     scope_tier: str | None = None
+    confidence: str | None = None
     execution_mode: str | None = None
     batch_id: str | None = None
     batch_status: str | None = None

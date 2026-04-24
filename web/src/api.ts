@@ -73,6 +73,7 @@ export type RepoResult = {
   failureAction?: string
   filesWritten?: string[]
   scopeTier?: CodeRepoScopeTier
+  confidence?: string
   executionMode?: CodeRepoExecutionMode
   queueState?: CodeRepoQueueState
   blockedBy?: string[]
@@ -598,6 +599,7 @@ function deriveCodeContract(
     return {
       ...repo,
       scopeTier,
+      confidence: binding?.confidence || repo.confidence,
       executionMode,
       queueState,
       blockedBy,
@@ -680,6 +682,7 @@ function normalizeRepos(raw: unknown): RepoResult[] {
       failureType: asString(current.failureType) || asString(current.failure_type) || undefined,
       failureHint: asString(current.failureHint) || asString(current.failure_hint) || undefined,
       failureAction: asString(current.failureAction) || asString(current.failure_action) || undefined,
+      confidence: asString(current.confidence) || undefined,
       filesWritten: normalizeStringList(current.filesWritten ?? current.files_written),
       diffSummary: Object.keys(diff).length
         ? {
@@ -716,6 +719,7 @@ function normalizeBindingEntries(raw: unknown) {
     string,
     {
       scopeTier: CodeRepoScopeTier
+      confidence: string
       reason: string
       candidateFiles: string[]
       dependsOn: string[]
@@ -732,6 +736,7 @@ function normalizeBindingEntries(raw: unknown) {
     }
     byRepo.set(repoId, {
       scopeTier: normalizeScopeTier(asString(current.scope_tier) || asString(current.scopeTier)),
+      confidence: asString(current.confidence),
       reason: asString(current.reason),
       candidateFiles: normalizeStringList(current.candidate_files ?? current.candidateFiles),
       dependsOn: normalizeStringList(current.depends_on ?? current.dependsOn),

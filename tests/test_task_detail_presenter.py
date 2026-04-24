@@ -223,6 +223,24 @@ class TaskDetailPresenterTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
+            (task_dir / "design-repo-binding.json").write_text(
+                json.dumps(
+                    {
+                        "repo_bindings": [
+                            {
+                                "repo_id": "repo-a",
+                                "decision": "in_scope",
+                                "scope_tier": "must_change",
+                                "confidence": "high",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             (task_dir / "code-dispatch.json").write_text(
                 json.dumps(
                     {
@@ -342,6 +360,7 @@ class TaskDetailPresenterTest(unittest.TestCase):
         self.assertEqual(detail.code_progress.running_batches, 1)
         self.assertEqual(detail.code_progress.completed_work_items, 1)
         self.assertEqual(detail.repos[0].scope_tier, "must_change")
+        self.assertEqual(detail.repos[0].confidence, "high")
         self.assertEqual(detail.repos[0].execution_mode, "apply")
         self.assertEqual(detail.repos[0].batch_id, "batch-1")
         self.assertEqual(detail.repos[0].batch_status, "running")
@@ -376,6 +395,7 @@ class TaskDetailPresenterTest(unittest.TestCase):
             },
         )
         self.assertEqual(payload["repos"][0]["scopeTier"], "must_change")
+        self.assertEqual(payload["repos"][0]["confidence"], "high")
         self.assertEqual(payload["repos"][0]["executionMode"], "apply")
         self.assertEqual(payload["repos"][0]["batchId"], "batch-1")
         self.assertEqual(payload["repos"][0]["batchStatus"], "running")

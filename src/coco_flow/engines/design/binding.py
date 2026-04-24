@@ -51,6 +51,12 @@ def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding
             repo.finding.candidate_files,
             limit=8,
         )
+        confidence = _derive_binding_confidence(
+            scope_tier=tier,
+            candidate_dirs=candidate_dirs,
+            candidate_files=candidate_files,
+            research_confidence=str(research_entry.get("confidence") or ""),
+        )
         entry = DesignRepoBindingEntry(
             repo_id=repo.repo_id,
             repo_path=repo.repo_path,
@@ -65,7 +71,7 @@ def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding
             candidate_files=candidate_files,
             depends_on=[],
             parallelizable_with=[],
-            confidence=str(research_entry.get("confidence") or "medium"),
+            confidence=confidence,
             reason=str(matrix_entry.get("reasoning") or research_entry.get("summary") or "基于职责矩阵与仓库调研判定。"),
         )
         scored_items.append((_priority_from_scope_tier(tier), len(candidate_files), entry))
@@ -78,6 +84,12 @@ def build_local_repo_binding(prepared: DesignPreparedInput) -> DesignRepoBinding
             must_change_assigned += 1
             if must_change_assigned > 1:
                 current.scope_tier = "co_change"
+                current.confidence = _derive_binding_confidence(
+                    scope_tier=current.scope_tier,
+                    candidate_dirs=current.candidate_dirs,
+                    candidate_files=current.candidate_files,
+                    research_confidence=current.confidence,
+                )
         bindings.append(current)
     must_change = [entry.repo_id for entry in bindings if entry.decision == "in_scope" and entry.scope_tier == "must_change"]
     co_change = [entry.repo_id for entry in bindings if entry.decision == "in_scope" and entry.scope_tier == "co_change"]
@@ -182,6 +194,7 @@ def build_repo_binding(prepared: DesignPreparedInput, settings: Settings, skills
         if not entries:
             raise ValueError("design_repo_binding_empty")
         entries = _merge_matrix_priors(entries, fallback.repo_bindings, prepared.responsibility_matrix_payload)
+        entries = _normalize_binding_confidence(entries)
         return DesignRepoBinding(
             repo_bindings=entries,
             missing_repos=[str(value) for value in payload.get("missing_repos", []) if str(value).strip()],
@@ -286,6 +299,46 @@ def _priority_from_scope_tier(scope_tier: str) -> int:
     if scope_tier == "reference_only":
         return 1
     return 0
+
+
+def _derive_binding_confidence(
+    *,
+    scope_tier: str,
+    candidate_dirs: list[str],
+    candidate_files: list[str],
+    research_confidence: str,
+) -> str:
+    normalized_research = research_confidence.strip().lower()
+    if scope_tier == "must_change":
+        if candidate_files and normalized_research != "low":
+            return "high"
+        if candidate_files or candidate_dirs:
+            return "medium"
+        return "low"
+    if scope_tier == "co_change":
+        if candidate_files:
+            return "medium" if normalized_research != "low" else "low"
+        return "low"
+    if scope_tier == "validate_only":
+        if candidate_files or candidate_dirs:
+            return "medium"
+        return "low"
+    if scope_tier == "reference_only":
+        return "medium" if candidate_files or candidate_dirs else "low"
+    if normalized_research in {"high", "medium", "low"}:
+        return normalized_research
+    return "low"
+
+
+def _normalize_binding_confidence(entries: list[DesignRepoBindingEntry]) -> list[DesignRepoBindingEntry]:
+    for entry in entries:
+        entry.confidence = _derive_binding_confidence(
+            scope_tier=entry.scope_tier,
+            candidate_dirs=entry.candidate_dirs,
+            candidate_files=entry.candidate_files,
+            research_confidence=entry.confidence,
+        )
+    return entries
 
 
 def _preferred_repo_paths(

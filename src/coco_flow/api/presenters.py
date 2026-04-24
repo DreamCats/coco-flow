@@ -93,6 +93,7 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
                 "path": repo.path,
                 "status": repo.status or "pending",
                 "scopeTier": repo.scope_tier,
+                "confidence": repo.confidence,
                 "executionMode": repo.execution_mode,
                 "batchId": repo.batch_id,
                 "batchStatus": repo.batch_status or repo.status or "pending",

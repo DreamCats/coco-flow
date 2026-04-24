@@ -135,6 +135,10 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
             verify_payload=verify_payload,
             artifact="design.md",
         )
+        if bool(verify_payload.get("ok")):
+            binding_diagnosis = build_repo_binding_diagnosis(repo_binding_payload)
+            if binding_diagnosis:
+                diagnosis_payload = binding_diagnosis
         artifacts["design-diagnosis.json"] = diagnosis_payload
         on_log(f"design_verify_ok: ok={'true' if bool(verify_payload.get('ok')) else 'false'}")
         on_log(f"diagnosis: severity={diagnosis_payload.get('severity') or ''} failure_type={diagnosis_payload.get('failure_type') or '-'} next_action={diagnosis_payload.get('next_action') or ''}")
@@ -161,3 +165,46 @@ def _selected_skill_ids(selection_payload: dict[str, object]) -> list[str]:
     if not isinstance(values, list):
         return []
     return [str(item) for item in values if str(item).strip()]
+
+
+def build_repo_binding_diagnosis(repo_binding_payload: dict[str, object]) -> dict[str, object] | None:
+    raw_bindings = repo_binding_payload.get("repo_bindings")
+    if not isinstance(raw_bindings, list):
+        return None
+    issues: list[dict[str, object]] = []
+    for index, item in enumerate(raw_bindings, start=1):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("decision") or "") != "in_scope":
+            continue
+        if str(item.get("scope_tier") or "") != "must_change":
+            continue
+        if str(item.get("confidence") or "").strip().lower() != "low":
+            continue
+        repo_id = str(item.get("repo_id") or "").strip()
+        issues.append(
+            {
+                "id": f"D{index:03d}",
+                "artifact": "design-repo-binding.json",
+                "path": f"repo_bindings.{repo_id or index}.confidence",
+                "repo_id": repo_id,
+                "expected": "must_change 仓库需要 high 或 medium confidence，或者人工确认低信心判断。",
+                "actual": "该仓库被判定为 must_change，但候选文件/目录证据不足或 research confidence=low。",
+                "repair_hint": "请确认该仓是否确实承担本次核心改动；如不是，应调整为 validate_only/reference_only 或补充更明确的候选文件。",
+                "auto_repairable": False,
+            }
+        )
+    if not issues:
+        return None
+    return {
+        "ok": False,
+        "stage": "design",
+        "severity": "needs_human",
+        "failure_type": "repo_responsibility_uncertain",
+        "next_action": "needs_human",
+        "retryable": False,
+        "attempt": 0,
+        "max_attempts": 0,
+        "issues": issues,
+        "reason": "存在低信心 must_change 仓库，需要人工确认仓库执行职责。",
+    }

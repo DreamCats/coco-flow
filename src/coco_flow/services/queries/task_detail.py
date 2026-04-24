@@ -197,6 +197,7 @@ def parse_repos(
         worktree = _optional_str(item.get("worktree"))
         commit = _optional_str(item.get("commit"))
         scope_tier = _optional_str(item.get("scope_tier"))
+        confidence: str | None = None
         build = "n/a"
         failure_hint: str | None = None
         failure_type: str | None = None
@@ -237,6 +238,7 @@ def parse_repos(
                 ) or None
         if design_binding_entry:
             scope_tier = scope_tier or _optional_str(design_binding_entry.get("scope_tier"))
+            confidence = _optional_str(design_binding_entry.get("confidence"))
             execution_mode = execution_mode or infer_execution_mode(scope_tier)
 
         if task_dir is not None and repo_id:
@@ -290,6 +292,7 @@ def parse_repos(
                 path=repo_path,
                 status=status,
                 scope_tier=scope_tier,
+                confidence=confidence,
                 execution_mode=execution_mode,
                 batch_id=batch_id,
                 batch_status=batch_status,
