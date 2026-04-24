@@ -4,7 +4,7 @@ from coco_flow.config import Settings
 from coco_flow.engines.shared.diagnostics import diagnosis_payload_from_verify
 from coco_flow.prompts.design import build_semantic_gate_prompt, build_semantic_gate_template_json
 
-from .agent_io import run_agent_json
+from .agent_io import run_agent_json_with_new_session
 from .models import (
     GATE_DEGRADED,
     GATE_FAILED,
@@ -28,7 +28,7 @@ def run_semantic_gate(
 ) -> dict[str, object]:
     if native_ok:
         try:
-            payload = run_agent_json(
+            payload = run_agent_json_with_new_session(
                 prepared,
                 settings,
                 build_semantic_gate_template_json(),
@@ -40,6 +40,9 @@ def run_semantic_gate(
                     template_path=template_path,
                 ),
                 ".design-gate-",
+                role="design_gate",
+                stage="gate",
+                on_log=on_log,
             )
             return normalize_gate_payload(payload, review_payload, design_markdown)
         except Exception as error:

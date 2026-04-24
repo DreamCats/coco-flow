@@ -41,8 +41,7 @@ def build_revision_prompt(
 ) -> str:
     return render_prompt(
         PromptDocument(
-            intro="你是 coco-flow Design V3 的 Architect Revision Agent。",
-            goal="根据 skeptic 的 blocking/warning issues 对架构裁决做一次有界修订，并直接编辑指定 JSON 文件。",
+            goal="本次任务：根据 skeptic issues 对架构裁决做一次有界修订，只编辑指定 JSON 模板文件。",
             requirements=[
                 "必须逐条处理 review issues，在 issue_resolutions 中写 accepted / rejected。",
                 "accepted 的 issue 必须实际修改 decision；不能只追加到 unresolved_questions。",

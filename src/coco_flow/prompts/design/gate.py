@@ -34,12 +34,10 @@ def build_semantic_gate_prompt(
 ) -> str:
     return render_prompt(
         PromptDocument(
-            intro="你是 coco-flow Design V3 的 Semantic Gate。",
-            goal="检查 design.md 是否真实表达 design-decision.json 且能支撑 refined PRD，直接编辑指定 JSON 文件。",
+            goal="本次任务：检查 design.md 是否真实表达 design-decision.json 且能支撑 refined PRD，只编辑指定 JSON 模板文件。",
             requirements=[
                 "同时检查 contract gate 和 semantic gate。",
                 "gate_status 只使用 passed / passed_with_warnings / needs_human / degraded / failed。",
-                "证据不足、关键仓职责冲突、PRD 未覆盖时不要通过。",
                 "仅有非阻塞风险时使用 passed_with_warnings。",
             ],
             output_contract=DESIGN_OUTPUT_CONTRACT,

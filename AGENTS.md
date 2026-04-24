@@ -189,6 +189,10 @@ uv run python -m unittest discover -s tests -v
   - bounded decision
   - writer
   - semantic gate
+- `native design` 当前采用分层 prompt + 角色隔离 session：
+  - Architect Session：standalone bootstrap -> adjudication -> bounded revision
+  - Skeptic / Writer / Gate：短 session + inline bootstrap
+  - 角色之间只通过 Design artifact 传递事实，不共享聊天历史
 - 旧的 change points / repo assignment / responsibility matrix / section repair 规则引擎已从主代码删除。
 - 新的机器事实源是：
   - `design-input.json`

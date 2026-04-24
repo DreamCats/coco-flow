@@ -16,6 +16,7 @@ from .adjudication import (
     normalize_decision_for_gate,
     review_payload_after_revision,
 )
+from .agent_io import DesignAgentSession, close_design_agent_session, new_design_agent_session
 from .gate import build_design_diagnosis, run_semantic_gate
 from .input_artifacts import build_design_input_markdown, build_design_input_payload
 from .models import (
@@ -55,50 +56,59 @@ def run_design_engine(
     10. Semantic gate 决定是否允许进入 Plan
     """
     artifacts: dict[str, str | dict[str, object]] = {}
+    architect_session: DesignAgentSession | None = None
 
-    prepared = _prepare(task_dir, task_meta, settings, artifacts, on_log)
-    native_ok = settings.plan_executor.strip().lower() == EXECUTOR_NATIVE
-    _skills(prepared, settings, artifacts, on_log)
-    search_hints_payload = _search_hints(prepared, settings, native_ok, artifacts, on_log)
-    research_plan_payload, research_summary_payload = _research(prepared, search_hints_payload, artifacts, on_log)
-    adjudication_payload = _architect(prepared, research_plan_payload, research_summary_payload, settings, native_ok, artifacts, on_log)
-    review_payload = _skeptic(prepared, adjudication_payload, research_summary_payload, settings, native_ok, artifacts, on_log)
-    decision_payload, debate_payload, repo_binding_payload, sections_payload = _decision(
-        prepared,
-        adjudication_payload,
-        review_payload,
-        research_summary_payload,
-        settings,
-        native_ok,
-        artifacts,
-        on_log,
-    )
-    gate_review_payload = review_payload_after_revision(review_payload, debate_payload, decision_payload)
+    try:
+        prepared = _prepare(task_dir, task_meta, settings, artifacts, on_log)
+        native_ok = settings.plan_executor.strip().lower() == EXECUTOR_NATIVE
+        _skills(prepared, settings, artifacts, on_log)
+        search_hints_payload = _search_hints(prepared, settings, native_ok, artifacts, on_log)
+        research_plan_payload, research_summary_payload = _research(prepared, search_hints_payload, artifacts, on_log)
+        if native_ok:
+            architect_session = _start_architect_session(prepared, settings, on_log)
+            native_ok = architect_session is not None
+        adjudication_payload = _architect(prepared, research_plan_payload, research_summary_payload, settings, native_ok, architect_session, artifacts, on_log)
+        review_payload = _skeptic(prepared, adjudication_payload, research_summary_payload, settings, native_ok, artifacts, on_log)
+        decision_payload, debate_payload, repo_binding_payload, sections_payload = _decision(
+            prepared,
+            adjudication_payload,
+            review_payload,
+            research_summary_payload,
+            settings,
+            native_ok,
+            architect_session,
+            artifacts,
+            on_log,
+        )
+        gate_review_payload = review_payload_after_revision(review_payload, debate_payload, decision_payload)
 
-    design_markdown = _write_markdown(prepared, decision_payload, settings, native_ok and bool(adjudication_payload.get("native")), on_log)
-    gate_status = _gate(prepared, decision_payload, design_markdown, settings, native_ok and bool(adjudication_payload.get("native")), gate_review_payload, artifacts, on_log)
+        design_markdown = _write_markdown(prepared, decision_payload, settings, native_ok and bool(adjudication_payload.get("native")), on_log)
+        gate_status = _gate(prepared, decision_payload, design_markdown, settings, native_ok and bool(adjudication_payload.get("native")), gate_review_payload, artifacts, on_log)
 
-    task_status = STATUS_DESIGNED if gate_status in PLAN_ALLOWED_GATE_STATUSES else GATE_FAILED
-    artifacts["design-result.json"] = {
-        "task_id": prepared.task_id,
-        "status": task_status,
-        "gate_status": gate_status,
-        "agentic_version": "v3",
-        "native": bool(adjudication_payload.get("native")) and gate_status != GATE_DEGRADED,
-        "plan_allowed": gate_status in PLAN_ALLOWED_GATE_STATUSES,
-        "artifacts": sorted(artifacts.keys()),
-        "updated_at": datetime.now().astimezone().isoformat(),
-    }
-    on_log(f"status: {task_status}")
+        task_status = STATUS_DESIGNED if gate_status in PLAN_ALLOWED_GATE_STATUSES else GATE_FAILED
+        artifacts["design-result.json"] = {
+            "task_id": prepared.task_id,
+            "status": task_status,
+            "gate_status": gate_status,
+            "agentic_version": "v3",
+            "native": bool(adjudication_payload.get("native")) and gate_status != GATE_DEGRADED,
+            "plan_allowed": gate_status in PLAN_ALLOWED_GATE_STATUSES,
+            "artifacts": sorted(artifacts.keys()),
+            "updated_at": datetime.now().astimezone().isoformat(),
+        }
+        on_log(f"status: {task_status}")
 
-    return DesignEngineResult(
-        status=task_status,
-        gate_status=gate_status,
-        design_markdown=design_markdown,
-        repo_binding_payload=repo_binding_payload,
-        sections_payload=sections_payload,
-        intermediate_artifacts=artifacts,
-    )
+        return DesignEngineResult(
+            status=task_status,
+            gate_status=gate_status,
+            design_markdown=design_markdown,
+            repo_binding_payload=repo_binding_payload,
+            sections_payload=sections_payload,
+            intermediate_artifacts=artifacts,
+        )
+    finally:
+        if architect_session is not None:
+            close_design_agent_session(architect_session, on_log)
 
 
 def _prepare(
@@ -195,6 +205,7 @@ def _architect(
     research_summary_payload: dict[str, object],
     settings: Settings,
     native_ok: bool,
+    architect_session: DesignAgentSession | None,
     artifacts: dict[str, str | dict[str, object]],
     on_log,
 ) -> dict[str, object]:
@@ -205,6 +216,7 @@ def _architect(
         research_summary_payload,
         settings,
         native_ok=native_ok,
+        agent_session=architect_session,
         on_log=on_log,
     )
     artifacts["design-adjudication.json"] = adjudication_payload
@@ -250,6 +262,7 @@ def _decision(
     research_summary_payload: dict[str, object],
     settings: Settings,
     native_ok: bool,
+    architect_session: DesignAgentSession | None,
     artifacts: dict[str, str | dict[str, object]],
     on_log,
 ) -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
@@ -260,6 +273,7 @@ def _decision(
         research_summary_payload,
         settings,
         native_ok=native_ok and bool(adjudication_payload.get("native")),
+        agent_session=architect_session,
         on_log=on_log,
     )
     artifacts["design-debate.json"] = debate_payload
@@ -324,6 +338,20 @@ def _gate(
 
 def _issue_count(review_issues: list[dict[str, object]], severity: str) -> int:
     return sum(1 for item in review_issues if str(item.get("severity") or "") == severity)
+
+
+def _start_architect_session(prepared, settings: Settings, on_log) -> DesignAgentSession | None:
+    try:
+        return new_design_agent_session(
+            prepared,
+            settings,
+            role="design_architect",
+            on_log=on_log,
+            bootstrap=True,
+        )
+    except Exception as error:
+        on_log(f"design_v3_architect_session_degraded: {error}")
+        return None
 
 
 __all__ = [

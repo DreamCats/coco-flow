@@ -40,8 +40,7 @@ def build_skeptic_prompt(
 ) -> str:
     return render_prompt(
         PromptDocument(
-            intro="你是 coco-flow Design V3 的 Skeptic Agent。",
-            goal="反向审查 Architect 裁决是否被 PRD 和 repo evidence 支撑，直接编辑指定 JSON 文件。",
+            goal="本次任务：独立审查 Architect 裁决是否被 PRD 和 repo evidence 支撑，只编辑指定 JSON 模板文件。",
             requirements=[
                 "只输出结构化审查结果，不重写方案。",
                 "重点找误选 repo、遗漏核心 repo、候选文件无证据、PRD 未覆盖。",

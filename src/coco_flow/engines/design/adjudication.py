@@ -13,7 +13,7 @@ from coco_flow.prompts.design import (
     build_skeptic_template_json,
 )
 
-from .agent_io import run_agent_json
+from .agent_io import DesignAgentSession, run_agent_json, run_agent_json_in_session, run_agent_json_with_new_session
 from .models import EXECUTOR_NATIVE, DesignInputBundle
 from .research import candidate_paths
 from .utils import as_str_list, dedupe, dict_list, first_non_empty, issue, issues, normalize_issue
@@ -26,24 +26,38 @@ def build_architect_adjudication(
     settings: Settings,
     *,
     native_ok: bool,
+    agent_session: DesignAgentSession | None = None,
     on_log,
 ) -> dict[str, object]:
     if native_ok:
         try:
-            payload = run_agent_json(
-                prepared,
-                settings,
-                build_architect_template_json(),
-                lambda template_path: build_architect_prompt(
-                    title=prepared.title,
-                    refined_markdown=prepared.refined_markdown,
-                    skills_brief_markdown=prepared.design_skills_brief_markdown or prepared.refine_skills_read_markdown,
-                    research_plan_payload=research_plan_payload,
-                    research_summary_payload=research_summary_payload,
-                    template_path=template_path,
-                ),
-                ".design-architect-",
+            prompt_builder = lambda template_path: build_architect_prompt(
+                title=prepared.title,
+                refined_markdown=prepared.refined_markdown,
+                skills_brief_markdown=prepared.design_skills_brief_markdown or prepared.refine_skills_read_markdown,
+                research_plan_payload=research_plan_payload,
+                research_summary_payload=research_summary_payload,
+                template_path=template_path,
             )
+            if agent_session is not None:
+                payload = run_agent_json_in_session(
+                    prepared,
+                    build_architect_template_json(),
+                    prompt_builder,
+                    ".design-architect-",
+                    agent_session,
+                    stage="architect",
+                    inline_bootstrap=False,
+                    on_log=on_log,
+                )
+            else:
+                payload = run_agent_json(
+                    prepared,
+                    settings,
+                    build_architect_template_json(),
+                    prompt_builder,
+                    ".design-architect-",
+                )
             normalized = normalize_adjudication(prepared, payload, research_summary_payload)
             normalized["native"] = True
             return normalized
@@ -138,7 +152,7 @@ def build_skeptic_review(
 ) -> dict[str, object]:
     if native_ok:
         try:
-            payload = run_agent_json(
+            payload = run_agent_json_with_new_session(
                 prepared,
                 settings,
                 build_skeptic_template_json(),
@@ -150,6 +164,9 @@ def build_skeptic_review(
                     template_path=template_path,
                 ),
                 ".design-skeptic-",
+                role="design_skeptic",
+                stage="skeptic",
+                on_log=on_log,
             )
             return normalize_review(payload)
         except Exception as error:
@@ -204,6 +221,7 @@ def build_final_decision(
     settings: Settings,
     *,
     native_ok: bool,
+    agent_session: DesignAgentSession | None = None,
     on_log,
 ) -> tuple[dict[str, object], dict[str, object]]:
     blocking = [item for item in issues(review_payload) if str(item.get("severity")) == "blocking"]
@@ -213,20 +231,33 @@ def build_final_decision(
     if blocking:
         if native_ok:
             try:
-                revision_payload = run_agent_json(
-                    prepared,
-                    settings,
-                    build_revision_template_json(),
-                    lambda template_path: build_revision_prompt(
-                        title=prepared.title,
-                        refined_markdown=prepared.refined_markdown,
-                        adjudication_payload=adjudication_payload,
-                        review_payload=review_payload,
-                        research_summary_payload=research_summary_payload,
-                        template_path=template_path,
-                    ),
-                    ".design-revision-",
+                prompt_builder = lambda template_path: build_revision_prompt(
+                    title=prepared.title,
+                    refined_markdown=prepared.refined_markdown,
+                    adjudication_payload=adjudication_payload,
+                    review_payload=review_payload,
+                    research_summary_payload=research_summary_payload,
+                    template_path=template_path,
                 )
+                if agent_session is not None:
+                    revision_payload = run_agent_json_in_session(
+                        prepared,
+                        build_revision_template_json(),
+                        prompt_builder,
+                        ".design-revision-",
+                        agent_session,
+                        stage="revision",
+                        inline_bootstrap=False,
+                        on_log=on_log,
+                    )
+                else:
+                    revision_payload = run_agent_json(
+                        prepared,
+                        settings,
+                        build_revision_template_json(),
+                        prompt_builder,
+                        ".design-revision-",
+                    )
                 issue_resolutions = dict_list(revision_payload.get("issue_resolutions"))
                 raw_decision = revision_payload.get("decision")
                 if isinstance(raw_decision, dict):

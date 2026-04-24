@@ -5,7 +5,9 @@ import json
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
+from coco_flow.clients import AgentSessionHandle
 from coco_flow.config import Settings
 from coco_flow.engines.design.models import DesignInputBundle
 from coco_flow.engines.design.gate import local_gate_payload
@@ -346,6 +348,68 @@ class DesignV3PipelineTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not allow plan"):
                 start_planning_task("task-design-v3", settings=settings)
 
+    def test_native_design_uses_layered_role_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root, plan_executor="native")
+            task_dir, _repo_dir = self._create_refined_task(settings.task_root, "task-design-native")
+            session_roles: list[str] = []
+            prompt_events: list[tuple[str, str]] = []
+            closed_roles: list[str] = []
+
+            with (
+                patch(
+                    "coco_flow.engines.design.agent_io.CocoACPClient.run_agent",
+                    side_effect=ValueError("search hints native unavailable"),
+                ),
+                patch(
+                    "coco_flow.engines.design.agent_io.CocoACPClient.new_agent_session",
+                    side_effect=lambda *, query_timeout, cwd, role: make_design_agent_session_handle(
+                        query_timeout=query_timeout,
+                        cwd=cwd,
+                        role=role,
+                        roles=session_roles,
+                    ),
+                ),
+                patch(
+                    "coco_flow.engines.design.agent_io.CocoACPClient.prompt_agent_session",
+                    side_effect=lambda handle, prompt: write_native_design_artifacts(handle, prompt, prompt_events),
+                ),
+                patch(
+                    "coco_flow.engines.design.agent_io.CocoACPClient.close_agent_session",
+                    side_effect=lambda handle: closed_roles.append(handle.role),
+                ),
+            ):
+                status = design_task("task-design-native", settings=settings)
+
+            design_log = (task_dir / "design.log").read_text(encoding="utf-8")
+            decision = self._read_json(task_dir / "design-decision.json")
+            verify = self._read_json(task_dir / "design-verify.json")
+
+            self.assertEqual(status, "designed")
+            self.assertEqual(session_roles, ["design_architect", "design_skeptic", "design_writer", "design_gate"])
+            self.assertEqual(
+                prompt_events,
+                [
+                    ("design_architect", "bootstrap"),
+                    ("design_architect", "architect"),
+                    ("design_skeptic", "skeptic"),
+                    ("design_architect", "revision"),
+                    ("design_writer", "writer"),
+                    ("design_gate", "gate"),
+                ],
+            )
+            self.assertEqual(closed_roles, ["design_skeptic", "design_writer", "design_gate", "design_architect"])
+            self.assertEqual(decision["review_blocking_count"], 0)
+            self.assertTrue(decision["finalized"])
+            self.assertTrue(verify["ok"])
+            self.assertIn("session_role: design_architect", design_log)
+            self.assertIn("bootstrap_prompt: true role=design_architect", design_log)
+            self.assertIn("bootstrap_prompt: inline role=design_skeptic", design_log)
+            self.assertIn("bootstrap_prompt: inline role=design_writer", design_log)
+            self.assertIn("bootstrap_prompt: inline role=design_gate", design_log)
+            self.assertIn("agent_prompt_start: role=design_architect stage=revision", design_log)
+
     def test_design_v3_requires_bound_repos(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -433,6 +497,148 @@ class DesignV3PipelineTest(unittest.TestCase):
 
     def _run(self, cwd: Path, *cmd: str) -> None:
         subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True)
+
+
+def make_design_agent_session_handle(*, query_timeout: str, cwd: str, role: str, roles: list[str]) -> AgentSessionHandle:
+    roles.append(role)
+    return AgentSessionHandle(
+        handle_id=f"{role}-handle",
+        cwd=cwd,
+        mode="agent",
+        query_timeout=query_timeout,
+        role=role,
+    )
+
+
+def write_native_design_artifacts(handle: AgentSessionHandle, prompt: str, prompt_events: list[tuple[str, str]]) -> str:
+    task_dir = Path(handle.cwd)
+    if handle.role == "design_architect" and "收到 bootstrap 后只需简短回复已完成" in prompt:
+        prompt_events.append((handle.role, "bootstrap"))
+        return "done"
+    if handle.role == "design_architect" and list(task_dir.glob(".design-architect-*.json")):
+        prompt_events.append((handle.role, "architect"))
+        next(task_dir.glob(".design-architect-*.json")).write_text(
+            json.dumps(
+                {
+                    "decision_summary": "更新成功态状态提示。",
+                    "core_change_points": ["成功态状态提示需要落到 success_status。"],
+                    "repo_decisions": [
+                        {
+                            "repo_id": "demo",
+                            "work_type": "must_change",
+                            "responsibility": "更新 success_status 对应状态提示。",
+                            "candidate_files": ["status.py"],
+                            "candidate_dirs": ["."],
+                            "boundaries": [],
+                            "risks": [],
+                            "unresolved_questions": [],
+                            "confidence": "high",
+                            "evidence_refs": ["status.py"],
+                        }
+                    ],
+                    "system_boundaries": [],
+                    "risks": [],
+                    "unresolved_questions": [],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return "done"
+    if handle.role == "design_skeptic" and list(task_dir.glob(".design-skeptic-*.json")):
+        prompt_events.append((handle.role, "skeptic"))
+        next(task_dir.glob(".design-skeptic-*.json")).write_text(
+            json.dumps(
+                {
+                    "ok": False,
+                    "issues": [
+                        {
+                            "severity": "blocking",
+                            "failure_type": "missing_candidate_file",
+                            "target": "demo candidate_files",
+                            "expected": "candidate_files 包含 status.py",
+                            "actual": "需要 revision 复核。",
+                            "suggested_action": "添加 status.py。",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return "done"
+    if handle.role == "design_architect" and list(task_dir.glob(".design-revision-*.json")):
+        prompt_events.append((handle.role, "revision"))
+        next(task_dir.glob(".design-revision-*.json")).write_text(
+            json.dumps(
+                {
+                    "issue_resolutions": [
+                        {
+                            "failure_type": "missing_candidate_file",
+                            "target": "demo candidate_files",
+                            "resolution": "accepted",
+                            "reason": "repo research 已命中 status.py。",
+                            "decision_change": "保留 status.py 作为候选文件。",
+                        }
+                    ],
+                    "decision": {
+                        "decision_summary": "更新成功态状态提示。",
+                        "core_change_points": ["成功态状态提示需要落到 success_status。"],
+                        "repo_decisions": [
+                            {
+                                "repo_id": "demo",
+                                "work_type": "must_change",
+                                "responsibility": "更新 success_status 对应状态提示。",
+                                "candidate_files": ["status.py"],
+                                "candidate_dirs": ["."],
+                                "boundaries": [],
+                                "risks": [],
+                                "unresolved_questions": [],
+                                "confidence": "high",
+                                "evidence_refs": ["status.py"],
+                            }
+                        ],
+                        "system_boundaries": [],
+                        "risks": [],
+                        "unresolved_questions": [],
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return "done"
+    if handle.role == "design_writer" and list(task_dir.glob(".design-writer-*.md")):
+        prompt_events.append((handle.role, "writer"))
+        next(task_dir.glob(".design-writer-*.md")).write_text(
+            "# 成功态状态提示 Design\n\n## 结论\n更新 demo 的 status.py。\n",
+            encoding="utf-8",
+        )
+        return "done"
+    if handle.role == "design_gate" and list(task_dir.glob(".design-gate-*.json")):
+        prompt_events.append((handle.role, "gate"))
+        next(task_dir.glob(".design-gate-*.json")).write_text(
+            json.dumps(
+                {
+                    "ok": True,
+                    "gate_status": "passed",
+                    "issues": [],
+                    "reason": "native gate passed",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return "done"
+    raise AssertionError(f"unexpected design agent prompt: role={handle.role} prompt={prompt[:120]}")
 
 
 if __name__ == "__main__":

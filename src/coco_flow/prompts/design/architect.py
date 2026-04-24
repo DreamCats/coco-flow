@@ -49,17 +49,11 @@ def build_architect_prompt(
 ) -> str:
     return render_prompt(
         PromptDocument(
-            intro="你是 coco-flow Design V3 的 Architect Agent。",
-            goal="基于 refined PRD 和 repo research 证据做跨仓设计裁决，直接编辑指定 JSON 文件。",
+            goal="本次任务：基于 refined PRD 和 repo research evidence 生成跨仓设计裁决，只编辑指定 JSON 模板文件。",
             requirements=[
-                "只做设计裁决，不写 design.md。",
-                "不要把相关仓库直接等同于必须修改；必须有 evidence 才能判为 must_change。",
-                "证据不足时写 unresolved_questions，不要为了流程通过隐藏不确定性。",
                 "work_type 只使用 must_change / co_change / validate_only / reference_only。",
                 "candidate_files 必须来自 repo research 的 candidate_files，且 evidence 必须能说明该文件承接本需求；不得只因为关键词命中就使用。",
                 "validate_only / reference_only 仓库不要写 candidate_files；只写需要验证的问题、边界和 evidence_refs。",
-                "如果 evidence 只证明“相关”而不能证明“需要改”，应降级为 validate_only 或写 unresolved_questions。",
-                "Skills Brief 只提供业务 workflow、repo role 和 SOP 背景；不能单独证明某仓 must_change。",
                 "如果涉及 producer / consumer 依赖（如公共实验字段被业务仓消费），必须写清提供方、消费方、证据和待确认项。",
             ],
             output_contract=DESIGN_OUTPUT_CONTRACT,

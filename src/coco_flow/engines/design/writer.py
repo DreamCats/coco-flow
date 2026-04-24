@@ -3,7 +3,7 @@ from __future__ import annotations
 from coco_flow.config import Settings
 from coco_flow.prompts.design import build_writer_prompt
 
-from .agent_io import run_agent_markdown
+from .agent_io import run_agent_markdown_with_new_session
 from .models import DesignInputBundle
 from .utils import as_str_list, dict_list
 
@@ -18,7 +18,7 @@ def write_design_markdown(
 ) -> str:
     if native_ok:
         try:
-            return run_agent_markdown(
+            return run_agent_markdown_with_new_session(
                 prepared,
                 settings,
                 build_local_design_markdown(prepared, decision_payload),
@@ -28,6 +28,9 @@ def write_design_markdown(
                     template_path=template_path,
                 ),
                 ".design-writer-",
+                role="design_writer",
+                stage="writer",
+                on_log=on_log,
             )
         except Exception as error:
             on_log(f"design_v3_writer_degraded: {error}")
@@ -80,4 +83,3 @@ def _local_design_conclusion(decision_payload: dict[str, object], blocking_count
     if blocking_count > 0 and not finalized:
         return f"当前不能进入 Plan。{summary}"
     return summary
-

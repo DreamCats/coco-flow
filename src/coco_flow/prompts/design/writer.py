@@ -18,8 +18,7 @@ def build_writer_prompt(
 ) -> str:
     return render_prompt(
         PromptDocument(
-            intro="你是 coco-flow Design V3 的 Writer Agent。",
-            goal="只把 design-decision.json 写成高质量 design.md，直接编辑指定 Markdown 文件。",
+            goal="本次任务：把 design-decision.json 转写成设计文档，只编辑指定 Markdown 文件。",
             requirements=[
                 "不要新增 repo 裁决、候选文件或需求。",
                 "结论先行，使用自然语言，不暴露 must_change/confidence 等内部标签。",

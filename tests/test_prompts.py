@@ -4,7 +4,15 @@ import unittest
 
 from coco_flow.prompts.core import PromptDocument, PromptSection, render_prompt
 from coco_flow.prompts.design import __all__ as design_prompt_exports
-from coco_flow.prompts.design import build_search_hints_prompt
+from coco_flow.prompts.design import (
+    build_architect_prompt,
+    build_design_bootstrap_prompt,
+    build_revision_prompt,
+    build_search_hints_prompt,
+    build_semantic_gate_prompt,
+    build_skeptic_prompt,
+    build_writer_prompt,
+)
 from coco_flow.prompts.refine import __all__ as refine_prompt_exports
 from coco_flow.prompts.refine import (
     build_refine_bootstrap_prompt,
@@ -42,8 +50,84 @@ class PromptSystemTest(unittest.TestCase):
         )
 
     def test_design_prompt_package_exports_search_hints_builder(self) -> None:
+        self.assertIn("build_design_bootstrap_prompt", design_prompt_exports)
         self.assertIn("build_search_hints_prompt", design_prompt_exports)
         self.assertIn("build_search_hints_template_json", design_prompt_exports)
+
+    def test_design_bootstrap_prompt_defines_layered_contract(self) -> None:
+        rendered = build_design_bootstrap_prompt(
+            skills_index_markdown="- auction-design: 竞拍 repo role 与验收边界规则。"
+        )
+
+        self.assertIn("coco-flow 的 Design 阶段 agent", rendered)
+        self.assertIn("阶段式研发 workflow 系统", rendered)
+        self.assertIn("不生成 plan，不改代码", rendered)
+        self.assertIn("Design 阶段协议", rendered)
+        self.assertIn("Artifact 契约", rendered)
+        self.assertIn("角色隔离策略", rendered)
+        self.assertIn("Evidence 与 Repo 策略", rendered)
+        self.assertIn("Skills 使用策略", rendered)
+        self.assertIn("文件读写规则", rendered)
+        self.assertIn("用户绑定的 repo 是搜索空间，不天然等于 must_change", rendered)
+        self.assertIn("Skeptic Session 负责独立反向审查", rendered)
+        self.assertIn("auction-design: 竞拍 repo role 与验收边界规则", rendered)
+        self.assertNotIn("AGENT_MODE", rendered)
+
+    def test_design_bootstrap_prompt_can_be_inlined(self) -> None:
+        rendered = build_design_bootstrap_prompt(standalone=False)
+
+        self.assertIn("这是内联 bootstrap", rendered)
+        self.assertNotIn("收到 bootstrap 后只需简短回复已完成", rendered)
+
+    def test_design_role_prompts_are_task_prompts(self) -> None:
+        prompts = [
+            build_architect_prompt(
+                title="更新竞拍讲解卡",
+                refined_markdown="只改竞拍讲解卡文案。",
+                skills_brief_markdown="- auction-design",
+                research_plan_payload={"repos": ["shop"]},
+                research_summary_payload={"repos": [{"repo_id": "shop", "candidate_files": ["a.ts"]}]},
+                template_path="/tmp/design-adjudication.json",
+            ),
+            build_skeptic_prompt(
+                title="更新竞拍讲解卡",
+                refined_markdown="只改竞拍讲解卡文案。",
+                adjudication_payload={"repo_decisions": []},
+                research_summary_payload={"repos": []},
+                template_path="/tmp/design-review.json",
+            ),
+            build_revision_prompt(
+                title="更新竞拍讲解卡",
+                refined_markdown="只改竞拍讲解卡文案。",
+                adjudication_payload={"repo_decisions": []},
+                review_payload={"ok": False, "issues": []},
+                research_summary_payload={"repos": []},
+                template_path="/tmp/design-debate.json",
+            ),
+            build_writer_prompt(
+                title="更新竞拍讲解卡",
+                decision_payload={"finalized": True, "repo_decisions": []},
+                template_path="/tmp/design.md",
+            ),
+            build_semantic_gate_prompt(
+                title="更新竞拍讲解卡",
+                refined_markdown="只改竞拍讲解卡文案。",
+                decision_payload={"finalized": True},
+                design_markdown="# Design",
+                template_path="/tmp/design-verify.json",
+            ),
+        ]
+
+        for rendered in prompts:
+            self.assertIn("本次任务：", rendered)
+            self.assertNotIn("AGENT_MODE", rendered)
+            self.assertNotIn("你是 coco-flow Design V3", rendered)
+
+        self.assertIn("/tmp/design-adjudication.json", prompts[0])
+        self.assertIn("/tmp/design-review.json", prompts[1])
+        self.assertIn("/tmp/design-debate.json", prompts[2])
+        self.assertIn("/tmp/design.md", prompts[3])
+        self.assertIn("/tmp/design-verify.json", prompts[4])
 
     def test_design_search_hints_prompt_does_not_allow_repo_reading(self) -> None:
         rendered = build_search_hints_prompt(
