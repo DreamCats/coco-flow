@@ -129,7 +129,11 @@ def _research(prepared, artifacts: dict[str, str | dict[str, object]], on_log) -
         artifacts[f"design-research/{safe_artifact_name(repo_id)}.json"] = repo_payload
     research_summary_payload = build_research_summary(repo_research_payloads)
     artifacts["design-research-summary.json"] = research_summary_payload
-    on_log(f"design_v3_repo_research_ok: repos={len(repo_research_payloads)}")
+    on_log(
+        "design_v3_repo_research_ok: "
+        f"mode=local_evidence_scan repos={len(repo_research_payloads)} "
+        f"candidate_files={int(research_summary_payload.get('candidate_file_count') or 0)}"
+    )
     return research_plan_payload, research_summary_payload
 
 
@@ -175,7 +179,15 @@ def _skeptic(
         on_log=on_log,
     )
     artifacts["design-review.json"] = review_payload
-    on_log(f"design_v3_skeptic_ok: ok={'true' if bool(review_payload.get('ok')) else 'false'} issues={len(issues(review_payload))}")
+    review_issues = issues(review_payload)
+    blocking_count = _issue_count(review_issues, "blocking")
+    warning_count = _issue_count(review_issues, "warning")
+    info_count = _issue_count(review_issues, "info")
+    on_log(
+        "design_v3_skeptic_ok: "
+        f"ok={'true' if bool(review_payload.get('ok')) else 'false'} "
+        f"blocking={blocking_count} warnings={warning_count} info={info_count}"
+    )
     return review_payload
 
 
@@ -200,6 +212,15 @@ def _decision(
     )
     artifacts["design-debate.json"] = debate_payload
     artifacts["design-decision.json"] = decision_payload
+    revision_payload = debate_payload.get("revision")
+    revision = revision_payload if isinstance(revision_payload, dict) else {}
+    revision_applied = bool(revision.get("applied"))
+    revision_summary = str(revision.get("summary") or "")
+    on_log(
+        "design_v3_revision_ok: "
+        f"applied={'true' if revision_applied else 'false'} "
+        f"reason={revision_summary}"
+    )
 
     repo_binding_payload = derive_repo_binding(prepared, decision_payload)
     sections_payload = derive_sections(prepared, decision_payload)
@@ -247,6 +268,10 @@ def _gate(
     artifacts["design-diagnosis.json"] = build_design_diagnosis(verify_payload)
     on_log(f"design_v3_gate_ok: gate_status={gate_status} ok={'true' if bool(verify_payload.get('ok')) else 'false'}")
     return gate_status
+
+
+def _issue_count(review_issues: list[dict[str, object]], severity: str) -> int:
+    return sum(1 for item in review_issues if str(item.get("severity") or "") == severity)
 
 
 __all__ = [
