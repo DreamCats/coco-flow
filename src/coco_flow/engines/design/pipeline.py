@@ -27,6 +27,7 @@ from .models import (
     DesignEngineResult,
 )
 from .research import build_research_plan, build_research_summary, run_parallel_repo_research, safe_artifact_name
+from .search_hints import build_search_hints
 from .source import prepare_design_input
 from .utils import issues
 from .writer import write_design_markdown
@@ -40,22 +41,23 @@ def run_design_engine(
 ) -> DesignEngineResult:
     """执行 Design V3 的有限轮 agentic workflow。
 
-    流程固定为 8 步：
+    流程固定为 9 步：
     1. 准备输入 bundle，并落 `design-input.*`
-    2. 生成 repo research plan
-    3. 并发做 repo evidence research
-    4. Architect 做跨仓裁决
-    5. Skeptic 做对抗审查
-    6. 有界 revision 生成最终 decision，并派生兼容 artifact
-    7. Writer 把 decision 写成 `design.md`
-    8. Semantic gate 决定是否允许进入 Plan
+    2. 将 refined PRD 转成结构化搜索线索
+    3. 生成 repo research plan
+    4. 并发做 repo evidence research
+    5. Architect 做跨仓裁决
+    6. Skeptic 做对抗审查
+    7. 有界 revision 生成最终 decision，并派生兼容 artifact
+    8. Writer 把 decision 写成 `design.md`
+    9. Semantic gate 决定是否允许进入 Plan
     """
     artifacts: dict[str, str | dict[str, object]] = {}
 
     prepared = _prepare(task_dir, task_meta, settings, artifacts, on_log)
-    research_plan_payload, research_summary_payload = _research(prepared, artifacts, on_log)
-
     native_ok = settings.plan_executor.strip().lower() == EXECUTOR_NATIVE
+    search_hints_payload = _search_hints(prepared, settings, native_ok, artifacts, on_log)
+    research_plan_payload, research_summary_payload = _research(prepared, search_hints_payload, artifacts, on_log)
     adjudication_payload = _architect(prepared, research_plan_payload, research_summary_payload, settings, native_ok, artifacts, on_log)
     review_payload = _skeptic(prepared, adjudication_payload, research_summary_payload, settings, native_ok, artifacts, on_log)
     decision_payload, debate_payload, repo_binding_payload, sections_payload = _decision(
@@ -68,7 +70,7 @@ def run_design_engine(
         artifacts,
         on_log,
     )
-    gate_review_payload = review_payload_after_revision(review_payload, debate_payload)
+    gate_review_payload = review_payload_after_revision(review_payload, debate_payload, decision_payload)
 
     design_markdown = _write_markdown(prepared, decision_payload, settings, native_ok and bool(adjudication_payload.get("native")), on_log)
     gate_status = _gate(prepared, decision_payload, design_markdown, settings, native_ok and bool(adjudication_payload.get("native")), gate_review_payload, artifacts, on_log)
@@ -116,9 +118,35 @@ def _prepare(
     return prepared
 
 
-def _research(prepared, artifacts: dict[str, str | dict[str, object]], on_log) -> tuple[dict[str, object], dict[str, object]]:
+def _search_hints(
+    prepared,
+    settings: Settings,
+    native_ok: bool,
+    artifacts: dict[str, str | dict[str, object]],
+    on_log,
+) -> dict[str, object]:
+    on_log("design_v3_search_hints_start: true")
+    search_hints_payload = build_search_hints(prepared, settings, native_ok=native_ok, on_log=on_log)
+    artifacts["design-search-hints.json"] = search_hints_payload
+    on_log(
+        "design_v3_search_hints_ok: "
+        f"source={search_hints_payload.get('source') or 'unknown'} "
+        f"confidence={search_hints_payload.get('confidence') or 'unknown'} "
+        f"terms={len(search_hints_payload.get('search_terms') or [])} "
+        f"symbols={len(search_hints_payload.get('likely_symbols') or [])} "
+        f"file_patterns={len(search_hints_payload.get('likely_file_patterns') or [])}"
+    )
+    return search_hints_payload
+
+
+def _research(
+    prepared,
+    search_hints_payload: dict[str, object],
+    artifacts: dict[str, str | dict[str, object]],
+    on_log,
+) -> tuple[dict[str, object], dict[str, object]]:
     on_log("design_v3_research_plan_start: true")
-    research_plan_payload = build_research_plan(prepared)
+    research_plan_payload = build_research_plan(prepared, search_hints_payload)
     artifacts["design-research-plan.json"] = research_plan_payload
     on_log(f"design_v3_research_plan_ok: repos={len(research_plan_payload.get('repos', []))}")
 
@@ -132,7 +160,9 @@ def _research(prepared, artifacts: dict[str, str | dict[str, object]], on_log) -
     on_log(
         "design_v3_repo_research_ok: "
         f"mode=local_evidence_scan repos={len(repo_research_payloads)} "
-        f"candidate_files={int(research_summary_payload.get('candidate_file_count') or 0)}"
+        f"candidate_files={int(research_summary_payload.get('candidate_file_count') or 0)} "
+        f"git_evidence={int(research_summary_payload.get('git_evidence_count') or 0)} "
+        f"git_commands={int(research_summary_payload.get('git_command_count') or 0)}"
     )
     return research_plan_payload, research_summary_payload
 

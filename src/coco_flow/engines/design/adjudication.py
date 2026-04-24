@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from coco_flow.config import Settings
 from coco_flow.prompts.design import (
@@ -97,7 +98,7 @@ def normalize_adjudication(
     for repo in prepared.repo_scopes:
         raw = _find_repo_decision(payload, repo.repo_id)
         research = research_by_repo.get(repo.repo_id, {})
-        allowed_files = set(candidate_paths(research))
+        allowed_files = set(_eligible_candidate_paths(research))
         candidates = [path for path in as_str_list(raw.get("candidate_files")) if path in allowed_files]
         if not candidates:
             candidates = candidate_paths(research)
@@ -236,9 +237,16 @@ def build_final_decision(
         if not issue_resolutions:
             decision, issue_resolutions = apply_review_issues_to_decision(decision, review_payload)
             revision_summary = "blocking issue 已通过本地通用规则应用到 design-decision。"
-        decision = normalize_decision_for_gate(decision, review_payload)
-    decision["review_blocking_count"] = len(blocking)
-    decision["finalized"] = not any(str(item.get("resolution") or "") != "accepted" for item in issue_resolutions) if blocking else True
+        if not _all_accepted_resolutions_applied(review_payload, issue_resolutions, decision):
+            decision, issue_resolutions = apply_review_issues_to_decision(decision, review_payload, research_summary_payload)
+            revision_summary = "blocking issue 已通过本地校验后应用到 design-decision。"
+        post_review = review_payload_after_revision(review_payload, {"revision": {"issue_resolutions": issue_resolutions}}, decision)
+        decision = normalize_decision_for_gate(decision, post_review)
+    else:
+        post_review = review_payload
+    remaining_blocking = [item for item in issues(post_review) if str(item.get("severity")) == "blocking"]
+    decision["review_blocking_count"] = len(remaining_blocking)
+    decision["finalized"] = not remaining_blocking
     debate = {
         "rounds": [
             {"role": "architect", "artifact": "design-adjudication.json"},
@@ -254,20 +262,29 @@ def build_final_decision(
     return decision, debate
 
 
-def review_payload_after_revision(review_payload: dict[str, object], debate_payload: dict[str, object]) -> dict[str, object]:
+def review_payload_after_revision(
+    review_payload: dict[str, object],
+    debate_payload: dict[str, object],
+    decision_payload: dict[str, object] | None = None,
+) -> dict[str, object]:
     revision = debate_payload.get("revision")
     if not isinstance(revision, dict):
         return review_payload
-    accepted_targets = {
-        str(item.get("target") or "")
+    accepted_resolutions = [
+        item
         for item in dict_list(revision.get("issue_resolutions"))
         if str(item.get("resolution") or "") == "accepted"
-    }
-    if not accepted_targets:
+    ]
+    if not accepted_resolutions:
         return review_payload
     review_issues: list[dict[str, object]] = []
     for item in issues(review_payload):
-        if str(item.get("target") or "") in accepted_targets and str(item.get("severity") or "") == "blocking":
+        resolution = _matching_resolution(item, accepted_resolutions)
+        if (
+            resolution
+            and str(item.get("severity") or "") == "blocking"
+            and _resolution_applied_to_decision(item, resolution, decision_payload)
+        ):
             fixed = dict(item)
             fixed["severity"] = "info"
             fixed["suggested_action"] = "该 blocking issue 已由 bounded revision 接受并修订。"
@@ -280,25 +297,36 @@ def review_payload_after_revision(review_payload: dict[str, object], debate_payl
 def apply_review_issues_to_decision(
     decision_payload: dict[str, object],
     review_payload: dict[str, object],
+    research_summary_payload: dict[str, object] | None = None,
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
     decision = dict(decision_payload)
     repo_decisions = [dict(item) for item in dict_list(decision.get("repo_decisions"))]
+    eligible_by_repo = _eligible_paths_by_repo(research_summary_payload or {})
     resolutions: list[dict[str, object]] = []
     for item in issues(review_payload):
         if str(item.get("severity") or "") != "blocking":
             continue
         target = str(item.get("target") or "")
+        paths_to_add = _extract_file_paths(
+            target,
+            str(item.get("expected") or ""),
+            str(item.get("actual") or ""),
+            str(item.get("suggested_action") or ""),
+        )
         changed = False
-        for repo in repo_decisions:
-            candidates = as_str_list(repo.get("candidate_files"))
-            filtered = [path for path in candidates if path not in target and target not in path]
-            if len(filtered) != len(candidates):
-                repo["candidate_files"] = filtered
-                repo["candidate_dirs"] = sorted({str(Path(path).parent) for path in filtered if str(Path(path).parent) != "."})[:8]
-                if not filtered and str(repo.get("work_type") or "") in {"must_change", "co_change"}:
-                    repo["work_type"] = "validate_only"
-                    repo["confidence"] = "low"
-                changed = True
+        if paths_to_add:
+            changed = _add_candidate_paths(repo_decisions, target, paths_to_add, eligible_by_repo)
+        if not changed:
+            for repo in repo_decisions:
+                candidates = as_str_list(repo.get("candidate_files"))
+                filtered = [path for path in candidates if path not in target and target not in path]
+                if len(filtered) != len(candidates):
+                    repo["candidate_files"] = filtered
+                    repo["candidate_dirs"] = sorted({str(Path(path).parent) for path in filtered if str(Path(path).parent) != "."})[:8]
+                    if not filtered and str(repo.get("work_type") or "") in {"must_change", "co_change"}:
+                        repo["work_type"] = "validate_only"
+                        repo["confidence"] = "low"
+                    changed = True
         if not changed:
             questions = as_str_list(decision.get("unresolved_questions"))
             action = str(item.get("suggested_action") or item.get("actual") or "").strip()
@@ -310,8 +338,8 @@ def apply_review_issues_to_decision(
                 "failure_type": item.get("failure_type"),
                 "target": target,
                 "resolution": "accepted",
-                "reason": "本地 revision 接受 blocking issue；删除命中的候选文件或转入待确认项。",
-                "decision_change": "candidate_removed_or_question_added",
+                "reason": "本地 revision 接受 blocking issue；补齐候选文件、删除噪音候选，或转入待确认项。",
+                "decision_change": "candidate_added_removed_or_question_added",
             }
         )
     decision["repo_decisions"] = repo_decisions
@@ -419,6 +447,130 @@ def _repo_responsibility(prepared: DesignInputBundle, repo_id: str, candidates: 
     return f"检查 {repo_id} 是否参与「{scope}」的上下游联动，不在证据不足时扩大改造范围。"
 
 
+def _eligible_candidate_paths(research: dict[str, object]) -> list[str]:
+    paths = candidate_paths(research)
+    paths.extend(
+        str(item.get("path") or "")
+        for item in dict_list(research.get("related_files"))
+        if str(item.get("path") or "").strip()
+    )
+    return dedupe(paths)
+
+
+def _eligible_paths_by_repo(research_summary_payload: dict[str, object]) -> dict[str, set[str]]:
+    return {
+        str(repo.get("repo_id") or ""): set(_eligible_candidate_paths(repo))
+        for repo in dict_list(research_summary_payload.get("repos"))
+    }
+
+
+def _add_candidate_paths(
+    repo_decisions: list[dict[str, object]],
+    target: str,
+    paths_to_add: list[str],
+    eligible_by_repo: dict[str, set[str]],
+) -> bool:
+    changed = False
+    for path in paths_to_add:
+        target_repos = _repos_for_path(repo_decisions, target, path, eligible_by_repo)
+        for repo in repo_decisions:
+            repo_id = str(repo.get("repo_id") or "")
+            if repo_id not in target_repos:
+                continue
+            candidates = as_str_list(repo.get("candidate_files"))
+            if path in candidates:
+                continue
+            candidates.append(path)
+            repo["candidate_files"] = dedupe(candidates)
+            repo["candidate_dirs"] = sorted({str(Path(item).parent) for item in candidates if str(Path(item).parent) != "."})[:8]
+            if str(repo.get("work_type") or "") in {"validate_only", "reference_only", ""}:
+                repo["work_type"] = "must_change"
+            if str(repo.get("confidence") or "") == "low":
+                repo["confidence"] = "medium"
+            changed = True
+    return changed
+
+
+def _repos_for_path(
+    repo_decisions: list[dict[str, object]],
+    target: str,
+    path: str,
+    eligible_by_repo: dict[str, set[str]],
+) -> set[str]:
+    explicit = {
+        str(repo.get("repo_id") or "")
+        for repo in repo_decisions
+        if str(repo.get("repo_id") or "") and str(repo.get("repo_id") or "") in target
+    }
+    eligible = {repo_id for repo_id, paths in eligible_by_repo.items() if path in paths}
+    if explicit and eligible:
+        return explicit & eligible
+    if eligible:
+        return eligible
+    return explicit
+
+
+def _all_accepted_resolutions_applied(
+    review_payload: dict[str, object],
+    issue_resolutions: list[dict[str, object]],
+    decision_payload: dict[str, object],
+) -> bool:
+    accepted = [item for item in issue_resolutions if str(item.get("resolution") or "") == "accepted"]
+    if not accepted:
+        return False
+    for review_issue in issues(review_payload):
+        if str(review_issue.get("severity") or "") != "blocking":
+            continue
+        resolution = _matching_resolution(review_issue, accepted)
+        if not resolution or not _resolution_applied_to_decision(review_issue, resolution, decision_payload):
+            return False
+    return True
+
+
+def _matching_resolution(review_issue: dict[str, object], resolutions: list[dict[str, object]]) -> dict[str, object]:
+    target = str(review_issue.get("target") or "")
+    failure_type = str(review_issue.get("failure_type") or "")
+    for item in resolutions:
+        if target and str(item.get("target") or "") == target:
+            return item
+        if failure_type and str(item.get("failure_type") or "") == failure_type:
+            return item
+    return {}
+
+
+def _resolution_applied_to_decision(
+    review_issue: dict[str, object],
+    resolution: dict[str, object],
+    decision_payload: dict[str, object] | None,
+) -> bool:
+    if decision_payload is None:
+        return True
+    expected_paths = _extract_file_paths(
+        str(review_issue.get("target") or ""),
+        str(review_issue.get("expected") or ""),
+        str(review_issue.get("actual") or ""),
+        str(review_issue.get("suggested_action") or ""),
+        str(resolution.get("reason") or ""),
+        str(resolution.get("decision_change") or ""),
+    )
+    if not expected_paths:
+        return True
+    candidate_paths_in_decision = {
+        path
+        for repo in dict_list(decision_payload.get("repo_decisions"))
+        for path in as_str_list(repo.get("candidate_files"))
+    }
+    return all(path in candidate_paths_in_decision for path in expected_paths)
+
+
+def _extract_file_paths(*values: str) -> list[str]:
+    paths: list[str] = []
+    for value in values:
+        for match in re.findall(r"[\w./-]+\.(?:go|py|ts|tsx|js|jsx|proto|thrift|sql|json|ya?ml)", value):
+            paths.append(match.strip(".,;:，。；：)）]】"))
+    return dedupe(paths)
+
+
 def _find_repo_decision(payload: dict[str, object], repo_id: str) -> dict[str, object]:
     for item in dict_list(payload.get("repo_decisions")):
         if str(item.get("repo_id") or "") == repo_id:
@@ -438,4 +590,3 @@ def _normalize_confidence(value: object, default: str) -> str:
     if text in {"high", "medium", "low"}:
         return text
     return default
-

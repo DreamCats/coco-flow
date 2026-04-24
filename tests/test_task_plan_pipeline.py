@@ -2,11 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import subprocess
 import tempfile
 import unittest
 
 from coco_flow.config import Settings
+from coco_flow.engines.design.models import DesignInputBundle
+from coco_flow.engines.design.gate import local_gate_payload
 from coco_flow.engines.design.pipeline import apply_review_issues_to_decision, normalize_decision_for_gate
+from coco_flow.engines.design.adjudication import normalize_adjudication, review_payload_after_revision
+from coco_flow.engines.design.research import build_research_plan, research_single_repo
+from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
 
@@ -77,6 +83,196 @@ class DesignV3PipelineTest(unittest.TestCase):
         self.assertEqual(repo["candidate_files"], [])
         self.assertEqual(repo["candidate_dirs"], [])
 
+    def test_repo_research_includes_git_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp) / "repo"
+            repo_dir.mkdir()
+            self._run(repo_dir, "git", "init")
+            self._run(repo_dir, "git", "config", "user.email", "test@example.com")
+            self._run(repo_dir, "git", "config", "user.name", "Test User")
+            (repo_dir / "auction_config.go").write_text(
+                "package demo\n\nfunc AuctionTextConfig() string { return \"Starting bid\" }\n",
+                encoding="utf-8",
+            )
+            self._run(repo_dir, "git", "add", ".")
+            self._run(repo_dir, "git", "commit", "-m", "update auction text config")
+
+            payload = research_single_repo(
+                "demo",
+                str(repo_dir),
+                {
+                    "search_terms": ["auction", "Starting", "bid"],
+                    "budget": {"max_files_read": 4, "max_search_commands": 3},
+                },
+            )
+
+            git_evidence = payload["git_evidence"]
+            self.assertTrue(git_evidence)
+            self.assertTrue(any(item["path"] == "auction_config.go" for item in git_evidence))
+            self.assertGreaterEqual(payload["budget_used"]["git_commands"], 1)
+
+    def test_research_plan_consumes_search_hints(self) -> None:
+        prepared = DesignInputBundle(
+            task_dir=Path("/tmp/task"),
+            task_id="task",
+            title="更新出价成功态",
+            refined_markdown="需要更新 BidSuccessToast。",
+            input_meta={},
+            refine_brief_payload={},
+            refine_intent_payload={},
+            refine_skills_selection_payload={},
+            refine_skills_read_markdown="",
+            repos_meta={},
+            repo_scopes=[RepoScope(repo_id="demo", repo_path="/tmp/repo")],
+            sections=RefinedSections(
+                change_scope=["更新出价成功态"],
+                non_goals=[],
+                key_constraints=[],
+                acceptance_criteria=["BidSuccessToast 展示正确"],
+                open_questions=[],
+                raw="",
+            ),
+        )
+
+        payload = build_research_plan(
+            prepared,
+            {
+                "source": "native",
+                "search_terms": ["bid success"],
+                "likely_symbols": ["BidSuccessToast"],
+                "likely_file_patterns": ["bid_success"],
+                "negative_terms": ["legacy"],
+                "confidence": "high",
+            },
+        )
+
+        repo_plan = payload["repos"][0]
+        self.assertIn("BidSuccessToast", repo_plan["search_terms"])
+        self.assertEqual(repo_plan["likely_file_patterns"], ["bid_success"])
+        self.assertEqual(repo_plan["negative_terms"], ["legacy"])
+        self.assertEqual(repo_plan["search_hints_source"], "native")
+
+    def test_repo_research_uses_file_pattern_hints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp) / "repo"
+            repo_dir.mkdir()
+            (repo_dir / "bid_success_view.go").write_text(
+                "package demo\n\nfunc Render() string { return \"ok\" }\n",
+                encoding="utf-8",
+            )
+
+            payload = research_single_repo(
+                "demo",
+                str(repo_dir),
+                {
+                    "search_terms": ["missing-content-term"],
+                    "likely_file_patterns": ["bid_success"],
+                    "budget": {"max_files_read": 4, "max_search_commands": 1, "max_path_pattern_scans": 2},
+                },
+            )
+
+            candidate_paths = [item["path"] for item in payload["candidate_files"]]
+            self.assertIn("bid_success_view.go", candidate_paths)
+            self.assertEqual(payload["budget_used"]["path_pattern_scans"], 1)
+
+    def test_repo_research_demotes_broad_file_pattern_hints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp) / "repo"
+            repo_dir.mkdir()
+            for index in range(16):
+                (repo_dir / f"card_{index}.go").write_text(
+                    "package demo\n\nfunc Render() string { return \"ok\" }\n",
+                    encoding="utf-8",
+                )
+
+            payload = research_single_repo(
+                "demo",
+                str(repo_dir),
+                {
+                    "search_terms": [],
+                    "likely_file_patterns": ["card"],
+                    "budget": {"max_files_read": 4, "max_search_commands": 0, "max_path_pattern_scans": 1},
+                },
+            )
+
+            self.assertEqual(payload["candidate_files"], [])
+            self.assertTrue(payload["related_files"])
+
+    def test_revision_can_promote_related_file_to_candidate(self) -> None:
+        prepared = self._design_bundle(repo_scopes=[RepoScope(repo_id="demo", repo_path="/tmp/repo")])
+        payload = {
+            "decision_summary": "demo",
+            "core_change_points": ["update regular auction"],
+            "repo_decisions": [
+                {
+                    "repo_id": "demo",
+                    "work_type": "must_change",
+                    "candidate_files": ["core.go", "related.go"],
+                    "responsibility": "demo",
+                }
+            ],
+        }
+        research_summary = {
+            "repos": [
+                {
+                    "repo_id": "demo",
+                    "candidate_files": [{"path": "core.go"}],
+                    "related_files": [{"path": "related.go"}],
+                }
+            ]
+        }
+
+        normalized = normalize_adjudication(prepared, payload, research_summary)
+
+        self.assertEqual(normalized["repo_decisions"][0]["candidate_files"], ["core.go", "related.go"])
+
+    def test_accepted_revision_must_be_reflected_in_decision(self) -> None:
+        review = {
+            "issues": [
+                {
+                    "severity": "blocking",
+                    "failure_type": "missing_candidate_file",
+                    "target": "demo candidate_files",
+                    "expected": "应包含 related.go",
+                    "suggested_action": "添加 related.go",
+                }
+            ]
+        }
+        debate = {
+            "revision": {
+                "issue_resolutions": [
+                    {
+                        "failure_type": "missing_candidate_file",
+                        "target": "demo candidate_files",
+                        "resolution": "accepted",
+                        "decision_change": "添加 related.go",
+                    }
+                ]
+            }
+        }
+
+        still_blocked = review_payload_after_revision(review, debate, {"repo_decisions": [{"repo_id": "demo", "candidate_files": []}]})
+        fixed = review_payload_after_revision(review, debate, {"repo_decisions": [{"repo_id": "demo", "candidate_files": ["related.go"]}]})
+
+        self.assertFalse(still_blocked["ok"])
+        self.assertEqual(still_blocked["issues"][0]["severity"], "blocking")
+        self.assertTrue(fixed["ok"])
+        self.assertEqual(fixed["issues"][0]["severity"], "info")
+
+    def test_gate_blocks_markdown_plan_status_conflict(self) -> None:
+        prepared = self._design_bundle(repo_scopes=[RepoScope(repo_id="demo", repo_path="/tmp/repo")])
+
+        payload = local_gate_payload(
+            prepared,
+            {"repo_decisions": [{"repo_id": "demo"}]},
+            "# Demo\n\n当前不能进入 Plan，阻断原因：缺文件。\n",
+            {"issues": []},
+            degraded=False,
+        )
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["gate_status"], "needs_human")
+
     def test_local_design_v3_writes_agentic_artifacts_and_blocks_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -88,6 +284,7 @@ class DesignV3PipelineTest(unittest.TestCase):
             self.assertEqual(status, "failed")
             self.assertTrue((task_dir / "design-input.json").exists())
             self.assertTrue((task_dir / "design-research-plan.json").exists())
+            self.assertTrue((task_dir / "design-search-hints.json").exists())
             self.assertTrue((task_dir / "design-research" / "demo.json").exists())
             self.assertTrue((task_dir / "design-research-summary.json").exists())
             self.assertTrue((task_dir / "design-adjudication.json").exists())
@@ -140,11 +337,37 @@ class DesignV3PipelineTest(unittest.TestCase):
         )
         return task_dir, repo_dir
 
+    def _design_bundle(self, *, repo_scopes: list[RepoScope]) -> DesignInputBundle:
+        return DesignInputBundle(
+            task_dir=Path("/tmp/task"),
+            task_id="task",
+            title="Demo",
+            refined_markdown="demo",
+            input_meta={},
+            refine_brief_payload={},
+            refine_intent_payload={},
+            refine_skills_selection_payload={},
+            refine_skills_read_markdown="",
+            repos_meta={},
+            repo_scopes=repo_scopes,
+            sections=RefinedSections(
+                change_scope=["demo"],
+                non_goals=[],
+                key_constraints=[],
+                acceptance_criteria=[],
+                open_questions=[],
+                raw="",
+            ),
+        )
+
     def _write_json(self, path: Path, payload: dict[str, object]) -> None:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     def _read_json(self, path: Path) -> dict[str, object]:
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def _run(self, cwd: Path, *cmd: str) -> None:
+        subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True)
 
 
 if __name__ == "__main__":
