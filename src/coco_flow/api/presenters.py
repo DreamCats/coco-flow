@@ -43,6 +43,19 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
         "owner": "local",
         "complexity": read_task_complexity(Path(detail.task_dir)),
         "nextAction": detail.next_action,
+        "diagnosis": (
+            {
+                "stage": detail.diagnosis.stage,
+                "ok": detail.diagnosis.ok,
+                "severity": detail.diagnosis.severity,
+                "failureType": detail.diagnosis.failure_type,
+                "nextAction": detail.diagnosis.next_action,
+                "reason": detail.diagnosis.reason,
+                "issueCount": detail.diagnosis.issue_count,
+            }
+            if detail.diagnosis
+            else None
+        ),
         "codeDispatch": (
             {
                 "totalBatches": detail.code_dispatch.total_batches,

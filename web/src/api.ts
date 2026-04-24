@@ -103,6 +103,16 @@ export type TaskTimelineItem = {
   detail: string
 }
 
+export type TaskDiagnosis = {
+  stage: string
+  ok: boolean
+  severity: string
+  failureType: string
+  nextAction: string
+  reason: string
+  issueCount: number
+}
+
 export type TaskListItem = {
   id: string
   title: string
@@ -124,6 +134,7 @@ export type TaskRecord = {
   owner: string
   complexity: string
   nextAction: string
+  diagnosis?: TaskDiagnosis
   repoNext: string[]
   repos: RepoResult[]
   timeline: TaskTimelineItem[]
@@ -517,6 +528,7 @@ function normalizeTaskRecord(raw: unknown): TaskRecord {
     owner: asString(current.owner),
     complexity: asString(current.complexity),
     nextAction: asString(current.nextAction) || asString(current.next_action),
+    diagnosis: normalizeDiagnosis(current.diagnosis),
     repoNext: normalizeStringList(current.repoNext ?? current.repo_next),
     repos,
     timeline,
@@ -530,6 +542,25 @@ function normalizeTaskRecord(raw: unknown): TaskRecord {
     repos: enriched.repos,
     repoNext: enriched.repoNext,
     codeProgress: enriched.codeProgress,
+  }
+}
+
+function normalizeDiagnosis(raw: unknown): TaskDiagnosis | undefined {
+  const current = asRecord(raw)
+  const stage = asString(current.stage)
+  const severity = asString(current.severity)
+  const nextAction = asString(current.nextAction) || asString(current.next_action)
+  if (!stage && !severity && !nextAction) {
+    return undefined
+  }
+  return {
+    stage,
+    ok: Boolean(current.ok),
+    severity,
+    failureType: asString(current.failureType) || asString(current.failure_type),
+    nextAction,
+    reason: asString(current.reason),
+    issueCount: asNumber(current.issueCount) || asNumber(current.issue_count) || 0,
   }
 }
 

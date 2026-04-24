@@ -130,12 +130,14 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
     if isinstance(verify_payload, dict):
         verify_payload = enrich_verify_payload(stage="design", verify_payload=verify_payload, artifact="design.md")
         artifacts["design-verify.json"] = verify_payload
-        artifacts["design-diagnosis.json"] = diagnosis_payload_from_verify(
+        diagnosis_payload = diagnosis_payload_from_verify(
             stage="design",
             verify_payload=verify_payload,
             artifact="design.md",
         )
+        artifacts["design-diagnosis.json"] = diagnosis_payload
         on_log(f"design_verify_ok: ok={'true' if bool(verify_payload.get('ok')) else 'false'}")
+        on_log(f"diagnosis: severity={diagnosis_payload.get('severity') or ''} failure_type={diagnosis_payload.get('failure_type') or '-'} next_action={diagnosis_payload.get('next_action') or ''}")
     artifacts["design-result.json"] = {
         "task_id": prepared.task_id,
         "status": "designed",

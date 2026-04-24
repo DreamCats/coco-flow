@@ -65,11 +65,12 @@ def run_refine_engine(
     finalized_brief = merge_brief_with_refined_markdown(brief, refined_markdown)
     verify_payload = enrich_verify_payload(stage="refine", verify_payload=verify.to_payload(), artifact="prd-refined.md")
     artifacts["refine-verify.json"] = verify_payload
-    artifacts["refine-diagnosis.json"] = diagnosis_payload_from_verify(
+    diagnosis_payload = diagnosis_payload_from_verify(
         stage="refine",
         verify_payload=verify_payload,
         artifact="prd-refined.md",
     )
+    artifacts["refine-diagnosis.json"] = diagnosis_payload
     artifacts["refine-brief.json"] = finalized_brief.to_payload()
     artifacts["refine-intent.json"] = build_compat_intent_payload(prepared, finalized_brief)
 
@@ -81,6 +82,7 @@ def run_refine_engine(
     on_log(f"brief_in_scope: {', '.join(brief.in_scope[:4]) if brief.in_scope else '无'}")
     on_log(f"brief_out_of_scope: {', '.join(finalized_brief.out_of_scope[:4]) if finalized_brief.out_of_scope else '无'}")
     on_log(f"verify_ok: {'true' if verify.ok else 'false'}")
+    on_log(f"diagnosis: severity={diagnosis_payload.get('severity') or ''} failure_type={diagnosis_payload.get('failure_type') or '-'} next_action={diagnosis_payload.get('next_action') or ''}")
 
     return RefineEngineResult(
         status="refined",

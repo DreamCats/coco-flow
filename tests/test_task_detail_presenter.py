@@ -9,6 +9,7 @@ from coco_flow.api.presenters import task_detail_item
 from coco_flow.config import Settings
 from coco_flow.models.task import ArtifactItem, RepoBinding, TaskDetail, TimelineItem
 from coco_flow.services.queries.task_detail import (
+    build_latest_diagnosis,
     build_next_action,
     build_task_detail,
     build_timeline,
@@ -141,6 +142,47 @@ class TaskDetailPresenterTest(unittest.TestCase):
         payload = task_detail_item(detail)
 
         self.assertEqual(payload["repoNext"], ["repo-a"])
+
+    def test_build_task_detail_exposes_latest_diagnosis_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp)
+            (task_dir / "task.json").write_text(
+                json.dumps({"task_id": "task-1", "title": "demo", "status": "planning"}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "source.json").write_text(json.dumps({"type": "text"}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "refine-diagnosis.json").write_text(
+                json.dumps({"stage": "refine", "ok": True, "severity": "info", "next_action": "continue", "issues": []}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-diagnosis.json").write_text(
+                json.dumps(
+                    {
+                        "stage": "plan",
+                        "ok": False,
+                        "severity": "blocking",
+                        "failure_type": "missing_work_item_coverage",
+                        "next_action": "repair",
+                        "reason": "local plan verify failed",
+                        "issues": [{"id": "P001"}],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            summary = build_latest_diagnosis(task_dir)
+            detail = build_task_detail(task_dir, "text", json.loads((task_dir / "task.json").read_text()), {"type": "text"}, {"repos": []})
+            payload = task_detail_item(detail)
+
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary.stage, "plan")
+        self.assertEqual(summary.issue_count, 1)
+        self.assertEqual(payload["diagnosis"]["failureType"], "missing_work_item_coverage")
+        self.assertEqual(payload["diagnosis"]["nextAction"], "repair")
 
     def test_build_task_detail_exposes_code_v2_typed_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

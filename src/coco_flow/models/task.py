@@ -47,6 +47,16 @@ class TimelineItem(BaseModel):
     detail: str
 
 
+class DiagnosisSummary(BaseModel):
+    stage: str
+    ok: bool
+    severity: str
+    failure_type: str = ""
+    next_action: str
+    reason: str = ""
+    issue_count: int = 0
+
+
 class ArtifactItem(BaseModel):
     name: str
     path: str
@@ -88,6 +98,7 @@ class TaskDetail(BaseModel):
     repos: list[RepoBinding]
     code_dispatch: CodeDispatchSummary | None = None
     code_progress: CodeProgressSummary | None = None
+    diagnosis: DiagnosisSummary | None = None
     timeline: list[TimelineItem]
     artifacts: list[ArtifactItem]
 

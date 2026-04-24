@@ -177,6 +177,7 @@ Notes:
 - `plan` supports `native` and `local`.
 - `native plan` runs staged scope extraction, generation, and verification.
 - Typical artifacts include `design.md`, `design-skills-brief.md`, `design-verify.json`, `design-diagnosis.json`, `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-diagnosis.json`, `plan-skills-selection.json`, and `plan-skills-brief.md`.
+- Task detail responses also expose the latest stage diagnosis summary so the UI can show `severity`, `failureType`, and `nextAction` without parsing artifacts.
 
 ### Code
 

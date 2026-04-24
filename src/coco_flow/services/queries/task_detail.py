@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from coco_flow.models import ArtifactItem, RepoBinding, TaskDetail, TimelineItem
+from coco_flow.models import ArtifactItem, DiagnosisSummary, RepoBinding, TaskDetail, TimelineItem
 from coco_flow.models.task import CodeDispatchSummary, CodeProgressSummary
 from coco_flow.services.runtime.repo_state import (
     clean_files_written,
@@ -107,6 +107,7 @@ def build_task_detail(
         repos=repos,
         code_dispatch=build_code_dispatch_summary(code_dispatch),
         code_progress=build_code_progress_summary(status, repos, code_dispatch, code_progress),
+        diagnosis=build_latest_diagnosis(task_dir),
         timeline=build_timeline(status, task_dir),
         artifacts=build_artifacts(task_dir),
     )
@@ -150,6 +151,24 @@ def build_artifacts(task_dir: Path) -> list[ArtifactItem]:
             )
         )
     return items
+
+
+def build_latest_diagnosis(task_dir: Path) -> DiagnosisSummary | None:
+    for name in ("plan-diagnosis.json", "design-diagnosis.json", "refine-diagnosis.json"):
+        payload = read_json_file(task_dir / name)
+        if not payload:
+            continue
+        issues = payload.get("issues")
+        return DiagnosisSummary(
+            stage=str(payload.get("stage") or name.split("-", 1)[0]),
+            ok=bool(payload.get("ok")),
+            severity=str(payload.get("severity") or ""),
+            failure_type=str(payload.get("failure_type") or ""),
+            next_action=str(payload.get("next_action") or ""),
+            reason=str(payload.get("reason") or ""),
+            issue_count=len(issues) if isinstance(issues, list) else 0,
+        )
+    return None
 
 
 def parse_repos(

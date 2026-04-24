@@ -265,6 +265,7 @@ uv run python -m unittest discover -s tests -v
   - `plan-execution.json`
   - `plan-verify.json`
   - `plan-diagnosis.json`
+- 任务详情 API 会额外暴露最新阶段的 diagnosis 摘要，供 UI 直接展示 `severity / failureType / nextAction`
 
 ### daemon / ACP
 

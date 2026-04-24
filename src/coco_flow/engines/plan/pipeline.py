@@ -74,6 +74,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
         verify_payload=verify_payload,
         artifact="plan.md",
     )
+    _log_plan_diagnosis(artifacts["plan-diagnosis.json"], on_log)
     if not bool(verify_payload.get("ok")) and plan_generate_mode == "native" and settings.plan_executor.strip().lower() == "native":
         issues = _collect_plan_verify_issues(verify_payload)
         on_log(f"plan_regenerate_start: issue_count={len(issues)}")
@@ -119,6 +120,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
                 verify_payload=verify_payload,
                 artifact="plan.md",
             )
+            _log_plan_diagnosis(artifacts["plan-diagnosis.json"], on_log)
         except Exception as error:
             if not logged_regenerate_failure:
                 on_log(f"plan_regenerate_failed: {error}")
@@ -154,3 +156,14 @@ def _write_failure_diagnosis_artifacts(task_dir, artifacts: dict[str, str | dict
         payload = artifacts.get(name)
         if isinstance(payload, dict):
             (task_dir / name).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _log_plan_diagnosis(payload: object, on_log) -> None:
+    if not isinstance(payload, dict):
+        return
+    on_log(
+        "diagnosis: "
+        f"severity={payload.get('severity') or ''} "
+        f"failure_type={payload.get('failure_type') or '-'} "
+        f"next_action={payload.get('next_action') or ''}"
+    )
