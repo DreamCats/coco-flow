@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from coco_flow.config import Settings
+from coco_flow.engines.shared.diagnostics import diagnosis_payload_from_verify, enrich_verify_payload
 
 from .brief import (
     build_compat_intent_payload,
@@ -62,7 +63,13 @@ def run_refine_engine(
         on_log=on_log,
     )
     finalized_brief = merge_brief_with_refined_markdown(brief, refined_markdown)
-    artifacts["refine-verify.json"] = verify.to_payload()
+    verify_payload = enrich_verify_payload(stage="refine", verify_payload=verify.to_payload(), artifact="prd-refined.md")
+    artifacts["refine-verify.json"] = verify_payload
+    artifacts["refine-diagnosis.json"] = diagnosis_payload_from_verify(
+        stage="refine",
+        verify_payload=verify_payload,
+        artifact="prd-refined.md",
+    )
     artifacts["refine-brief.json"] = finalized_brief.to_payload()
     artifacts["refine-intent.json"] = build_compat_intent_payload(prepared, finalized_brief)
 

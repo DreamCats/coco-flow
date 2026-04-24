@@ -127,6 +127,7 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         "plan-dependency-notes.json",
         "plan-risk-check.json",
         "plan-verify.json",
+        "plan-diagnosis.json",
         "plan-result.json",
         "plan-scope.json",
         "plan-execution.json",

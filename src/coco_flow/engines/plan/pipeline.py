@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+
 from coco_flow.config import Settings
+from coco_flow.engines.shared.diagnostics import diagnosis_payload_from_verify
 
 from .generate import generate_native_plan_markdown, generate_plan_markdown
 from .graph import build_plan_execution_graph
@@ -65,6 +68,12 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
 
     on_log("plan_verify_start: true")
     verify_payload = build_plan_verify_payload(prepared, work_items, graph, validation_payload, plan_markdown, settings, on_log)
+    artifacts["plan-verify.json"] = verify_payload
+    artifacts["plan-diagnosis.json"] = diagnosis_payload_from_verify(
+        stage="plan",
+        verify_payload=verify_payload,
+        artifact="plan.md",
+    )
     if not bool(verify_payload.get("ok")) and plan_generate_mode == "native" and settings.plan_executor.strip().lower() == "native":
         issues = _collect_plan_verify_issues(verify_payload)
         on_log(f"plan_regenerate_start: issue_count={len(issues)}")
@@ -94,19 +103,31 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
                 on_log(f"plan_regenerate_failed: {issue_text}")
                 logged_regenerate_failure = True
                 artifacts["plan-verify.json"] = regenerated_verify_payload
+                artifacts["plan-diagnosis.json"] = diagnosis_payload_from_verify(
+                    stage="plan",
+                    verify_payload=regenerated_verify_payload,
+                    artifact="plan.md",
+                )
+                _write_failure_diagnosis_artifacts(prepared.task_dir, artifacts)
                 raise ValueError(f"plan verify failed: {issue_text}")
             on_log("plan_regenerate_ok: true")
             plan_markdown = regenerated_plan_markdown
             verify_payload = regenerated_verify_payload
+            artifacts["plan-verify.json"] = verify_payload
+            artifacts["plan-diagnosis.json"] = diagnosis_payload_from_verify(
+                stage="plan",
+                verify_payload=verify_payload,
+                artifact="plan.md",
+            )
         except Exception as error:
             if not logged_regenerate_failure:
                 on_log(f"plan_regenerate_failed: {error}")
             raise
-    artifacts["plan-verify.json"] = verify_payload
     if not bool(verify_payload.get("ok")):
         issues = _collect_plan_verify_issues(verify_payload)
         issue_text = "; ".join(issues[:3])
         on_log(f"plan_verify_failed: {issue_text}")
+        _write_failure_diagnosis_artifacts(prepared.task_dir, artifacts)
         raise ValueError(f"plan verify failed: {issue_text}")
     on_log("plan_verify_ok: true")
 
@@ -126,3 +147,10 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
         plan_markdown=plan_markdown,
         intermediate_artifacts=artifacts,
     )
+
+
+def _write_failure_diagnosis_artifacts(task_dir, artifacts: dict[str, str | dict[str, object]]) -> None:
+    for name in ("plan-verify.json", "plan-diagnosis.json"):
+        payload = artifacts.get(name)
+        if isinstance(payload, dict):
+            (task_dir / name).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -126,6 +126,7 @@ def _reset_design_outputs(task_dir: Path) -> None:
         "design-repo-binding.json",
         "design-sections.json",
         "design-verify.json",
+        "design-diagnosis.json",
         "design-result.json",
     ):
         path = task_dir / name
@@ -149,6 +150,7 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         "plan-dependency-notes.json",
         "plan-risk-check.json",
         "plan-verify.json",
+        "plan-diagnosis.json",
         "plan-result.json",
         "plan-scope.json",
         "plan-execution.json",

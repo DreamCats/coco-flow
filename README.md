@@ -169,14 +169,14 @@ Notes:
 - The current refine engine is `manual-first`: it treats the Input-stage `人工提炼范围` as the primary source of truth, then turns it into a structured implementation brief.
 - `local` renders directly from the rule-generated brief.
 - `native` now uses `AGENT_MODE`: the controller prepares `manual_extract / brief draft / source excerpt`, then a read-write agent fills the markdown template and a second agent verifies it.
-- Typical artifacts include `refine-brief.json`, compatibility `refine-intent.json`, `prd-refined.md`, `refine-verify.json`, and `refine-result.json`.
+- Typical artifacts include `refine-brief.json`, compatibility `refine-intent.json`, `prd-refined.md`, `refine-verify.json`, `refine-diagnosis.json`, and `refine-result.json`.
 
 ### Design And Plan
 
 - `design` is a standalone stage exposed in both CLI and API.
 - `plan` supports `native` and `local`.
 - `native plan` runs staged scope extraction, generation, and verification.
-- Typical artifacts include `design.md`, `design-skills-brief.md`, `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-skills-selection.json`, and `plan-skills-brief.md`.
+- Typical artifacts include `design.md`, `design-skills-brief.md`, `design-verify.json`, `design-diagnosis.json`, `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-diagnosis.json`, `plan-skills-selection.json`, and `plan-skills-brief.md`.
 
 ### Code
 

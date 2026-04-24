@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from coco_flow.config import Settings
+from coco_flow.engines.shared.diagnostics import diagnosis_payload_from_verify, enrich_verify_payload
 
 from .assignment import build_design_change_points_payload, build_design_repo_assignment_payload
 from .binding import build_repo_binding
@@ -127,6 +128,13 @@ def run_design_engine(task_dir, task_meta: dict[str, object], settings: Settings
         artifacts["design-verify.json"] = {"ok": True, "issues": [], "reason": "local design path"}
     verify_payload = artifacts.get("design-verify.json")
     if isinstance(verify_payload, dict):
+        verify_payload = enrich_verify_payload(stage="design", verify_payload=verify_payload, artifact="design.md")
+        artifacts["design-verify.json"] = verify_payload
+        artifacts["design-diagnosis.json"] = diagnosis_payload_from_verify(
+            stage="design",
+            verify_payload=verify_payload,
+            artifact="design.md",
+        )
         on_log(f"design_verify_ok: ok={'true' if bool(verify_payload.get('ok')) else 'false'}")
     artifacts["design-result.json"] = {
         "task_id": prepared.task_id,

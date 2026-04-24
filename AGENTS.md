@@ -163,6 +163,7 @@ uv run python -m unittest discover -s tests -v
   - `refine-brief.json`
   - `refine-intent.json`
   - `refine-verify.json`
+  - `refine-diagnosis.json`
 - 飞书文档若暂时拉不到正文，会生成 pending refine 占位稿，状态保持 `initialized`
 - `refine.log` 当前会记录：
   - `=== REFINE START === / === REFINE END ===`
@@ -251,8 +252,11 @@ uv run python -m unittest discover -s tests -v
   - `refine-brief.json`
   - `refine-intent.json`
   - `refine-verify.json`
+  - `refine-diagnosis.json`
   - `refine-result.json`
   - `design-skills-brief.md`
+  - `design-verify.json`
+  - `design-diagnosis.json`
   - `plan-skills-selection.json`
   - `plan-skills-brief.md`
   - `code-dispatch.json`
@@ -260,6 +264,7 @@ uv run python -m unittest discover -s tests -v
   - `plan-scope.json`
   - `plan-execution.json`
   - `plan-verify.json`
+  - `plan-diagnosis.json`
 
 ### daemon / ACP
 

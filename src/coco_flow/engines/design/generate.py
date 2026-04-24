@@ -7,6 +7,7 @@ import tempfile
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
+from coco_flow.engines.shared.diagnostics import diagnosis_payload_from_verify, enrich_verify_payload
 from coco_flow.prompts.design import (
     build_design_generate_agent_prompt,
     build_design_template_markdown,
@@ -274,6 +275,7 @@ def generate_native_design_markdown(
         return content
 
     on_log(f"design_regenerate_start: source={retry_source}, issue_count={len(retry_issues)}")
+    _write_native_design_failure_diagnostics(prepared.task_dir, verify_payload)
     logged_failure = False
     try:
         regenerated = _run_design_generation_once(
@@ -298,6 +300,7 @@ def generate_native_design_markdown(
             issue_text = "; ".join(final_issues[:3]) if isinstance(final_issues, list) else "unknown"
             on_log(f"design_regenerate_failed: source={final_source}, issues={issue_text}")
             logged_failure = True
+            _write_native_design_failure_diagnostics(prepared.task_dir, final_verify_payload)
             if final_source == "contract":
                 raise ValueError(f"native_design_contract_failed: {issue_text}")
             raise ValueError(f"native_design_verify_failed: {issue_text}")
@@ -308,6 +311,17 @@ def generate_native_design_markdown(
         if not logged_failure:
             on_log(f"design_regenerate_failed: {error}")
         raise
+
+
+def _write_native_design_failure_diagnostics(task_dir: Path, verify_payload: dict[str, object]) -> None:
+    enriched_verify = enrich_verify_payload(stage="design", verify_payload=verify_payload, artifact="design.md")
+    diagnosis_payload = diagnosis_payload_from_verify(
+        stage="design",
+        verify_payload=enriched_verify,
+        artifact="design.md",
+    )
+    (task_dir / "design-verify.json").write_text(json.dumps(enriched_verify, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (task_dir / "design-diagnosis.json").write_text(json.dumps(diagnosis_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _run_design_generation_once(

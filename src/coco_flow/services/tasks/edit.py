@@ -29,6 +29,7 @@ PLAN_V2_ARTIFACTS = [
     "plan-dependency-notes.json",
     "plan-risk-check.json",
     "plan-verify.json",
+    "plan-diagnosis.json",
     "plan-result.json",
 ]
 
@@ -62,6 +63,7 @@ EDIT_RULES = {
             "refine-brief.json",
             "refine-intent.json",
             "refine-verify.json",
+            "refine-diagnosis.json",
             "refine-result.json",
             "refine-scope.candidates.json",
             "refine-scope.json",
@@ -78,6 +80,7 @@ EDIT_RULES = {
             "design-repo-binding.json",
             "design-sections.json",
             "design-verify.json",
+            "design-diagnosis.json",
             "design-result.json",
             "refine.log",
             *PLAN_ARTIFACTS,
@@ -99,6 +102,7 @@ EDIT_RULES = {
             "design-repo-binding.json",
             "design-sections.json",
             "design-verify.json",
+            "design-diagnosis.json",
             "design-result.json",
             *PLAN_ARTIFACTS,
             *CODE_ARTIFACTS,

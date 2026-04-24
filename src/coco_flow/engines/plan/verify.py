@@ -6,6 +6,7 @@ import tempfile
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
+from coco_flow.engines.shared.diagnostics import enrich_verify_payload
 from coco_flow.prompts.plan import build_plan_verify_agent_prompt, build_plan_verify_template_json
 
 from .models import EXECUTOR_NATIVE, PlanExecutionGraph, PlanPreparedInput, PlanWorkItem
@@ -22,14 +23,14 @@ def build_plan_verify_payload(
 ) -> dict[str, object]:
     fallback = build_local_plan_verify_payload(prepared, work_items, graph, validation_payload, plan_markdown)
     if settings.plan_executor.strip().lower() != EXECUTOR_NATIVE:
-        return fallback
+        return enrich_verify_payload(stage="plan", verify_payload=fallback, artifact="plan.md")
     try:
         payload = build_native_plan_verify_payload(prepared, work_items, graph, validation_payload, plan_markdown, settings)
         on_log("plan_verify_mode: native")
-        return payload
+        return enrich_verify_payload(stage="plan", verify_payload=payload, artifact="plan.md")
     except Exception as error:
         on_log(f"plan_verify_fallback: {error}")
-        return fallback
+        return enrich_verify_payload(stage="plan", verify_payload=fallback, artifact="plan.md")
 
 
 def build_local_plan_verify_payload(
