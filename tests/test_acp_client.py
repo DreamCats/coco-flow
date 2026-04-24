@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from coco_flow.clients.acp_client import AGENT_MODE, _ACPSessionPool
+from coco_flow.clients.acp_client import AGENT_MODE, _ACPProcess, _ACPResponse, _ACPSessionPool
 
 
 class _FakeACPProcess:
@@ -39,6 +39,19 @@ class _FakeACPProcess:
 
     def close(self) -> None:
         self.running = False
+
+
+class _ScriptedACPProcess(_ACPProcess):
+    def __init__(self) -> None:
+        super().__init__(cmd=["coco"], cwd="/tmp/demo", timeout_seconds=1.0)
+        self.sent: list[tuple[str, dict[str, object]]] = []
+
+    def _send(self, method: str, params: dict[str, object]) -> int:
+        self.sent.append((method, params))
+        return 7
+
+    def is_running(self) -> bool:
+        return True
 
 
 class ACPSessionPoolTest(unittest.TestCase):
@@ -145,6 +158,45 @@ class ACPSessionPoolTest(unittest.TestCase):
             pool.close_session(handle.handle_id)
             with self.assertRaisesRegex(ValueError, "unknown acp session handle"):
                 pool.prompt_session(handle.handle_id, "verify")
+
+    def test_prompt_filters_other_session_updates_and_drains_tail_chunks(self) -> None:
+        process = _ScriptedACPProcess()
+        process._messages.put(_session_update("other-session", "wrong"))
+        process._messages.put(_session_update("session-1", "hello"))
+        process._messages.put(_ACPResponse(payload={"id": 7, "result": {}}))
+        process._messages.put(_session_update("session-1", " tail"))
+
+        with patch("coco_flow.clients.acp_client._PROMPT_DRAIN_SECONDS", 0.01):
+            result = process.prompt("session-1", "prompt")
+
+        self.assertEqual(result, "hello tail")
+        self.assertEqual(
+            process.sent,
+            [
+                (
+                    "session/prompt",
+                    {
+                        "sessionId": "session-1",
+                        "prompt": [{"type": "text", "text": "prompt"}],
+                    },
+                )
+            ],
+        )
+
+
+def _session_update(session_id: str, text: str) -> _ACPResponse:
+    return _ACPResponse(
+        payload={
+            "method": "session/update",
+            "params": {
+                "sessionId": session_id,
+                "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"text": text},
+                },
+            },
+        }
+    )
 
 
 if __name__ == "__main__":

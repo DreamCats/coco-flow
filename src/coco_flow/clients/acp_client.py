@@ -21,6 +21,7 @@ from coco_flow.daemon.client import (
 )
 
 _DURATION_PART = re.compile(r"(\d+)(ms|s|m|h)")
+_PROMPT_DRAIN_SECONDS = 0.2
 
 
 @dataclass(frozen=True)
@@ -347,6 +348,7 @@ class _ACPProcess:
         self.timeout_seconds = max(timeout_seconds, 1.0)
         self.process: subprocess.Popen[bytes] | None = None
         self._messages: queue.Queue[_ACPResponse] = queue.Queue()
+        self._pending_messages: list[_ACPResponse] = []
         self._stderr_chunks: list[str] = []
         self._next_id = 0
         self._reader_started = False
@@ -424,26 +426,10 @@ class _ACPProcess:
 
             if response.id == request_id:
                 self._raise_rpc_error(response, "session/prompt")
+                self._drain_prompt_updates(session_id, chunks)
                 break
 
-            if response.method != "session/update":
-                continue
-
-            params = response.payload.get("params")
-            if not isinstance(params, dict):
-                continue
-            update = params.get("update")
-            if not isinstance(update, dict):
-                continue
-            session_update = update.get("sessionUpdate")
-            if session_update != "agent_message_chunk":
-                continue
-            content = update.get("content")
-            if not isinstance(content, dict):
-                continue
-            text = content.get("text")
-            if isinstance(text, str) and text:
-                chunks.append(text)
+            self._consume_prompt_update(response, session_id, chunks)
 
         content = "".join(chunks).strip()
         if not content:
@@ -497,12 +483,51 @@ class _ACPProcess:
         return request_id
 
     def _next_message(self, timeout: float) -> _ACPResponse | None:
+        if self._pending_messages:
+            return self._pending_messages.pop(0)
         try:
             return self._messages.get(timeout=timeout)
         except queue.Empty:
             if not self.is_running():
                 raise ValueError(self._build_timeout_error("process_exit"))
             return None
+
+    def _drain_prompt_updates(self, session_id: str, chunks: list[str]) -> None:
+        deadline = time.monotonic() + _PROMPT_DRAIN_SECONDS
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            response = self._next_message(timeout=max(remaining, 0.01))
+            if response is None:
+                return
+            if response.method == "session/update":
+                self._consume_prompt_update(response, session_id, chunks)
+                continue
+            self._pending_messages.append(response)
+            return
+
+    def _consume_prompt_update(self, response: _ACPResponse, session_id: str, chunks: list[str]) -> None:
+        if response.method != "session/update":
+            return
+        if not _response_matches_session(response, session_id):
+            return
+
+        params = response.payload.get("params")
+        if not isinstance(params, dict):
+            return
+        update = params.get("update")
+        if not isinstance(update, dict):
+            return
+        session_update = update.get("sessionUpdate")
+        if session_update != "agent_message_chunk":
+            return
+        content = update.get("content")
+        if not isinstance(content, dict):
+            return
+        text = content.get("text")
+        if isinstance(text, str) and text:
+            chunks.append(text)
 
     def _read_stdout(self) -> None:
         if self.process is None or self.process.stdout is None:
@@ -643,6 +668,32 @@ def _resolve_mode(mode: str) -> _ACPMode:
     if mode == AGENT_MODE.name:
         return AGENT_MODE
     raise ValueError(f"unknown acp mode: {mode}")
+
+
+def _response_matches_session(response: _ACPResponse, session_id: str) -> bool:
+    response_session_id = _extract_response_session_id(response)
+    return not response_session_id or response_session_id == session_id
+
+
+def _extract_response_session_id(response: _ACPResponse) -> str:
+    payload_value = _string_value(response.payload, "sessionId") or _string_value(response.payload, "session_id")
+    if payload_value:
+        return payload_value
+    params = response.payload.get("params")
+    if not isinstance(params, dict):
+        return ""
+    params_value = _string_value(params, "sessionId") or _string_value(params, "session_id")
+    if params_value:
+        return params_value
+    update = params.get("update")
+    if not isinstance(update, dict):
+        return ""
+    return _string_value(update, "sessionId") or _string_value(update, "session_id")
+
+
+def _string_value(payload: dict[str, object], key: str) -> str:
+    value = payload.get(key)
+    return value if isinstance(value, str) else ""
 
 
 def _agent_session_handle_from_payload(payload: dict[str, object]) -> AgentSessionHandle:
