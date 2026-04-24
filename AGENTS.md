@@ -206,6 +206,7 @@ uv run python -m unittest discover -s tests -v
   - brief 会尽量压成“决策边界 / 稳定规则 / 验证要点”
   - native prompt 和 local `design.md` / `plan.md` 都会消费该 brief
 - `design-repo-binding.json` 当前会记录每个 repo 的执行职责 `confidence`；低信心 `must_change` 会写 `failure_type=repo_responsibility_uncertain` 的 `design-diagnosis.json`，但暂不改变 `designed` 状态流转
+- `native design` 当前会先对缺仓库职责角色、候选文件、`validate_only` 验证定位的问题做一次 `分仓库方案` 定点修复，再回退到整稿 regenerate
 - `plan.log` 当前会记录：
   - `repo_count`
   - 每个 repo 的 `repo_research`

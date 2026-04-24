@@ -274,8 +274,34 @@ def generate_native_design_markdown(
         artifacts["design-verify.json"] = verify_payload
         return content
 
-    on_log(f"design_regenerate_start: source={retry_source}, issue_count={len(retry_issues)}")
-    _write_native_design_failure_diagnostics(prepared.task_dir, verify_payload)
+    failure_verify_payload = verify_payload
+    failure_source = retry_source
+    failure_issues = retry_issues
+    regenerate_seed = content
+    repaired, repaired_issues = repair_design_markdown(content, repo_binding_payload, sections_payload, retry_issues)
+    if repaired_issues and repaired != content:
+        on_log(f"design_repair_attempt: 1 issue_count={len(repaired_issues)}")
+        repair_verify_payload, repair_source, repair_issues = _evaluate_design_output(
+            client=client,
+            prepared=prepared,
+            content=repaired,
+            repo_binding_payload=repo_binding_payload,
+            sections_payload=sections_payload,
+            settings=settings,
+        )
+        if not repair_issues:
+            on_log("design_repair_ok: true")
+            artifacts["design-verify.json"] = repair_verify_payload
+            return repaired
+        issue_text = "; ".join(repair_issues[:3]) if isinstance(repair_issues, list) else "unknown"
+        on_log(f"design_repair_failed: source={repair_source}, issues={issue_text}")
+        failure_verify_payload = repair_verify_payload
+        failure_source = repair_source
+        failure_issues = repair_issues
+        regenerate_seed = repaired
+
+    on_log(f"design_regenerate_start: source={failure_source}, issue_count={len(failure_issues)}")
+    _write_native_design_failure_diagnostics(prepared.task_dir, failure_verify_payload)
     logged_failure = False
     try:
         regenerated = _run_design_generation_once(
@@ -285,8 +311,8 @@ def generate_native_design_markdown(
             sections_payload=sections_payload,
             skills_brief_markdown=skills_brief_markdown,
             settings=settings,
-            regeneration_issues=retry_issues,
-            previous_design_markdown=content,
+            regeneration_issues=failure_issues,
+            previous_design_markdown=regenerate_seed,
         )
         final_verify_payload, final_source, final_issues = _evaluate_design_output(
             client=client,
@@ -493,6 +519,9 @@ def collect_design_contract_issues(
         if not any(token and token in normalized for token in repo_tokens):
             issues.append(f"design.md 未明确提及 in_scope 仓库 {repo_id}")
         scope_tier = str(item.get("scope_tier") or "")
+        repo_section = _extract_repo_section(design_markdown, repo_id, system_name)
+        if scope_tier and repo_section and not any(marker in repo_section for marker in _scope_tier_markers(scope_tier)):
+            issues.append(f"design.md 提到了 {repo_id}，但未说明仓库执行职责角色")
         if scope_tier == "validate_only":
             validate_repo_ids.append(repo_id)
         if scope_tier in {"must_change", "co_change"} and repo_id.lower() in normalized:
@@ -543,6 +572,22 @@ def collect_design_contract_issues(
     return issues
 
 
+def repair_design_markdown(
+    design_markdown: str,
+    repo_binding_payload: dict[str, object],
+    sections_payload: dict[str, object],
+    issues: list[str] | None = None,
+) -> tuple[str, list[str]]:
+    repairable_issues = [issue for issue in (issues or []) if _is_design_section_repairable_issue(issue)]
+    if not repairable_issues:
+        return design_markdown, []
+    replacement = _render_repo_plan_section(repo_binding_payload, sections_payload)
+    if not replacement.strip():
+        return design_markdown, []
+    repaired = _replace_markdown_section(design_markdown, "分仓库方案", replacement)
+    return repaired, repairable_issues
+
+
 def _collect_design_format_issues(design_markdown: str) -> list[str]:
     issues: list[str] = []
     for raw_line in design_markdown.splitlines():
@@ -560,6 +605,91 @@ def _collect_design_format_issues(design_markdown: str) -> list[str]:
             issues.append("design.md 存在未闭合的中文括号")
             break
     return issues
+
+
+def _is_design_section_repairable_issue(issue: str) -> bool:
+    text = str(issue)
+    return any(
+        token in text
+        for token in (
+            "未明确提及 in_scope 仓库",
+            "未落候选文件",
+            "第一核心实现落点",
+            "未排在候选文件前列",
+            "验证定位说明",
+            "未说明仓库执行职责角色",
+        )
+    )
+
+
+def _render_repo_plan_section(repo_binding_payload: dict[str, object], sections_payload: dict[str, object]) -> str:
+    repo_bindings = [
+        item
+        for item in repo_binding_payload.get("repo_bindings", [])
+        if isinstance(item, dict) and str(item.get("decision") or "") == "in_scope"
+    ]
+    repo_decision_notes = {
+        str(item.get("repo_id") or ""): item
+        for item in (sections_payload.get("repo_decisions") or [])
+        if isinstance(item, dict) and str(item.get("repo_id") or "").strip()
+    }
+    lines = ["## 分仓库方案", ""]
+    if not repo_bindings:
+        lines.extend(["- 当前未识别到明确的 in_scope 仓库，需要补充设计依据。", ""])
+        return "\n".join(lines).rstrip() + "\n"
+    for item in repo_bindings:
+        repo_id = str(item.get("repo_id") or "").strip()
+        note = repo_decision_notes.get(repo_id, {})
+        scope_tier = str(item.get("scope_tier") or "")
+        candidate_files = _prioritize_candidate_files(note.get("candidate_files") or item.get("candidate_files") or [])
+        lines.extend(
+            [
+                f"#### {str(item.get('system_name') or repo_id or 'system')}",
+                f"- 仓库：{repo_id}",
+                f"- 角色定位：{str(note.get('display_role') or _scope_tier_label(scope_tier))}",
+                f"- 职责：{str(note.get('display_responsibility') or _humanize_responsibility(str(item.get('responsibility') or ''), scope_tier, repo_id))}",
+                f"- 选择原因：{str(note.get('display_reason') or _humanize_decision_reason(str(note.get('decision_reason') or item.get('reason') or ''), scope_tier, candidate_files, str(note.get('repo_summary') or '')))}",
+            ]
+        )
+        if scope_tier == "validate_only":
+            lines.append(f"- 验证定位：围绕 {repo_id} 的下游适配、展示或兼容链路做联动验证，不作为默认起始实现仓。")
+        change_summary = item.get("change_summary") or []
+        if isinstance(change_summary, list) and change_summary:
+            lines.append("- 主要改动：")
+            lines.extend(f"  - {str(value)}" for value in change_summary[:4] if str(value).strip())
+        _append_candidate_file_groups(lines, _group_candidate_files(candidate_files))
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _replace_markdown_section(markdown: str, heading: str, replacement: str) -> str:
+    pattern = re.compile(rf"(?ms)^##\s+{re.escape(heading)}\s*$.*?(?=^##\s+|\Z)")
+    normalized_replacement = replacement.rstrip() + "\n\n"
+    if pattern.search(markdown):
+        return pattern.sub(normalized_replacement, markdown).rstrip() + "\n"
+    return markdown.rstrip() + "\n\n" + replacement.rstrip() + "\n"
+
+
+def _extract_repo_section(design_markdown: str, repo_id: str, system_name: str = "") -> str:
+    tokens = [repo_id.strip().lower(), system_name.strip().lower()]
+    tokens = [token for token in tokens if token]
+    if not tokens:
+        return ""
+    lines = design_markdown.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip().lower()
+        if not stripped.startswith("#") and not stripped.startswith("- 仓库："):
+            continue
+        if not any(token in stripped for token in tokens):
+            continue
+        end = len(lines)
+        for next_index in range(index + 1, len(lines)):
+            next_line = lines[next_index].strip()
+            if next_line.startswith("## ") or next_line.startswith("### ") or next_line.startswith("#### "):
+                end = next_index
+                break
+        return "\n".join(lines[index:end])
+    return ""
 
 
 def _extract_file_path_mentions(design_markdown: str) -> list[str]:
@@ -959,6 +1089,18 @@ def _scope_tier_label(scope_tier: str) -> str:
     if scope_tier == "reference_only":
         return "参考信息仓"
     return "待确认"
+
+
+def _scope_tier_markers(scope_tier: str) -> tuple[str, ...]:
+    if scope_tier == "must_change":
+        return ("本次主改仓", "主改仓", "核心改造", "主改造面")
+    if scope_tier == "co_change":
+        return ("协同修改", "协同改造", "联动改造")
+    if scope_tier == "validate_only":
+        return ("联动验证", "验证仓", "验证定位", "仅做验证")
+    if scope_tier == "reference_only":
+        return ("参考信息", "背景链路", "默认不直接修改")
+    return ("待确认",)
 
 
 def _humanize_responsibility(responsibility: str, scope_tier: str, repo_id: str) -> str:

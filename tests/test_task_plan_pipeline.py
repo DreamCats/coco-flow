@@ -22,6 +22,7 @@ from coco_flow.engines.design.generate import (
     collect_design_contract_issues,
     generate_design_markdown,
     generate_local_design_markdown,
+    repair_design_markdown,
 )
 from coco_flow.engines.design.research import _rank_candidate_file, build_design_research_payload
 from coco_flow.engines.shared.models import (
@@ -464,6 +465,58 @@ class PlanTaskPipelineTest(unittest.TestCase):
             sections_payload,
         )
         self.assertTrue(any("未排在候选文件前列" in issue for issue in issues))
+
+    def test_repair_design_markdown_rewrites_repo_plan_section_only(self) -> None:
+        repo_binding_payload = {
+            "repo_bindings": [
+                {
+                    "repo_id": "demo",
+                    "decision": "in_scope",
+                    "scope_tier": "must_change",
+                    "system_name": "Demo",
+                    "responsibility": "实现 two sum 主链路",
+                    "change_summary": ["新增 two sum 实现"],
+                    "candidate_files": ["main.go"],
+                },
+                {
+                    "repo_id": "test",
+                    "decision": "in_scope",
+                    "scope_tier": "validate_only",
+                    "system_name": "Test",
+                    "candidate_files": ["quick_sort.go"],
+                },
+            ]
+        }
+        sections_payload = {
+            "repo_decisions": [
+                {"repo_id": "demo", "candidate_files": ["main.go"]},
+                {"repo_id": "test", "candidate_files": ["quick_sort.go"]},
+            ]
+        }
+        markdown = (
+            "# Design\n\n"
+            "## 改造点总览\n- two sum\n\n"
+            "## 总体方案\n- 保持当前输入输出。\n\n"
+            "## 分仓库方案\n\n"
+            "#### Demo\n- 仓库：demo\n- 职责：新增 two sum。\n\n"
+            "## 仓库依赖关系\n- 当前未识别到明确的强依赖关系。\n\n"
+            "## 接口协议变更\n- 本次需求不涉及对外接口协议变更。\n\n"
+            "## 风险与待确认项\n- 无\n"
+        )
+        issues = collect_design_contract_issues(markdown, repo_binding_payload, sections_payload)
+
+        repaired, repaired_issues = repair_design_markdown(markdown, repo_binding_payload, sections_payload, issues)
+        remaining = collect_design_contract_issues(repaired, repo_binding_payload, sections_payload)
+
+        self.assertTrue(repaired_issues)
+        self.assertIn("## 总体方案\n- 保持当前输入输出。", repaired)
+        self.assertIn("角色定位：本次主改仓", repaired)
+        self.assertIn("main.go", repaired)
+        self.assertIn("角色定位：联动验证仓", repaired)
+        self.assertIn("验证定位", repaired)
+        self.assertFalse(any("未落候选文件" in issue for issue in remaining))
+        self.assertFalse(any("未说明仓库执行职责角色" in issue for issue in remaining))
+        self.assertFalse(any("验证定位说明" in issue for issue in remaining))
 
     def test_generate_local_design_markdown_prioritizes_core_candidate_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
