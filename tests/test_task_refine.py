@@ -136,6 +136,75 @@ class RefineTaskTest(unittest.TestCase):
         self.assertIn("适用条件：命中第一个实验", change_section)
         self.assertIn("普通竞拍预热态", change_section)
 
+    def test_render_refined_markdown_uses_grouped_table_for_path_changes(self) -> None:
+        brief = build_refine_brief(
+            type(
+                "Prepared",
+                (),
+                {
+                    "title": "竞拍讲解卡文案",
+                    "supplement": "",
+                    "source_content": "",
+                },
+            )(),
+            parse_manual_extract(
+                "## 本次范围\n"
+                "- 只改竞拍讲解卡文案。\n\n"
+                "## 人工提炼改动点\n"
+                "命中第一个实验， 会改动以下：\n"
+                "1. 普通竞拍 / Temporary listing\n"
+                "   - 预热态：{起拍价} + Starting bid\n"
+                "   - 竞拍中：\n"
+                "     - 无人出价：{起拍价} + 轮播 Starting bid / Bid first\n"
+                "2. surprise set\n"
+                "   - 预热态：{起拍价} + Starting bid\n"
+                "   - 竞拍中：\n"
+                "     - 无人出价：{当前最高价} + 轮播 Starting bid / Bid first to unlock a surprise!\n"
+            ),
+        )
+
+        refined = render_refined_markdown(brief)
+        verify = verify_refine_output(brief, refined)
+
+        change_section = _extract_markdown_section(refined, "具体变更点")
+        acceptance_section = _extract_markdown_section(refined, "验收标准")
+        self.assertIn("### 普通竞拍 / Temporary listing", change_section)
+        self.assertIn("| 状态 | 展示内容 |", change_section)
+        self.assertIn("| 竞拍中 / 无人出价 | {起拍价} + 轮播 Starting bid / Bid first |", change_section)
+        self.assertIn("### surprise set", change_section)
+        self.assertNotIn("### surprise set / 竞拍中", change_section)
+        self.assertIn("| 竞拍中 / 无人出价 | {当前最高价} + 轮播 Starting bid / Bid first to unlock a surprise! |", change_section)
+        self.assertIn("命中第一个实验时，普通竞拍 / Temporary listing 的预热态、竞拍中 / 无人出价按上表展示。", acceptance_section)
+        self.assertIn("命中第一个实验时，surprise set 的预热态、竞拍中 / 无人出价按上表展示。", acceptance_section)
+        self.assertTrue(verify.ok, verify.issues)
+
+    def test_render_refined_markdown_keeps_bullets_for_non_path_changes(self) -> None:
+        brief = build_refine_brief(
+            type(
+                "Prepared",
+                (),
+                {
+                    "title": "竞拍讲解卡爽感增强",
+                    "supplement": "",
+                    "source_content": "",
+                },
+            )(),
+            parse_manual_extract(
+                "## 本次范围\n"
+                "- 只处理服务端文案实验范围。\n\n"
+                "## 人工提炼改动点\n"
+                "命中第一个实验， 会改动以下：\n"
+                "- 明确竞拍态展示条件，并确认非竞拍态是否不展示。\n"
+            ),
+        )
+
+        refined = render_refined_markdown(brief)
+
+        change_section = _extract_markdown_section(refined, "具体变更点")
+        self.assertIn("- 适用条件：命中第一个实验", change_section)
+        self.assertIn("- 明确竞拍态展示条件，并确认非竞拍态是否不展示。", change_section)
+        self.assertNotIn("| 状态 | 展示内容 |", change_section)
+
     def test_merge_brief_with_refined_markdown_syncs_agent_added_boundary(self) -> None:
         brief = build_refine_brief(
             type(
@@ -409,6 +478,42 @@ class RefineTaskTest(unittest.TestCase):
             self.assertIn("购物袋商卡和Maxbid面板卡片先不改。", brief["out_of_scope"])
             self.assertFalse((task_dir / "refine-skills-selection.json").exists())
 
+    def test_native_refine_repairs_agent_bullet_output_back_to_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), refine_executor="native")
+            task_dir = build_task(
+                settings=settings,
+                task_id="task-native-table",
+                title="竞拍讲解卡文案",
+                source_markdown="# PRD Source\n\n---\n\n竞拍讲解卡需要展示文案。\n",
+                supplement=(
+                    "## 本次范围\n"
+                    "- 只改竞拍讲解卡文案。\n\n"
+                    "## 人工提炼改动点\n"
+                    "命中第一个实验， 会改动以下：\n"
+                    "1. 普通竞拍 / Temporary listing\n"
+                    "   - 预热态：{起拍价} + Starting bid\n"
+                    "   - 竞拍中：\n"
+                    "     - 无人出价：{起拍价} + 轮播 Starting bid / Bid first\n"
+                    "2. surprise set\n"
+                    "   - 预热态：{起拍价} + Starting bid\n"
+                    "   - 竞拍中：\n"
+                    "     - 无人出价：{当前最高价} + 轮播 Starting bid / Bid first to unlock a surprise!\n"
+                ),
+            )
+            with patch("coco_flow.engines.refine.generate.CocoACPClient.run_agent", side_effect=write_native_refine_bullet_artifacts):
+                status = refine_task("task-native-table", settings=settings)
+
+            refined = (task_dir / "prd-refined.md").read_text(encoding="utf-8")
+            verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(status, "refined")
+            self.assertTrue(verify["ok"])
+            self.assertEqual(verify["repair_attempts"], 1)
+            self.assertIn("| 状态 | 展示内容 |", refined)
+            self.assertIn("### 普通竞拍 / Temporary listing", refined)
+            self.assertIn("命中第一个实验时，surprise set 的预热态、竞拍中 / 无人出价按上表展示。", refined)
+
 
 def build_task(*, settings: Settings, task_id: str, title: str, source_markdown: str, supplement: str | None = None) -> Path:
     task_dir = settings.task_root / task_id
@@ -516,6 +621,51 @@ def write_native_refine_artifacts(prompt: str, _timeout: str, cwd: str, *, fresh
                 "- 购物袋商卡和Maxbid面板卡片先不改。\n\n"
                 "## 待确认项\n"
                 "- 是否需要兼容旧 key？\n"
+            ),
+            encoding="utf-8",
+        )
+        return "done"
+    raise AssertionError(f"unexpected refine agent prompt: {prompt[:120]}")
+
+
+def write_native_refine_bullet_artifacts(prompt: str, _timeout: str, cwd: str, *, fresh_session: bool = False) -> str:
+    task_dir = Path(cwd)
+    _ = fresh_session
+    if list(task_dir.glob(".refine-verify-*.json")):
+        next(task_dir.glob(".refine-verify-*.json")).write_text(
+            json.dumps(
+                {
+                    "ok": True,
+                    "issues": [],
+                    "missing_sections": [],
+                    "reason": "agent verify passed",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return "done"
+    if list(task_dir.glob(".refine-template-*.md")):
+        next(task_dir.glob(".refine-template-*.md")).write_text(
+            (
+                "# 需求确认书\n\n"
+                "## 需求概述\n"
+                "只改竞拍讲解卡文案。\n\n"
+                "## 具体变更点\n"
+                "适用条件：命中第一个实验\n"
+                "- 普通竞拍 / Temporary listing / 预热态：{起拍价} + Starting bid\n"
+                "- 普通竞拍 / Temporary listing / 竞拍中 / 无人出价：{起拍价} + 轮播 Starting bid / Bid first\n"
+                "- surprise set / 预热态：{起拍价} + Starting bid\n"
+                "- surprise set / 竞拍中 / 无人出价：{当前最高价} + 轮播 Starting bid / Bid first to unlock a surprise!\n\n"
+                "## 验收标准\n"
+                "- 当命中第一个实验时，普通竞拍 / Temporary listing / 预热态应该正确显示 {起拍价} + Starting bid。\n"
+                "- 当命中第一个实验且 surprise set 竞拍中无人出价时，应该正确显示文案。\n\n"
+                "## 边界与非目标\n"
+                "- 不扩大到人工提炼范围之外的 UI、动效、交互或相邻系统改动。\n\n"
+                "## 待确认项\n"
+                "- 无\n"
             ),
             encoding="utf-8",
         )
