@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-# Writer Agent: turns the final structured decision into human-readable
-# design.md. It may improve expression and structure, but it must not make new
-# repo, file, or scope decisions.
+# Writer Agent：把最终结构化 decision 转写成人可读的 design.md。
+# 它可以改善表达和结构，但不能新增 repo、文件或范围裁决。
 
 import json
 
@@ -38,4 +37,3 @@ def build_writer_prompt(
             closing="完成后只需简短回复已完成。",
         )
     )
-

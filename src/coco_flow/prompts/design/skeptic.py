@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-# Skeptic Agent: adversarially reviews the architect adjudication. It reports
-# evidence gaps, wrong repo/file choices, scope conflicts, and PRD coverage
-# issues, but it must not rewrite the solution.
+# Skeptic Agent：以反方视角审查 Architect 裁决。
+# 它负责指出证据缺口、repo / 文件误选、范围冲突和 PRD 覆盖问题，但不能重写方案。
 
 import json
 
@@ -61,4 +60,3 @@ def build_skeptic_prompt(
             closing="完成后只需简短回复已完成。",
         )
     )
-

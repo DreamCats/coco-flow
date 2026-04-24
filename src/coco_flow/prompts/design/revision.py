@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-# Architect Revision Agent: performs the one allowed bounded revision after
-# skeptic review. It must explicitly accept or reject each issue and reflect
-# accepted issues in a revised design decision.
+# Architect Revision Agent：在 Skeptic Review 后执行唯一一轮有界修订。
+# 它必须逐条接受或拒绝 issue，并把已接受的问题真实反映到修订后的 design decision。
 
 import json
 
@@ -64,4 +63,3 @@ def build_revision_prompt(
             closing="完成后只需简短回复已完成。",
         )
     )
-

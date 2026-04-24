@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-# Architect Agent: reads the refined PRD plus repo evidence and makes the first
-# cross-repo design adjudication. It must decide scope, repo work type, evidence,
-# boundaries, and unresolved questions, but it must not write design.md.
+# Architect Agent：读取 refined PRD 和 repo evidence，完成第一轮跨仓设计裁决。
+# 它负责判断范围、repo 工作类型、证据、边界和待确认项，但不能写 design.md。
 
 import json
 
@@ -73,4 +72,3 @@ def build_architect_prompt(
             closing="完成后只需简短回复已完成。",
         )
     )
-

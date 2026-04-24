@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-# Semantic Gate Agent: performs the final pass/fail decision. It checks both the
-# structured decision and design.md against the refined PRD and evidence, and it
-# must block rather than beautify unsupported designs.
+# Semantic Gate Agent：执行最终通过 / 阻断裁决。
+# 它同时检查结构化 decision 和 design.md 是否被 refined PRD 与 evidence 支撑；
+# 对无证据设计必须阻断，而不是润色成看似可执行的方案。
 
 import json
 
@@ -53,4 +53,3 @@ def build_semantic_gate_prompt(
             closing="完成后只需简短回复已完成。",
         )
     )
-
