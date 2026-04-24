@@ -31,11 +31,11 @@ Generate Session:
   generate prompt
 
 Verify Session:
-  bootstrap prompt
-  verify prompt
+  inline bootstrap + verify prompt
 ```
 
 两条 session 共享同一份 bootstrap，但不共享工作历史。
+`Verify` 当前把 bootstrap 内联进 verify task 的同一次 prompt，避免底层 ACP 对第二条 session 的 bootstrap-only prompt 偶发超时。
 
 ## Bootstrap 内容
 
@@ -117,16 +117,20 @@ prompt(verify_session, bootstrap)
 prompt(verify_session, verify)
 ```
 
+当前已完成：
+
+- `build_refine_bootstrap_prompt(...)` 已抽出。
+- `Refine` native 已接入 dual sessions。
+- `refine.log` 已记录 session role 和 bootstrap prompt。
+
 当前仍未完成：
 
-- `Refine` native 还没有接入 dual sessions。
-- `build_refine_bootstrap_prompt(...)` 还没有抽出。
 - `CocoCliClient` 的 `-p --json` 路径天然不支持多轮 session。
 - `session_close` 当前是本地 handle 丢弃；底层 ACP 没有显式 close 单个 session 的封装。
 
 ## 目标接口
 
-`Refine` 层后续应使用两个 role session：
+`Refine` 层当前使用两个 role session：
 
 ```python
 generate_session = client.new_agent_session(..., role="refine_generate")
@@ -135,8 +139,7 @@ verify_session = client.new_agent_session(..., role="refine_verify")
 client.prompt_agent_session(generate_session, bootstrap_prompt)
 client.prompt_agent_session(generate_session, generate_prompt)
 
-client.prompt_agent_session(verify_session, bootstrap_prompt)
-client.prompt_agent_session(verify_session, verify_prompt)
+client.prompt_agent_session(verify_session, inline_bootstrap_plus_verify_prompt)
 ```
 
 关键是不要把 role session 变成 pool 的默认 reusable session。
@@ -145,11 +148,11 @@ client.prompt_agent_session(verify_session, verify_prompt)
 
 1. 已完成：扩展 ACP daemon protocol，支持显式 `session_new` / `session_prompt` / `session_close`。
 2. 已完成：在 `CocoACPClient` 增加显式 session handle API。
-3. 抽出 `build_refine_bootstrap_prompt(...)`。
-4. 将 refine native 改为 dual sessions：
+3. 已完成：抽出 `build_refine_bootstrap_prompt(...)`。
+4. 已完成：将 refine native 改为 dual sessions：
    - bootstrap + generate
-   - bootstrap + verify
-5. 在 `refine.log` 记录 session role、bootstrap version 和 prompt stage。
+   - inline bootstrap + verify
+5. 已完成：在 `refine.log` 记录 session role 和 bootstrap prompt。
 6. 保留 local verify/repair 作为最终稳定兜底。
 
 ## 判断

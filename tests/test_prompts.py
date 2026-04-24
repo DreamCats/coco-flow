@@ -6,7 +6,11 @@ from coco_flow.prompts.core import PromptDocument, PromptSection, render_prompt
 from coco_flow.prompts.design import __all__ as design_prompt_exports
 from coco_flow.prompts.design import build_search_hints_prompt
 from coco_flow.prompts.refine import __all__ as refine_prompt_exports
-from coco_flow.prompts.refine import build_refine_generate_agent_prompt, build_refine_verify_agent_prompt
+from coco_flow.prompts.refine import (
+    build_refine_bootstrap_prompt,
+    build_refine_generate_agent_prompt,
+    build_refine_verify_agent_prompt,
+)
 
 
 class PromptSystemTest(unittest.TestCase):
@@ -30,7 +34,11 @@ class PromptSystemTest(unittest.TestCase):
     def test_refine_prompt_package_exports_module_builders(self) -> None:
         self.assertEqual(
             refine_prompt_exports,
-            ["build_refine_generate_agent_prompt", "build_refine_verify_agent_prompt"],
+            [
+                "build_refine_bootstrap_prompt",
+                "build_refine_generate_agent_prompt",
+                "build_refine_verify_agent_prompt",
+            ],
         )
 
     def test_design_prompt_package_exports_search_hints_builder(self) -> None:
@@ -58,11 +66,37 @@ class PromptSystemTest(unittest.TestCase):
             source_excerpt_path="/tmp/refine-source.excerpt.md",
             template_path="/tmp/refine-template.md",
         )
-        self.assertIn("staff-level backend product requirements editor", rendered)
+        self.assertIn("本次任务：基于 Refine artifact 生成需求确认书", rendered)
+        self.assertNotIn("AGENT_MODE", rendered)
         self.assertIn("/tmp/refine-manual-extract.json", rendered)
         self.assertIn("/tmp/refine-brief.draft.json", rendered)
         self.assertIn("/tmp/refine-source.excerpt.md", rendered)
         self.assertIn("/tmp/refine-template.md", rendered)
+
+    def test_refine_bootstrap_prompt_defines_layered_contract(self) -> None:
+        rendered = build_refine_bootstrap_prompt(
+            skills_index_markdown="- auction: 竞拍需求验收边界规则。"
+        )
+
+        self.assertIn("coco-flow 的 Refine 阶段 agent", rendered)
+        self.assertIn("阶段式研发 workflow 系统", rendered)
+        self.assertIn("不做技术设计、不做排期、不改代码", rendered)
+        self.assertIn("具备需求编辑能力", rendered)
+        self.assertIn("具备验收设计能力", rendered)
+        self.assertIn("Refine 阶段协议", rendered)
+        self.assertIn("Artifact 契约", rendered)
+        self.assertIn("角色隔离策略", rendered)
+        self.assertIn("Skills 使用策略", rendered)
+        self.assertIn("文件读写规则", rendered)
+        self.assertIn("人工提炼范围优先级最高", rendered)
+        self.assertIn("Verify Session 不得采信 Generate Session 的口头解释", rendered)
+        self.assertIn("auction: 竞拍需求验收边界规则", rendered)
+
+    def test_refine_bootstrap_prompt_can_be_inlined(self) -> None:
+        rendered = build_refine_bootstrap_prompt(standalone=False)
+
+        self.assertIn("这是内联 bootstrap", rendered)
+        self.assertNotIn("收到 bootstrap 后只需简短回复已完成", rendered)
 
     def test_refine_verify_prompt_is_modularized(self) -> None:
         rendered = build_refine_verify_agent_prompt(
@@ -70,7 +104,9 @@ class PromptSystemTest(unittest.TestCase):
             refined_markdown_path="/tmp/prd-refined.md",
             template_path="/tmp/refine-verify.json",
         )
-        self.assertIn("principal-level requirements verifier", rendered)
+        self.assertIn("本次任务：独立校验需求确认书是否偏离 brief draft", rendered)
+        self.assertIn("不采信生成阶段的口头解释或聊天历史", rendered)
+        self.assertNotIn("AGENT_MODE", rendered)
         self.assertIn("/tmp/refine-brief.draft.json", rendered)
         self.assertIn("/tmp/prd-refined.md", rendered)
         self.assertIn("/tmp/refine-verify.json", rendered)

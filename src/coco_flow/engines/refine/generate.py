@@ -7,10 +7,14 @@ import tempfile
 from json import JSONDecodeError, JSONDecoder
 from pathlib import Path
 
-from coco_flow.clients import CocoACPClient
+from coco_flow.clients import AgentSessionHandle, CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.engines.shared.diagnostics import diagnosis_payload_from_verify, enrich_verify_payload
-from coco_flow.prompts.refine import build_refine_generate_agent_prompt, build_refine_verify_agent_prompt
+from coco_flow.prompts.refine import (
+    build_refine_bootstrap_prompt,
+    build_refine_generate_agent_prompt,
+    build_refine_verify_agent_prompt,
+)
 
 from .models import EXECUTOR_NATIVE, RefineBrief, RefinePreparedInput, RefineVerifyResult
 
@@ -147,7 +151,7 @@ def _generate_native_refined_markdown(
     settings: Settings,
     on_log,
 ) -> tuple[str, RefineVerifyResult]:
-    # native 路径不再让模型从零总结，而是让 AGENT_MODE 基于 controller 产出的文件做受控润色。
+    # native 路径不再让模型从零总结，而是让 agent 基于 controller 产出的文件做受控润色。
     client = CocoACPClient(
         settings.coco_bin,
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
@@ -155,40 +159,63 @@ def _generate_native_refined_markdown(
     )
     template_path = _write_refine_template(prepared.task_dir, render_refined_markdown(brief))
     generated_path: Path | None = None
+    generate_session: AgentSessionHandle | None = None
     try:
-        on_log("generate_mode: agent")
-        client.run_agent(
+        on_log("generate_mode: agent_session")
+        on_log("session_role: refine_generate")
+        generate_session = client.new_agent_session(
+            query_timeout=settings.native_query_timeout,
+            cwd=str(prepared.task_dir),
+            role="refine_generate",
+        )
+        on_log("bootstrap_prompt: true role=refine_generate")
+        _prompt_agent_session_logged(
+            client,
+            generate_session,
+            build_refine_bootstrap_prompt(),
+            stage="bootstrap",
+            on_log=on_log,
+        )
+        _prompt_agent_session_logged(
+            client,
+            generate_session,
             build_refine_generate_agent_prompt(
                 manual_extract_path=str(manual_extract_path),
                 brief_draft_path=str(brief_draft_path),
                 source_excerpt_path=str(source_excerpt_path),
                 template_path=str(template_path),
             ),
-            settings.native_query_timeout,
-            cwd=str(prepared.task_dir),
-            fresh_session=True,
+            stage="generate",
+            on_log=on_log,
         )
         raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
         refined_markdown = _extract_refined_markdown(raw)
         generated_path = prepared.task_dir / ".refine-generated.md"
         generated_path.write_text(refined_markdown, encoding="utf-8")
-        native_verify = _run_native_verify(
-            client=client,
-            brief_draft_path=brief_draft_path,
-            refined_markdown_path=generated_path,
-            settings=settings,
-            cwd=prepared.task_dir,
-        )
         repaired_markdown, local_verify = _verify_with_local_repair(brief, refined_markdown, on_log)
+        native_verify: RefineVerifyResult | None = None
+        try:
+            native_verify = _run_native_verify(
+                client=client,
+                brief_draft_path=brief_draft_path,
+                refined_markdown_path=generated_path,
+                settings=settings,
+                cwd=prepared.task_dir,
+                on_log=on_log,
+            )
+        except ValueError as error:
+            on_log(f"native_verify_unavailable: {error}")
         if local_verify.ok:
             if local_verify.repair_attempts:
                 on_log(f"native_refine_local_repair_ok: attempts={local_verify.repair_attempts}")
             return repaired_markdown, local_verify
         _write_native_refine_failure_artifacts(prepared.task_dir, refined_markdown, local_verify)
-        if not native_verify.ok:
+        if native_verify is not None and not native_verify.ok:
             raise ValueError(f"native_refine_verify_failed: {native_verify.reason or native_verify.issues}; local={local_verify.issues}")
         raise ValueError(f"native_refine_local_verify_failed: {local_verify.issues}")
     finally:
+        if generate_session is not None:
+            _close_agent_session_quietly(client, generate_session, on_log)
         if template_path.exists():
             template_path.unlink()
         if generated_path and generated_path.exists():
@@ -202,18 +229,31 @@ def _run_native_verify(
     refined_markdown_path: Path,
     settings: Settings,
     cwd: Path,
+    on_log,
 ) -> RefineVerifyResult:
     template_path = _write_verify_template(cwd)
+    verify_session: AgentSessionHandle | None = None
     try:
-        client.run_agent(
-            build_refine_verify_agent_prompt(
-                brief_draft_path=str(brief_draft_path),
-                refined_markdown_path=str(refined_markdown_path),
-                template_path=str(template_path),
-            ),
-            settings.native_query_timeout,
+        on_log("session_role: refine_verify")
+        verify_session = client.new_agent_session(
+            query_timeout=settings.native_query_timeout,
             cwd=str(cwd),
-            fresh_session=True,
+            role="refine_verify",
+        )
+        on_log("bootstrap_prompt: inline role=refine_verify")
+        _prompt_agent_session_logged(
+            client,
+            verify_session,
+            _join_prompts(
+                build_refine_bootstrap_prompt(standalone=False),
+                build_refine_verify_agent_prompt(
+                    brief_draft_path=str(brief_draft_path),
+                    refined_markdown_path=str(refined_markdown_path),
+                    template_path=str(template_path),
+                ),
+            ),
+            stage="verify",
+            on_log=on_log,
         )
         raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
         payload = parse_refine_verify_output(raw)
@@ -225,8 +265,39 @@ def _run_native_verify(
             failure_type=str(payload.get("failure_type") or ""),
         )
     finally:
+        if verify_session is not None:
+            _close_agent_session_quietly(client, verify_session, on_log)
         if template_path.exists():
             template_path.unlink()
+
+
+def _close_agent_session_quietly(client: CocoACPClient, handle: AgentSessionHandle, on_log) -> None:
+    try:
+        client.close_agent_session(handle)
+    except Exception as error:
+        on_log(f"session_close_warning: role={handle.role} error={error}")
+
+
+def _prompt_agent_session_logged(
+    client: CocoACPClient,
+    handle: AgentSessionHandle,
+    prompt: str,
+    *,
+    stage: str,
+    on_log,
+) -> str:
+    on_log(f"agent_prompt_start: role={handle.role} stage={stage}")
+    try:
+        content = client.prompt_agent_session(handle, prompt)
+    except Exception as error:
+        on_log(f"agent_prompt_failed: role={handle.role} stage={stage} error={error}")
+        raise
+    on_log(f"agent_prompt_done: role={handle.role} stage={stage}")
+    return content
+
+
+def _join_prompts(*parts: str) -> str:
+    return "\n\n---\n\n".join(part.strip() for part in parts if part.strip()).rstrip() + "\n"
 
 
 def _write_native_refine_failure_artifacts(task_dir: Path, refined_markdown: str, verify: RefineVerifyResult) -> None:

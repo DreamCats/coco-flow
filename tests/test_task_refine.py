@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from coco_flow.clients import AgentSessionHandle
 from coco_flow.config import Settings
 from coco_flow.engines.refine.brief import build_refine_brief, merge_brief_with_refined_markdown, parse_manual_extract
 from coco_flow.engines.refine.generate import _extract_markdown_section, _verify_with_local_repair, render_refined_markdown, verify_refine_output
@@ -463,7 +464,24 @@ class RefineTaskTest(unittest.TestCase):
                 source_markdown="# PRD Source\n\n---\n\n竞拍讲解卡需要展示竞拍态提示。\n",
                 supplement=build_manual_extract(),
             )
-            with patch("coco_flow.engines.refine.generate.CocoACPClient.run_agent", side_effect=write_native_refine_artifacts):
+            session_roles: list[str] = []
+            prompt_roles: list[str] = []
+            with (
+                patch(
+                    "coco_flow.engines.refine.generate.CocoACPClient.new_agent_session",
+                    side_effect=lambda *, query_timeout, cwd, role: make_agent_session_handle(
+                        query_timeout=query_timeout,
+                        cwd=cwd,
+                        role=role,
+                        roles=session_roles,
+                    ),
+                ),
+                patch(
+                    "coco_flow.engines.refine.generate.CocoACPClient.prompt_agent_session",
+                    side_effect=lambda handle, prompt: write_native_refine_artifacts(handle, prompt, prompt_roles),
+                ),
+                patch("coco_flow.engines.refine.generate.CocoACPClient.close_agent_session") as close_session,
+            ):
                 status = refine_task("task-native", settings=settings)
 
             self.assertEqual(status, "refined")
@@ -471,12 +489,21 @@ class RefineTaskTest(unittest.TestCase):
             verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
             diagnosis = json.loads((task_dir / "refine-diagnosis.json").read_text(encoding="utf-8"))
             refined = (task_dir / "prd-refined.md").read_text(encoding="utf-8")
+            refine_log = (task_dir / "refine.log").read_text(encoding="utf-8")
             self.assertEqual(brief["target_surface"], "backend")
             self.assertTrue(verify["ok"])
             self.assertEqual(diagnosis["next_action"], "continue")
             self.assertIn("当命中第一个实验", refined)
             self.assertIn("购物袋商卡和Maxbid面板卡片先不改。", brief["out_of_scope"])
             self.assertFalse((task_dir / "refine-skills-selection.json").exists())
+            self.assertEqual(session_roles, ["refine_generate", "refine_verify"])
+            self.assertEqual(prompt_roles, ["refine_generate", "refine_generate", "refine_verify"])
+            self.assertEqual(close_session.call_count, 2)
+            self.assertIn("generate_mode: agent_session", refine_log)
+            self.assertIn("session_role: refine_generate", refine_log)
+            self.assertIn("session_role: refine_verify", refine_log)
+            self.assertIn("bootstrap_prompt: true role=refine_generate", refine_log)
+            self.assertIn("bootstrap_prompt: inline role=refine_verify", refine_log)
 
     def test_native_refine_repairs_agent_bullet_output_back_to_table(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -501,7 +528,24 @@ class RefineTaskTest(unittest.TestCase):
                     "     - 无人出价：{当前最高价} + 轮播 Starting bid / Bid first to unlock a surprise!\n"
                 ),
             )
-            with patch("coco_flow.engines.refine.generate.CocoACPClient.run_agent", side_effect=write_native_refine_bullet_artifacts):
+            session_roles: list[str] = []
+            prompt_roles: list[str] = []
+            with (
+                patch(
+                    "coco_flow.engines.refine.generate.CocoACPClient.new_agent_session",
+                    side_effect=lambda *, query_timeout, cwd, role: make_agent_session_handle(
+                        query_timeout=query_timeout,
+                        cwd=cwd,
+                        role=role,
+                        roles=session_roles,
+                    ),
+                ),
+                patch(
+                    "coco_flow.engines.refine.generate.CocoACPClient.prompt_agent_session",
+                    side_effect=lambda handle, prompt: write_native_refine_bullet_artifacts(handle, prompt, prompt_roles),
+                ),
+                patch("coco_flow.engines.refine.generate.CocoACPClient.close_agent_session"),
+            ):
                 status = refine_task("task-native-table", settings=settings)
 
             refined = (task_dir / "prd-refined.md").read_text(encoding="utf-8")
@@ -513,6 +557,8 @@ class RefineTaskTest(unittest.TestCase):
             self.assertIn("| 状态 | 展示内容 |", refined)
             self.assertIn("### 普通竞拍 / Temporary listing", refined)
             self.assertIn("命中第一个实验时，surprise set 的预热态、竞拍中 / 无人出价按上表展示。", refined)
+            self.assertEqual(session_roles, ["refine_generate", "refine_verify"])
+            self.assertEqual(prompt_roles, ["refine_generate", "refine_generate", "refine_verify"])
 
 
 def build_task(*, settings: Settings, task_id: str, title: str, source_markdown: str, supplement: str | None = None) -> Path:
@@ -587,10 +633,23 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def write_native_refine_artifacts(prompt: str, _timeout: str, cwd: str, *, fresh_session: bool = False) -> str:
-    task_dir = Path(cwd)
-    _ = fresh_session
-    if list(task_dir.glob(".refine-verify-*.json")):
+def make_agent_session_handle(*, query_timeout: str, cwd: str, role: str, roles: list[str]) -> AgentSessionHandle:
+    roles.append(role)
+    return AgentSessionHandle(
+        handle_id=f"{role}-handle",
+        cwd=cwd,
+        mode="agent",
+        query_timeout=query_timeout,
+        role=role,
+    )
+
+
+def write_native_refine_artifacts(handle: AgentSessionHandle, prompt: str, prompt_roles: list[str]) -> str:
+    task_dir = Path(handle.cwd)
+    prompt_roles.append(handle.role)
+    if handle.role == "refine_generate" and "收到 bootstrap 后只需简短回复已完成" in prompt:
+        return "done"
+    if handle.role == "refine_verify" and list(task_dir.glob(".refine-verify-*.json")):
         next(task_dir.glob(".refine-verify-*.json")).write_text(
             json.dumps(
                 {
@@ -606,7 +665,7 @@ def write_native_refine_artifacts(prompt: str, _timeout: str, cwd: str, *, fresh
             encoding="utf-8",
         )
         return "done"
-    if list(task_dir.glob(".refine-template-*.md")):
+    if handle.role == "refine_generate" and list(task_dir.glob(".refine-template-*.md")):
         next(task_dir.glob(".refine-template-*.md")).write_text(
             (
                 "# 需求确认书\n\n"
@@ -628,10 +687,12 @@ def write_native_refine_artifacts(prompt: str, _timeout: str, cwd: str, *, fresh
     raise AssertionError(f"unexpected refine agent prompt: {prompt[:120]}")
 
 
-def write_native_refine_bullet_artifacts(prompt: str, _timeout: str, cwd: str, *, fresh_session: bool = False) -> str:
-    task_dir = Path(cwd)
-    _ = fresh_session
-    if list(task_dir.glob(".refine-verify-*.json")):
+def write_native_refine_bullet_artifacts(handle: AgentSessionHandle, prompt: str, prompt_roles: list[str]) -> str:
+    task_dir = Path(handle.cwd)
+    prompt_roles.append(handle.role)
+    if handle.role == "refine_generate" and "收到 bootstrap 后只需简短回复已完成" in prompt:
+        return "done"
+    if handle.role == "refine_verify" and list(task_dir.glob(".refine-verify-*.json")):
         next(task_dir.glob(".refine-verify-*.json")).write_text(
             json.dumps(
                 {
@@ -647,7 +708,7 @@ def write_native_refine_bullet_artifacts(prompt: str, _timeout: str, cwd: str, *
             encoding="utf-8",
         )
         return "done"
-    if list(task_dir.glob(".refine-template-*.md")):
+    if handle.role == "refine_generate" and list(task_dir.glob(".refine-template-*.md")):
         next(task_dir.glob(".refine-template-*.md")).write_text(
             (
                 "# 需求确认书\n\n"
