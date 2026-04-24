@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from coco_flow.config import Settings
 from coco_flow.engines.refine.brief import build_refine_brief, merge_brief_with_refined_markdown, parse_manual_extract
-from coco_flow.engines.refine.generate import verify_refine_output
+from coco_flow.engines.refine.generate import _extract_markdown_section, _verify_with_local_repair, verify_refine_output
 from coco_flow.services.tasks.refine import refine_task, start_refining_task
 
 
@@ -182,6 +182,49 @@ class RefineTaskTest(unittest.TestCase):
 
         self.assertFalse(verify.ok)
         self.assertIn("验收标准混入了边界说明。", verify.issues)
+        self.assertEqual(verify.failure_type, "acceptance_boundary_mixed")
+
+    def test_refine_local_repair_fixes_low_risk_markdown_issues(self) -> None:
+        brief = build_refine_brief(
+            type(
+                "Prepared",
+                (),
+                {
+                    "title": "竞拍讲解卡爽感增强",
+                    "supplement": "",
+                    "source_content": "",
+                },
+            )(),
+            parse_manual_extract(
+                "## 本次范围\n"
+                "- 只处理服务端文案实验范围。\n\n"
+                "## 人工提炼改动点\n"
+                "- 普通竞拍预热态：{起拍价} + Starting bid。\n\n"
+                "## 明确不做\n"
+                "- 不改横滑和震感。\n\n"
+                "## 前置条件 / 待确认项\n"
+                "- 命中第一个实验。\n"
+            ),
+        )
+        broken = (
+            "# 需求确认书\n\n"
+            "## 需求概述\n- 待补充\n\n"
+            "## 具体变更点\n- 普通竞拍预热态：{起拍价} + Starting bid。\n\n"
+            "## 验收标准\n"
+            "- 当命中第一个实验时，普通竞拍预热态：{起拍价} + Starting bid。正确生效。\n"
+            "- 未纳入范围的内容保持不变。\n\n"
+            "## 边界与非目标\n- 不改横滑和震感。\n"
+        )
+        logs: list[str] = []
+
+        repaired, verify = _verify_with_local_repair(brief, broken, logs.append)
+
+        self.assertTrue(verify.ok)
+        self.assertEqual(verify.repair_attempts, 1)
+        self.assertIn("## 待确认项", repaired)
+        self.assertNotIn("待补充", repaired)
+        self.assertNotIn("未纳入范围", _extract_markdown_section(repaired, "验收标准"))
+        self.assertTrue(any("refine_repair_attempt: 1" in line for line in logs))
 
     def test_start_refining_task_requires_manual_extract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

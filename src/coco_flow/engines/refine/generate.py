@@ -21,6 +21,7 @@ _REQUIRED_SECTIONS = (
     "待确认项",
 )
 _PLACEHOLDER_HINTS = ("待补充", "如无可写", "请写这里", "[必填]")
+_MAX_LOCAL_REPAIR_ATTEMPTS = 2
 
 
 def generate_refined_markdown(
@@ -48,7 +49,7 @@ def generate_refined_markdown(
         except ValueError as error:
             on_log(f"native_refine_fallback: {error}")
     refined_markdown = render_refined_markdown(brief)
-    verify = verify_refine_output(brief, refined_markdown)
+    refined_markdown, verify = _verify_with_local_repair(brief, refined_markdown, on_log)
     on_log("generate_mode: local")
     return refined_markdown, verify
 
@@ -96,7 +97,13 @@ def verify_refine_output(brief: RefineBrief, refined_markdown: str) -> RefineVer
             break
     ok = not issues
     reason = "local verify passed" if ok else "local verify failed"
-    return RefineVerifyResult(ok=ok, issues=issues, missing_sections=missing_sections, reason=reason)
+    return RefineVerifyResult(
+        ok=ok,
+        issues=issues,
+        missing_sections=missing_sections,
+        reason=reason,
+        failure_type=_classify_refine_failure(issues, missing_sections),
+    )
 
 
 def parse_refine_verify_output(raw: str) -> dict[str, object]:
@@ -108,6 +115,7 @@ def parse_refine_verify_output(raw: str) -> dict[str, object]:
         "issues": [str(item) for item in payload.get("issues", []) if str(item).strip()],
         "missing_sections": [str(item) for item in payload.get("missing_sections", []) if str(item).strip()],
         "reason": str(payload.get("reason") or ""),
+        "failure_type": str(payload.get("failure_type") or ""),
     }
 
 
@@ -154,6 +162,10 @@ def _generate_native_refined_markdown(
             cwd=prepared.task_dir,
         )
         if not verify.ok:
+            repaired_markdown, repaired_verify = _verify_with_local_repair(brief, refined_markdown, on_log)
+            if repaired_verify.ok:
+                on_log(f"native_refine_local_repair_ok: attempts={repaired_verify.repair_attempts}")
+                return repaired_markdown, repaired_verify
             _write_native_refine_failure_artifacts(prepared.task_dir, refined_markdown, verify)
             raise ValueError(f"native_refine_verify_failed: {verify.reason or verify.issues}")
         return refined_markdown, verify
@@ -191,6 +203,7 @@ def _run_native_verify(
             issues=[str(item) for item in payload.get("issues", [])],
             missing_sections=[str(item) for item in payload.get("missing_sections", [])],
             reason=str(payload.get("reason") or ""),
+            failure_type=str(payload.get("failure_type") or ""),
         )
     finally:
         if template_path.exists():
@@ -207,6 +220,94 @@ def _write_native_refine_failure_artifacts(task_dir: Path, refined_markdown: str
     (task_dir / "prd-refined.md").write_text(refined_markdown.rstrip() + "\n", encoding="utf-8")
     (task_dir / "refine-verify.json").write_text(json.dumps(verify_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (task_dir / "refine-diagnosis.json").write_text(json.dumps(diagnosis_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _verify_with_local_repair(brief: RefineBrief, refined_markdown: str, on_log) -> tuple[str, RefineVerifyResult]:
+    verify = verify_refine_output(brief, refined_markdown)
+    attempt = 0
+    while not verify.ok and attempt < _MAX_LOCAL_REPAIR_ATTEMPTS:
+        repaired_markdown, repair_notes = _repair_refined_markdown(brief, refined_markdown, verify)
+        if repaired_markdown == refined_markdown:
+            break
+        attempt += 1
+        on_log(f"refine_repair_attempt: {attempt} notes={', '.join(repair_notes) if repair_notes else '-'}")
+        refined_markdown = repaired_markdown
+        verify = verify_refine_output(brief, refined_markdown)
+    verify.repair_attempts = attempt
+    return refined_markdown, verify
+
+
+def _repair_refined_markdown(
+    brief: RefineBrief,
+    refined_markdown: str,
+    verify: RefineVerifyResult,
+) -> tuple[str, list[str]]:
+    notes: list[str] = []
+    canonical = render_refined_markdown(brief)
+    repaired = refined_markdown.rstrip() + "\n"
+
+    for section in verify.missing_sections:
+        repaired = _append_missing_section(repaired, section, _extract_markdown_section(canonical, section))
+        notes.append(f"missing_section:{section}")
+
+    for section in _REQUIRED_SECTIONS:
+        section_body = _extract_markdown_section(repaired, section)
+        if section_body and any(hint in section_body for hint in _PLACEHOLDER_HINTS):
+            repaired = _replace_markdown_section(repaired, section, _extract_markdown_section(canonical, section))
+            notes.append(f"placeholder:{section}")
+
+    acceptance_section = _extract_markdown_section(repaired, "验收标准")
+    if "未纳入范围" in acceptance_section or "不扩大到" in acceptance_section:
+        repaired = _replace_markdown_section(
+            repaired,
+            "验收标准",
+            _strip_boundary_acceptance_items(acceptance_section) or _extract_markdown_section(canonical, "验收标准"),
+        )
+        notes.append("acceptance_boundary_mixed")
+
+    return repaired.rstrip() + "\n", notes
+
+
+def _append_missing_section(markdown: str, section: str, body: str) -> str:
+    if f"## {section}" in markdown:
+        return markdown
+    normalized_body = body.strip() or "- 无"
+    return markdown.rstrip() + f"\n\n## {section}\n{normalized_body}\n"
+
+
+def _replace_markdown_section(markdown: str, section: str, body: str) -> str:
+    normalized_body = body.strip() or "- 无"
+    pattern = rf"(?ms)^## {re.escape(section)}\n.*?(?=^## |\Z)"
+    replacement = f"## {section}\n{normalized_body}\n\n"
+    if re.search(pattern, markdown):
+        return re.sub(pattern, lambda _match: replacement, markdown, count=1).rstrip() + "\n"
+    return _append_missing_section(markdown, section, normalized_body)
+
+
+def _strip_boundary_acceptance_items(section_body: str) -> str:
+    lines: list[str] = []
+    for line in section_body.splitlines():
+        if "未纳入范围" in line or "不扩大到" in line:
+            continue
+        if line.strip():
+            lines.append(line.rstrip())
+    return "\n".join(lines).strip()
+
+
+def _classify_refine_failure(issues: list[str], missing_sections: list[str]) -> str:
+    if missing_sections or any("缺少必填章节" in issue for issue in issues):
+        return "missing_required_section"
+    if any("模板占位" in issue for issue in issues):
+        return "template_placeholder"
+    if any("acceptance_criteria" in issue for issue in issues):
+        return "missing_acceptance_criteria"
+    if any("验收标准混入了边界说明" in issue for issue in issues):
+        return "acceptance_boundary_mixed"
+    if any("in_scope" in issue for issue in issues):
+        return "missing_in_scope"
+    if any("out_of_scope" in issue for issue in issues):
+        return "missing_out_of_scope"
+    return "refine_verify_failed" if issues else ""
 
 
 def _write_refine_template(task_dir: Path) -> Path:

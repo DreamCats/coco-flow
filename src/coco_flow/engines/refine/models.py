@@ -82,6 +82,8 @@ class RefineVerifyResult:
     issues: list[str]
     missing_sections: list[str]
     reason: str
+    failure_type: str = ""
+    repair_attempts: int = 0
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -89,6 +91,8 @@ class RefineVerifyResult:
             "issues": self.issues,
             "missing_sections": self.missing_sections,
             "reason": self.reason,
+            "failure_type": self.failure_type,
+            "repair_attempts": self.repair_attempts,
         }
 
 

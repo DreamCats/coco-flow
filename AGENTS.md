@@ -159,6 +159,7 @@ uv run python -m unittest discover -s tests -v
   - 不再运行旧的 `scope -> intent -> skills -> generate -> verify` 多段链路
   - `local` 直接从规则生成的 brief 渲染文档
   - `native` 通过 `AGENT_MODE` 读取 `manual_extract / brief draft / source excerpt`，填充模板并做 verify
+  - verify 会细分常见 `failure_type`，并对缺章节、模板占位、验收标准混入边界说明做最多 2 次本地定点 repair
 - `refine` 当前会额外生成：
   - `refine-brief.json`
   - `refine-intent.json`
@@ -171,6 +172,7 @@ uv run python -m unittest discover -s tests -v
   - `refine_mode / manual_scope_count / manual_change_points_count`
   - `brief_target_surface / brief_goal / brief_in_scope / brief_out_of_scope`
   - `verify_ok`
+  - `repair_attempts`
   - `source_type / source_path / source_url / source_doc_token`
   - `source_length`
   - pending 信息

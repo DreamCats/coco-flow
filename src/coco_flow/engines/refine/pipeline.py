@@ -82,6 +82,7 @@ def run_refine_engine(
     on_log(f"brief_in_scope: {', '.join(brief.in_scope[:4]) if brief.in_scope else '无'}")
     on_log(f"brief_out_of_scope: {', '.join(finalized_brief.out_of_scope[:4]) if finalized_brief.out_of_scope else '无'}")
     on_log(f"verify_ok: {'true' if verify.ok else 'false'}")
+    on_log(f"repair_attempts: {verify.repair_attempts}")
     on_log(f"diagnosis: severity={diagnosis_payload.get('severity') or ''} failure_type={diagnosis_payload.get('failure_type') or '-'} next_action={diagnosis_payload.get('next_action') or ''}")
 
     return RefineEngineResult(

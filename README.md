@@ -170,6 +170,7 @@ Notes:
 - `local` renders directly from the rule-generated brief.
 - `native` now uses `AGENT_MODE`: the controller prepares `manual_extract / brief draft / source excerpt`, then a read-write agent fills the markdown template and a second agent verifies it.
 - Typical artifacts include `refine-brief.json`, compatibility `refine-intent.json`, `prd-refined.md`, `refine-verify.json`, `refine-diagnosis.json`, and `refine-result.json`.
+- Refine verification now classifies common failures and runs a bounded local repair loop for low-risk markdown issues such as missing sections, template placeholders, and acceptance criteria mixed with boundary text.
 
 ### Design And Plan
 
