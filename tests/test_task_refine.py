@@ -242,6 +242,43 @@ class RefineTaskTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "人工提炼范围不能为空"):
                 start_refining_task("task-missing-manual-extract", settings=settings)
+            diagnosis = json.loads((task_dir / "refine-diagnosis.json").read_text(encoding="utf-8"))
+            self.assertEqual(diagnosis["severity"], "needs_human")
+            self.assertEqual(diagnosis["failure_type"], "missing_human_scope")
+            self.assertEqual(diagnosis["next_action"], "needs_human")
+            self.assertFalse(diagnosis["retryable"])
+            self.assertEqual(diagnosis["missing_sections"], ["本次范围", "人工提炼改动点"])
+
+    def test_start_refining_task_writes_needs_human_for_incomplete_manual_extract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            task_dir = build_task(
+                settings=settings,
+                task_id="task-incomplete-manual-extract",
+                title="缺少改动点",
+                source_markdown="# PRD Source\n\n---\n\n只有原始 PRD。\n",
+                supplement=(
+                    "## 本次范围\n"
+                    "- 只处理服务端文案实验范围。\n\n"
+                    "## 人工提炼改动点\n"
+                    "- [必填] 按“场景 / 状态 / 改动”逐条列出服务端改动点。\n\n"
+                    "## 明确不做\n"
+                    "- 无\n\n"
+                    "## 前置条件 / 待确认项\n"
+                    "- 无\n"
+                ),
+            )
+
+            with self.assertRaisesRegex(ValueError, "人工提炼范围未填写完整"):
+                start_refining_task("task-incomplete-manual-extract", settings=settings)
+            diagnosis = json.loads((task_dir / "refine-diagnosis.json").read_text(encoding="utf-8"))
+            verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(diagnosis["severity"], "needs_human")
+            self.assertEqual(diagnosis["missing_sections"], ["人工提炼改动点"])
+            self.assertEqual(diagnosis["issues"][0]["path"], "人工提炼范围.人工提炼改动点")
+            self.assertFalse(diagnosis["issues"][0]["auto_repairable"])
+            self.assertEqual(verify["next_action"], "needs_human")
 
     def test_local_refine_writes_new_brief_and_verify_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -7,7 +7,11 @@ import shutil
 
 from coco_flow.config import Settings, load_settings
 from coco_flow.engines.input import STATUS_INPUT_READY
-from coco_flow.engines.shared.manual_extract import split_source_and_manual_extract, validate_manual_extract
+from coco_flow.engines.shared.manual_extract import (
+    missing_required_manual_extract_sections,
+    split_source_and_manual_extract,
+    validate_manual_extract,
+)
 from coco_flow.engines.refine import (
     LogHandler,
     STATUS_INITIALIZED,
@@ -221,4 +225,40 @@ def _ensure_manual_extract_ready(task_dir: Path) -> None:
         supplement = str(input_meta.get("supplement") or "").strip()
     error = validate_manual_extract(supplement)
     if error:
+        _write_manual_extract_needs_human_diagnosis(
+            task_dir,
+            error,
+            missing_required_manual_extract_sections(supplement),
+        )
         raise ValueError(error)
+
+
+def _write_manual_extract_needs_human_diagnosis(task_dir: Path, reason: str, missing_sections: list[str]) -> None:
+    issues = [
+        {
+            "id": f"R{index:03d}",
+            "artifact": "prd.source.md",
+            "path": f"人工提炼范围.{section}",
+            "expected": f"人工提炼范围必须填写“{section}”。",
+            "actual": "当前为空、仍是模板占位，或缺少该章节。",
+            "repair_hint": f"请在 prd.source.md 的“人工提炼范围”中补齐“{section}”，然后重新执行 refine。",
+            "auto_repairable": False,
+        }
+        for index, section in enumerate(missing_sections or ["本次范围", "人工提炼改动点"], start=1)
+    ]
+    verify_payload: dict[str, object] = {
+        "ok": False,
+        "stage": "refine",
+        "severity": "needs_human",
+        "failure_type": "missing_human_scope",
+        "next_action": "needs_human",
+        "retryable": False,
+        "attempt": 0,
+        "max_attempts": 0,
+        "issues": issues,
+        "missing_sections": missing_sections,
+        "reason": reason,
+    }
+    diagnosis_payload = dict(verify_payload)
+    _write_json_artifact(task_dir / "refine-verify.json", verify_payload)
+    _write_json_artifact(task_dir / "refine-diagnosis.json", diagnosis_payload)

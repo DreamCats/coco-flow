@@ -45,11 +45,22 @@ def validate_manual_extract(content: str) -> str | None:
     trimmed = content.strip()
     if not trimmed:
         return "人工提炼范围不能为空，请先按模板补齐“本次范围”和“人工提炼改动点”。"
-    sections = parse_manual_extract_sections(trimmed)
-    missing = [title for title in REQUIRED_MANUAL_EXTRACT_SECTION_TITLES if not _has_meaningful_content(sections.get(title, ""), title)]
+    missing = missing_required_manual_extract_sections(trimmed)
     if missing:
         return f"人工提炼范围未填写完整，请至少补齐：{'、'.join(missing)}。"
     return None
+
+
+def missing_required_manual_extract_sections(content: str) -> list[str]:
+    trimmed = content.strip()
+    if not trimmed:
+        return list(REQUIRED_MANUAL_EXTRACT_SECTION_TITLES)
+    sections = parse_manual_extract_sections(trimmed)
+    return [
+        title
+        for title in REQUIRED_MANUAL_EXTRACT_SECTION_TITLES
+        if not _has_meaningful_content(sections.get(title, ""), title)
+    ]
 
 
 def require_manual_extract(content: str) -> str:

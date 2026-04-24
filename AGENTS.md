@@ -160,6 +160,7 @@ uv run python -m unittest discover -s tests -v
   - `local` 直接从规则生成的 brief 渲染文档
   - `native` 通过 `AGENT_MODE` 读取 `manual_extract / brief draft / source excerpt`，填充模板并做 verify
   - verify 会细分常见 `failure_type`，并对缺章节、模板占位、验收标准混入边界说明做最多 2 次本地定点 repair
+  - 人工提炼范围缺“本次范围”或“人工提炼改动点”时，会写入 `severity=needs_human` 的 `refine-diagnosis.json` 并停止生成
 - `refine` 当前会额外生成：
   - `refine-brief.json`
   - `refine-intent.json`
