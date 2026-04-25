@@ -12,9 +12,10 @@ from coco_flow.config import Settings
 from coco_flow.engines.design.models import DesignInputBundle
 from coco_flow.engines.design.gate import local_gate_payload
 from coco_flow.engines.design.pipeline import apply_review_issues_to_decision, normalize_decision_for_gate
-from coco_flow.engines.design.adjudication import normalize_adjudication, review_payload_after_revision
+from coco_flow.engines.design.adjudication import derive_repo_binding, derive_sections, normalize_adjudication, review_payload_after_revision
 from coco_flow.engines.design.research import build_research_plan, research_single_repo
 from coco_flow.engines.design.skills import build_design_skills_bundle
+from coco_flow.engines.design.writer import build_local_design_markdown
 from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
@@ -195,6 +196,78 @@ class DesignV3PipelineTest(unittest.TestCase):
             self.assertIn("Stable Repo Roles", brief)
             self.assertIn("live_common + 业务仓", brief)
             self.assertIn("Design 必须说明实验字段来源", brief)
+
+    def test_experiment_design_derives_live_pack_dependency_on_live_common(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            title="竞拍讲解卡文案爽感实验",
+            refined_markdown="命中实验时，live_common 新增 AB 字段，live_pack 读取字段控制 Starting bid 文案。",
+        )
+        prepared.design_skills_brief_markdown = (
+            "### Dependency Rules\n"
+            "### 规则：竞拍讲解卡实验字段依赖\n"
+            "- 触发信号：实验、AB\n"
+            "- 生效前提：绑定仓库包含 `live_common` 和 `live_pack`\n"
+            "- 上游 producer：`live_common`\n"
+            "- 下游 consumer：`live_pack`\n"
+            "- 依赖类型：producer_consumer\n"
+            "- 依赖原因：live_common 提供 AB 实验字段，live_pack 消费该字段控制竞拍讲解卡表达逻辑。\n"
+            "- 前置关系：live_pack 需要在 live_common 实验字段可用并升级 abtest 依赖后消费该字段。\n"
+        )
+        decision_payload = {
+            "decision_summary": "live_pack 根据 AB 实验字段展示新文案，live_common 提供 AB 实验字段。",
+            "core_change_points": [
+                "live_pack 修改 regular/surprise set converter",
+                "live_common 新增实验字段",
+            ],
+            "repo_decisions": [
+                {
+                    "repo_id": "live_pack",
+                    "work_type": "must_change",
+                    "responsibility": "读取 AB 实验字段并覆盖竞拍讲解卡文案",
+                    "candidate_files": ["entities/converters/auction_converters/regular_auction_converter.go"],
+                    "candidate_dirs": ["entities/converters/auction_converters"],
+                    "boundaries": ["实验值为 0 时保持线上逻辑"],
+                },
+                {
+                    "repo_id": "live_common",
+                    "work_type": "co_change",
+                    "responsibility": "提供 AB 实验字段",
+                    "candidate_files": ["abtest/struct.go"],
+                    "candidate_dirs": [],
+                    "boundaries": ["仅新增实验字段"],
+                },
+            ],
+        }
+
+        no_rule_prepared = self._design_bundle(
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            title="竞拍讲解卡文案爽感实验",
+            refined_markdown="命中实验时，live_common 新增 AB 字段，live_pack 读取字段控制 Starting bid 文案。",
+        )
+        no_rule_binding = derive_repo_binding(no_rule_prepared, decision_payload)
+        no_rule_live_pack = next(item for item in no_rule_binding["repo_bindings"] if item["repo_id"] == "live_pack")
+        self.assertEqual(no_rule_live_pack["depends_on"], [])
+
+        binding = derive_repo_binding(prepared, decision_payload)
+        sections = derive_sections(prepared, decision_payload)
+        markdown = build_local_design_markdown(prepared, {**decision_payload, "repo_dependencies": binding["repo_bindings"][0]["dependency_details"]})
+
+        live_pack = next(item for item in binding["repo_bindings"] if item["repo_id"] == "live_pack")
+        live_common = next(item for item in binding["repo_bindings"] if item["repo_id"] == "live_common")
+        self.assertEqual(live_pack["depends_on"], ["live_common"])
+        self.assertEqual(live_pack["parallelizable_with"], [])
+        self.assertEqual(live_common["parallelizable_with"], [])
+        self.assertEqual(sections["system_dependencies"][0]["upstream_system_id"], "live_common")
+        self.assertEqual(sections["system_dependencies"][0]["downstream_system_id"], "live_pack")
+        self.assertIn("仓库依赖与发布顺序", markdown)
+        self.assertIn("live_common -> live_pack", markdown)
 
     def test_repo_research_uses_file_pattern_hints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

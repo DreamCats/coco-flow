@@ -62,6 +62,22 @@ def build_local_design_markdown(prepared: DesignInputBundle, decision_payload: d
         boundaries = as_str_list(item.get("boundaries"))
         if boundaries:
             parts.append("- 边界：" + "；".join(boundaries[:4]))
+    dependencies = dict_list(decision_payload.get("repo_dependencies"))
+    if dependencies:
+        parts.extend(["", "## 仓库依赖与发布顺序"])
+        for item in dependencies:
+            upstream = str(item.get("upstream_repo_id") or "").strip()
+            downstream = str(item.get("downstream_repo_id") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            required_for = str(item.get("required_for") or "").strip()
+            if not upstream or not downstream:
+                continue
+            detail = f"{upstream} -> {downstream}"
+            if reason:
+                detail += f"：{reason}"
+            parts.append(f"- {detail}")
+            if required_for:
+                parts.append(f"  - 前置关系：{required_for}")
     risks = as_str_list(decision_payload.get("risks"))
     unresolved = as_str_list(decision_payload.get("unresolved_questions"))
     parts.extend(["", "## 风险与待确认"])

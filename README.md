@@ -178,6 +178,7 @@ Notes:
 - `design` is a standalone stage exposed in both CLI and API.
 - Design is now V3 agentic workflow oriented: input bundle, research plan, per-repo evidence research, architect adjudication, skeptic review, final decision, writer, and semantic gate.
 - Typical Design V3 artifacts include `design-input.json`, `design-input.md`, `design-research-plan.json`, `design-research/<repo>.json`, `design-research-summary.json`, `design-adjudication.json`, `design-review.json`, `design-debate.json`, `design-decision.json`, `design-repo-binding.json`, `design-sections.json`, `design.md`, `design-verify.json`, `design-diagnosis.json`, and `design-result.json`.
+- Design records repo-level producer/consumer dependencies in `design-decision.json`, then derives `depends_on` in `design-repo-binding.json` and `system_dependencies` in `design-sections.json`.
 - Local or partial Design V3 output is marked `degraded` and does not allow Plan by default; only `passed` and `passed_with_warnings` gate statuses allow Plan.
 - `plan` supports `native` and `local`.
 - `native plan` runs staged scope extraction, generation, and verification.

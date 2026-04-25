@@ -215,6 +215,7 @@ def _dedupe_and_reindex_work_items(items: list[PlanWorkItem], prepared: PlanPrep
     for item in result:
         item.depends_on = [id_map.get(task_id, task_id) for task_id in item.depends_on]
         item.parallelizable_with = [id_map.get(task_id, task_id) for task_id in item.parallelizable_with]
+    _apply_binding_dependencies(result, prepared)
     return result
 
 
@@ -234,6 +235,18 @@ def _in_scope_binding_items(prepared: PlanPreparedInput) -> list[dict[str, objec
     if not isinstance(raw, list):
         return []
     return [item for item in raw if isinstance(item, dict) and str(item.get("decision") or "") == "in_scope"]
+
+
+def _apply_binding_dependencies(items: list[PlanWorkItem], prepared: PlanPreparedInput) -> None:
+    task_id_by_repo = {item.repo_id: item.id for item in items if item.repo_id and item.id}
+    binding_by_repo = {str(item.get("repo_id") or ""): item for item in _in_scope_binding_items(prepared)}
+    for item in items:
+        binding = binding_by_repo.get(item.repo_id, {})
+        for dependency_repo in _as_str_list(binding.get("depends_on")):
+            dependency_task_id = task_id_by_repo.get(dependency_repo)
+            if not dependency_task_id or dependency_task_id == item.id or dependency_task_id in item.depends_on:
+                continue
+            item.depends_on.append(dependency_task_id)
 
 
 def _normalize_task_type(value: object) -> str:

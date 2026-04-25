@@ -29,6 +29,15 @@ def build_architect_template_json() -> str:
                     "evidence_refs": ["__FILL__"],
                 }
             ],
+            "repo_dependencies": [
+                {
+                    "upstream_repo_id": "__FILL__",
+                    "downstream_repo_id": "__FILL__",
+                    "dependency_kind": "producer_consumer",
+                    "reason": "__FILL__",
+                    "required_for": "__FILL__",
+                }
+            ],
             "system_boundaries": ["__FILL__"],
             "risks": ["__FILL__"],
             "unresolved_questions": ["__FILL__"],
@@ -54,7 +63,8 @@ def build_architect_prompt(
                 "work_type 只使用 must_change / co_change / validate_only / reference_only。",
                 "candidate_files 必须来自 repo research 的 candidate_files，且 evidence 必须能说明该文件承接本需求；不得只因为关键词命中就使用。",
                 "validate_only / reference_only 仓库不要写 candidate_files；只写需要验证的问题、边界和 evidence_refs。",
-                "如果涉及 producer / consumer 依赖（如公共实验字段被业务仓消费），必须写清提供方、消费方、证据和待确认项。",
+                "如果涉及 producer / consumer 依赖（如公共实验字段被业务仓消费），必须在 repo_dependencies 写清 upstream_repo_id、downstream_repo_id、reason 和 required_for。",
+                "如果业务仓需要升级公共仓依赖版本才能消费字段或配置，必须把业务仓写成 downstream_repo_id。",
             ],
             output_contract=DESIGN_OUTPUT_CONTRACT,
             sections=[

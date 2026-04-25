@@ -146,13 +146,16 @@ def render_design_skills_brief(documents: list[_SkillDocument], prepared: Design
                 _render_block(_line_hits(document.body, ("repo:", "role:", "stable repo roles", "role: ", "live_", "content_live"))),
                 "",
                 "### Multi-Repo Patterns",
-                _render_block(_line_hits(document.body, ("联动", "multi-repo", "多仓", "live_common +", "业务仓", "producer", "consumer"))),
+                _render_block(_line_hits(document.body, ("联动", "multi-repo", "多仓", "业务仓", "producer", "consumer", "上游", "下游"))),
                 "",
                 "### Preferred Research Areas",
                 _render_block(_research_area_lines(document.body)),
                 "",
                 "### Producer / Consumer Checks",
                 _render_block(_producer_consumer_lines(document.body)),
+                "",
+                "### Dependency Rules",
+                _render_dependency_rules(document.body),
                 "",
                 "### Gate Checks",
                 _render_block(_gate_check_lines(document.body, prepared)),
@@ -259,12 +262,44 @@ def _research_area_lines(body: str) -> list[str]:
 
 
 def _producer_consumer_lines(body: str) -> list[str]:
-    lines = _line_hits(body, ("实验开关", "公共配置", "ab", "tcc", "live_common +", "共享配置", "公共字段", "依赖"))
+    lines = _line_hits(body, ("实验开关", "公共配置", "ab", "tcc", "共享配置", "公共字段", "依赖", "producer", "consumer"))
     defaults = [
         "如果 PRD 提到命中实验，Design 必须判断实验字段是否已存在，以及哪个 repo 产出该字段。",
         "若公共字段或实验开关不存在，应明确 producer repo、consumer repo 和发布顺序；证据不足时写待确认项。",
     ]
     return dedupe([*lines, *defaults])[:_MAX_LINES_PER_BLOCK]
+
+
+def _render_dependency_rules(body: str) -> str:
+    cards = _dependency_rule_cards(body)
+    if not cards:
+        return "- 无"
+    return "\n\n".join(cards[:3])
+
+
+def _dependency_rule_cards(body: str) -> list[str]:
+    cards: list[str] = []
+    lines = body.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        if not re.match(r"^#{2,4}\s*规则[:：]", line):
+            index += 1
+            continue
+        card: list[str] = [line]
+        index += 1
+        while index < len(lines):
+            current = lines[index].rstrip()
+            stripped = current.strip()
+            if stripped.startswith("#") and not re.match(r"^#{2,4}\s*规则[:：]", stripped):
+                break
+            if re.match(r"^#{2,4}\s*规则[:：]", stripped):
+                break
+            if stripped:
+                card.append(stripped)
+            index += 1
+        cards.append("\n".join(card)[:2000])
+    return cards
 
 
 def _gate_check_lines(body: str, prepared: DesignInputBundle) -> list[str]:

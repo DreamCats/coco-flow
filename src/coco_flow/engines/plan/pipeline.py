@@ -17,7 +17,9 @@ from .models import (
     PLAN_HARNESS_VERSION,
     STATUS_FAILED,
     STATUS_PLANNED,
+    PlanExecutionGraph,
     PlanEngineResult,
+    PlanWorkItem,
 )
 from .review import build_plan_review_and_decision
 from .source import prepare_plan_input
@@ -34,6 +36,18 @@ def _collect_plan_verify_issues(verify_payload: dict[str, object]) -> list[str]:
     if reason:
         return [reason]
     return ["plan verify failed without actionable issues"]
+
+
+def _sync_work_item_dependencies_from_graph(work_items: list[PlanWorkItem], graph: PlanExecutionGraph) -> None:
+    item_by_id = {item.id: item for item in work_items}
+    for edge in graph.edges:
+        if edge.type != "hard_dependency":
+            continue
+        if edge.from_task_id not in item_by_id or edge.to_task_id not in item_by_id:
+            continue
+        target = item_by_id[edge.to_task_id]
+        if edge.from_task_id not in target.depends_on:
+            target.depends_on.append(edge.from_task_id)
 
 
 def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, on_log) -> PlanEngineResult:
@@ -75,6 +89,8 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     # 3. Scheduler 角色在 work items 之上生成依赖图，保持“怎么并行 / 怎么排序”和任务拆分解耦。
     on_log("plan_graph_start: true")
     graph, dependency_notes, draft_graph_payload = build_plan_execution_graph(prepared, work_items, settings, on_log)
+    _sync_work_item_dependencies_from_graph(work_items, graph)
+    artifacts["plan-work-items.json"] = {"work_items": [item.to_payload() for item in work_items]}
     artifacts["plan-draft-execution-graph.json"] = draft_graph_payload
     artifacts["plan-execution-graph.json"] = graph.to_payload()
     artifacts["plan-dependency-notes.json"] = dependency_notes

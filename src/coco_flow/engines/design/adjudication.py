@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 
@@ -91,6 +92,7 @@ def build_local_adjudication(prepared: DesignInputBundle, research_summary_paylo
         "decision_summary": first_non_empty(prepared.sections.change_scope, prepared.title),
         "core_change_points": prepared.sections.change_scope or [prepared.title],
         "repo_decisions": decisions,
+        "repo_dependencies": infer_repo_dependencies(prepared, {"repo_decisions": decisions}),
         "system_boundaries": prepared.sections.non_goals,
         "risks": prepared.sections.open_questions,
         "unresolved_questions": [
@@ -135,6 +137,7 @@ def normalize_adjudication(
         "decision_summary": str(payload.get("decision_summary") or first_non_empty(prepared.sections.change_scope, prepared.title)).strip(),
         "core_change_points": as_str_list(payload.get("core_change_points")) or prepared.sections.change_scope or [prepared.title],
         "repo_decisions": decisions,
+        "repo_dependencies": normalize_repo_dependencies(prepared, payload, decisions),
         "system_boundaries": as_str_list(payload.get("system_boundaries")) or prepared.sections.non_goals,
         "risks": as_str_list(payload.get("risks")) or prepared.sections.open_questions,
         "unresolved_questions": as_str_list(payload.get("unresolved_questions")),
@@ -278,6 +281,7 @@ def build_final_decision(
     remaining_blocking = [item for item in issues(post_review) if str(item.get("severity")) == "blocking"]
     decision["review_blocking_count"] = len(remaining_blocking)
     decision["finalized"] = not remaining_blocking
+    decision["repo_dependencies"] = normalize_repo_dependencies(prepared, decision, dict_list(decision.get("repo_decisions")))
     debate = {
         "rounds": [
             {"role": "architect", "artifact": "design-adjudication.json"},
@@ -401,6 +405,9 @@ def normalize_decision_for_gate(decision_payload: dict[str, object], review_payl
 def derive_repo_binding(prepared: DesignInputBundle, decision_payload: dict[str, object]) -> dict[str, object]:
     bindings: list[dict[str, object]] = []
     decisions = {str(item.get("repo_id") or ""): item for item in dict_list(decision_payload.get("repo_decisions"))}
+    dependency_edges = normalize_repo_dependencies(prepared, decision_payload, list(decisions.values()))
+    dependency_map = _dependency_map(dependency_edges)
+    connected_map = _connected_dependency_map(dependency_edges)
     for repo in prepared.repo_scopes:
         item = decisions.get(repo.repo_id, {})
         work_type = str(item.get("work_type") or "validate_only")
@@ -412,6 +419,7 @@ def derive_repo_binding(prepared: DesignInputBundle, decision_payload: dict[str,
         }.get(work_type, "validate_only")
         decision = "in_scope" if scope_tier != "reference_only" else "out_of_scope"
         candidates = as_str_list(item.get("candidate_files"))
+        depends_on = dependency_map.get(repo.repo_id, [])
         bindings.append(
             {
                 "repo_id": repo.repo_id,
@@ -425,8 +433,17 @@ def derive_repo_binding(prepared: DesignInputBundle, decision_payload: dict[str,
                 "boundaries": as_str_list(item.get("boundaries")),
                 "candidate_dirs": as_str_list(item.get("candidate_dirs")),
                 "candidate_files": candidates,
-                "depends_on": [],
-                "parallelizable_with": [other.repo_id for other in prepared.repo_scopes if other.repo_id != repo.repo_id],
+                "depends_on": depends_on,
+                "dependency_details": [
+                    edge
+                    for edge in dependency_edges
+                    if str(edge.get("downstream_repo_id") or "") == repo.repo_id
+                ],
+                "parallelizable_with": [
+                    other.repo_id
+                    for other in prepared.repo_scopes
+                    if other.repo_id != repo.repo_id and other.repo_id not in connected_map.get(repo.repo_id, [])
+                ],
                 "confidence": _normalize_confidence(item.get("confidence"), "low"),
                 "reason": "由 design-decision.json 派生，供 Plan/Code 兼容消费。",
             }
@@ -444,6 +461,9 @@ def derive_repo_binding(prepared: DesignInputBundle, decision_payload: dict[str,
 
 def derive_sections(prepared: DesignInputBundle, decision_payload: dict[str, object]) -> dict[str, object]:
     repo_decisions = dict_list(decision_payload.get("repo_decisions"))
+    dependency_edges = normalize_repo_dependencies(prepared, decision_payload, repo_decisions)
+    dependency_map = _dependency_map(dependency_edges)
+    reverse_dependency_map = _reverse_dependency_map(dependency_edges)
     return {
         "system_change_points": as_str_list(decision_payload.get("core_change_points")) or prepared.sections.change_scope,
         "solution_overview": str(decision_payload.get("decision_summary") or prepared.title),
@@ -454,14 +474,22 @@ def derive_sections(prepared: DesignInputBundle, decision_payload: dict[str, obj
                 "serves_change_points": [1],
                 "responsibility": str(item.get("responsibility") or ""),
                 "planned_changes": as_str_list(item.get("candidate_files")) or [str(item.get("responsibility") or "")],
-                "upstream_inputs": [],
-                "downstream_outputs": [],
+                "upstream_inputs": dependency_map.get(str(item.get("repo_id") or ""), []),
+                "downstream_outputs": reverse_dependency_map.get(str(item.get("repo_id") or ""), []),
                 "touched_repos": [str(item.get("repo_id") or "")],
             }
             for item in repo_decisions
             if str(item.get("work_type") or "") in {"must_change", "co_change"}
         ],
-        "system_dependencies": [],
+        "system_dependencies": [
+            {
+                "upstream_system_id": str(edge.get("upstream_repo_id") or ""),
+                "downstream_system_id": str(edge.get("downstream_repo_id") or ""),
+                "dependency_kind": str(edge.get("dependency_kind") or "producer_consumer"),
+                "reason": str(edge.get("reason") or ""),
+            }
+            for edge in dependency_edges
+        ],
         "critical_flows": [],
         "interface_changes": [],
         "risk_boundaries": [
@@ -469,6 +497,276 @@ def derive_sections(prepared: DesignInputBundle, decision_payload: dict[str, obj
             for risk in as_str_list(decision_payload.get("risks"))
         ],
     }
+
+
+def normalize_repo_dependencies(
+    prepared: DesignInputBundle,
+    payload: dict[str, object],
+    repo_decisions: list[dict[str, object]] | None = None,
+) -> list[dict[str, object]]:
+    known_repo_ids = {repo.repo_id for repo in prepared.repo_scopes}
+    dependencies: list[dict[str, object]] = []
+    for raw in dict_list(payload.get("repo_dependencies")):
+        upstream = str(raw.get("upstream_repo_id") or raw.get("upstream") or raw.get("producer_repo_id") or "").strip()
+        downstream = str(raw.get("downstream_repo_id") or raw.get("downstream") or raw.get("consumer_repo_id") or "").strip()
+        if not upstream or not downstream or upstream == downstream:
+            continue
+        if upstream not in known_repo_ids or downstream not in known_repo_ids:
+            continue
+        dependencies.append(
+            {
+                "upstream_repo_id": upstream,
+                "downstream_repo_id": downstream,
+                "dependency_kind": _normalize_dependency_kind(raw.get("dependency_kind")),
+                "reason": str(raw.get("reason") or "").strip(),
+                "required_for": str(raw.get("required_for") or "").strip(),
+            }
+        )
+    dependencies.extend(infer_repo_dependencies_from_skills(prepared, {"repo_decisions": repo_decisions or dict_list(payload.get("repo_decisions")), **payload}))
+    return _dedupe_dependencies(dependencies)
+
+
+def infer_repo_dependencies(prepared: DesignInputBundle, payload: dict[str, object]) -> list[dict[str, object]]:
+    return infer_repo_dependencies_from_skills(prepared, payload)
+
+
+def infer_repo_dependencies_from_skills(prepared: DesignInputBundle, payload: dict[str, object]) -> list[dict[str, object]]:
+    repo_ids = {repo.repo_id for repo in prepared.repo_scopes}
+    decisions = {str(item.get("repo_id") or ""): item for item in dict_list(payload.get("repo_decisions"))}
+    task_text = _dependency_match_text(prepared, payload)
+    dependencies: list[dict[str, object]] = []
+    for rule in _skill_dependency_rules(prepared):
+        upstream = str(rule.get("upstream_repo_id") or "").strip()
+        downstream = str(rule.get("downstream_repo_id") or "").strip()
+        required_repo_ids = as_str_list(rule.get("required_repo_ids")) or [upstream, downstream]
+        if not upstream or not downstream or upstream == downstream:
+            continue
+        if upstream not in repo_ids or downstream not in repo_ids:
+            continue
+        if any(repo_id not in repo_ids for repo_id in required_repo_ids):
+            continue
+        if not _dependency_rule_terms_match(rule, task_text):
+            continue
+        if _repo_is_reference_only(decisions, upstream) or _repo_is_reference_only(decisions, downstream):
+            continue
+        dependencies.append(
+            {
+                "upstream_repo_id": upstream,
+                "downstream_repo_id": downstream,
+                "dependency_kind": _normalize_dependency_kind(rule.get("dependency_kind")),
+                "reason": str(rule.get("reason") or "").strip(),
+                "required_for": str(rule.get("required_for") or "").strip(),
+            }
+        )
+    return dependencies
+
+
+def _skill_dependency_rules(prepared: DesignInputBundle) -> list[dict[str, object]]:
+    rules: list[dict[str, object]] = []
+    for block in _json_code_blocks(prepared.design_skills_brief_markdown):
+        parsed = _parse_json_object(block)
+        if not parsed:
+            continue
+        raw_rules = parsed.get("design_dependency_rules") or parsed.get("dependency_rules")
+        if isinstance(raw_rules, list):
+            rules.extend(item for item in raw_rules if isinstance(item, dict))
+    for card in _dependency_rule_cards(prepared.design_skills_brief_markdown):
+        rule = _parse_dependency_rule_card(card)
+        if rule:
+            rules.append(rule)
+    return rules
+
+
+def _json_code_blocks(text: str) -> list[str]:
+    return [
+        match.group(1).strip()
+        for match in re.finditer(r"```(?:json)?\s*\n(.*?)\n```", text, flags=re.DOTALL | re.IGNORECASE)
+    ]
+
+
+def _parse_json_object(value: str) -> dict[str, object]:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _dependency_rule_cards(text: str) -> list[str]:
+    cards: list[str] = []
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        if not re.match(r"^#{2,4}\s*规则[:：]", line):
+            index += 1
+            continue
+        card = [line]
+        index += 1
+        while index < len(lines):
+            current = lines[index].strip()
+            if current.startswith("#"):
+                break
+            if current:
+                card.append(current)
+            index += 1
+        cards.append("\n".join(card))
+    return cards
+
+
+def _parse_dependency_rule_card(card: str) -> dict[str, object]:
+    values = _card_key_values(card)
+    upstream = _clean_rule_value(values.get("上游 producer") or values.get("上游") or values.get("producer"))
+    downstream = _clean_rule_value(values.get("下游 consumer") or values.get("下游") or values.get("consumer"))
+    if not upstream or not downstream:
+        return {}
+    required_repos = _repo_ids_from_rule_value(values.get("生效前提") or values.get("required repos") or "")
+    if not required_repos:
+        required_repos = [upstream, downstream]
+    return {
+        "trigger_terms_any": _terms_from_rule_value(values.get("触发信号") or values.get("trigger terms") or ""),
+        "required_repo_ids": required_repos,
+        "upstream_repo_id": upstream,
+        "downstream_repo_id": downstream,
+        "dependency_kind": _clean_rule_value(values.get("依赖类型") or values.get("dependency kind") or "producer_consumer"),
+        "reason": _clean_rule_value(values.get("依赖原因") or values.get("reason") or ""),
+        "required_for": _clean_rule_value(values.get("前置关系") or values.get("required for") or ""),
+    }
+
+
+def _card_key_values(card: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw in card.splitlines():
+        line = raw.strip().lstrip("-").strip()
+        if "：" in line:
+            key, value = line.split("：", 1)
+        elif ":" in line:
+            key, value = line.split(":", 1)
+        else:
+            continue
+        key = re.sub(r"^#+\s*", "", key).strip().lower()
+        values[key] = value.strip()
+    return values
+
+
+def _repo_ids_from_rule_value(value: str) -> list[str]:
+    backticked = re.findall(r"`([^`]+)`", value)
+    if backticked:
+        return [item.strip() for item in backticked if item.strip()]
+    return _terms_from_rule_value(value)
+
+
+def _terms_from_rule_value(value: str) -> list[str]:
+    clean = value.replace("`", "")
+    return [
+        item.strip()
+        for item in re.split(r"[、,，/]+|\s+和\s+|\s+and\s+", clean)
+        if item.strip()
+    ]
+
+
+def _clean_rule_value(value: object) -> str:
+    return str(value or "").strip().strip("`").strip()
+
+
+def _dependency_match_text(prepared: DesignInputBundle, payload: dict[str, object]) -> str:
+    values = [
+        prepared.title,
+        prepared.refined_markdown,
+        prepared.design_skills_brief_markdown,
+        *prepared.sections.change_scope,
+        *prepared.sections.key_constraints,
+        *prepared.sections.acceptance_criteria,
+        str(payload.get("decision_summary") or ""),
+        *as_str_list(payload.get("core_change_points")),
+    ]
+    for repo in dict_list(payload.get("repo_decisions")):
+        values.extend(
+            [
+                str(repo.get("responsibility") or ""),
+                *as_str_list(repo.get("boundaries")),
+                *as_str_list(repo.get("unresolved_questions")),
+            ]
+        )
+    return "\n".join(values).lower()
+
+
+def _dependency_rule_terms_match(rule: dict[str, object], text: str) -> bool:
+    any_terms = as_str_list(rule.get("trigger_terms_any"))
+    all_terms = as_str_list(rule.get("trigger_terms_all"))
+    if any_terms and not any(term.lower() in text for term in any_terms):
+        return False
+    if all_terms and not all(term.lower() in text for term in all_terms):
+        return False
+    return bool(any_terms or all_terms)
+
+
+def _repo_is_reference_only(decisions: dict[str, dict[str, object]], repo_id: str) -> bool:
+    return str(dict(decisions.get(repo_id) or {}).get("work_type") or "") == "reference_only"
+
+
+def _normalize_dependency_kind(value: object) -> str:
+    text = str(value or "").strip()
+    if text in {"producer_consumer", "version_dependency", "runtime_dependency", "validation_dependency"}:
+        return text
+    return "producer_consumer"
+
+
+def _dedupe_dependencies(items: list[dict[str, object]]) -> list[dict[str, object]]:
+    result: list[dict[str, object]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in items:
+        upstream = str(item.get("upstream_repo_id") or "")
+        downstream = str(item.get("downstream_repo_id") or "")
+        kind = str(item.get("dependency_kind") or "producer_consumer")
+        key = (upstream, downstream, kind)
+        if not upstream or not downstream or upstream == downstream or key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
+
+
+def _dependency_map(edges: list[dict[str, object]]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for edge in edges:
+        upstream = str(edge.get("upstream_repo_id") or "")
+        downstream = str(edge.get("downstream_repo_id") or "")
+        if not upstream or not downstream:
+            continue
+        result.setdefault(downstream, [])
+        if upstream not in result[downstream]:
+            result[downstream].append(upstream)
+    return result
+
+
+def _reverse_dependency_map(edges: list[dict[str, object]]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for edge in edges:
+        upstream = str(edge.get("upstream_repo_id") or "")
+        downstream = str(edge.get("downstream_repo_id") or "")
+        if not upstream or not downstream:
+            continue
+        result.setdefault(upstream, [])
+        if downstream not in result[upstream]:
+            result[upstream].append(downstream)
+    return result
+
+
+def _connected_dependency_map(edges: list[dict[str, object]]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for edge in edges:
+        upstream = str(edge.get("upstream_repo_id") or "")
+        downstream = str(edge.get("downstream_repo_id") or "")
+        if not upstream or not downstream:
+            continue
+        result.setdefault(upstream, [])
+        result.setdefault(downstream, [])
+        if downstream not in result[upstream]:
+            result[upstream].append(downstream)
+        if upstream not in result[downstream]:
+            result[downstream].append(upstream)
+    return result
 
 
 def _repo_responsibility(prepared: DesignInputBundle, repo_id: str, candidates: list[str]) -> str:

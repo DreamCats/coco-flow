@@ -172,6 +172,7 @@ coco-flow remote disconnect
 ### Design 与 Plan
 
 - `design` 是独立阶段，CLI 和 API 都已暴露
+- Design 会在 `design-decision.json` 中记录 repo 级 producer / consumer 依赖，并派生到 `design-repo-binding.json` 的 `depends_on` 与 `design-sections.json` 的 `system_dependencies`
 - `plan` 支持 `native` 和 `local`
 - `native plan` 采用 scope 提取、生成、验证的分段编排
 - 常见产物包括 `design.md`、`plan.md`、`plan-scope.json`、`plan-execution.json`、`plan-verify.json`、`plan-knowledge-selection.json`、`plan-knowledge-brief.md`

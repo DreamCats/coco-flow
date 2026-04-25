@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 from coco_flow.clients import AgentSessionHandle
 from coco_flow.config import Settings
-from coco_flow.engines.plan.models import PLAN_HARNESS_VERSION, PlanExecutionGraph, PlanPreparedInput
-from coco_flow.engines.plan.pipeline import run_plan_engine
+from coco_flow.engines.plan.models import PLAN_HARNESS_VERSION, PlanExecutionEdge, PlanExecutionGraph, PlanPreparedInput, PlanWorkItem
+from coco_flow.engines.plan.pipeline import _sync_work_item_dependencies_from_graph, run_plan_engine
 from coco_flow.engines.plan.review import build_local_plan_review_payload, build_plan_decision_payload
 from coco_flow.engines.plan.task_outline import build_local_plan_task_outline_payload, normalize_plan_work_items
 from coco_flow.engines.shared.models import (
@@ -483,6 +483,106 @@ class PlanTaskBuilderTest(unittest.TestCase):
         self.assertTrue(tasks[0].specific_steps)
         self.assertEqual(tasks[0].change_scope[0], "live-api/internal/handler/list.go")
         self.assertIn("Design 责任保持一致", tasks[0].done_definition[-1])
+
+    def test_plan_work_items_apply_repo_dependencies_regardless_binding_order(self) -> None:
+        prepared = PlanPreparedInput(
+            task_dir=Path("/tmp/task"),
+            task_id="task-1",
+            title="直播列表国家筛选",
+            design_markdown="# Design",
+            refined_markdown="# PRD Refined",
+            input_meta={},
+            task_meta={},
+            design_repo_binding_payload={
+                "repo_bindings": [
+                    {
+                        "repo_id": "live-web",
+                        "decision": "in_scope",
+                        "scope_tier": "must_change",
+                        "change_summary": ["补齐前端筛选入口"],
+                        "candidate_files": ["live-web/src/pages/live/list.tsx"],
+                        "depends_on": ["live-api"],
+                    },
+                    {
+                        "repo_id": "live-api",
+                        "decision": "in_scope",
+                        "scope_tier": "must_change",
+                        "change_summary": ["补齐国家筛选主链路"],
+                        "candidate_files": ["live-api/internal/handler/list.go"],
+                        "depends_on": [],
+                    },
+                ]
+            },
+            design_sections_payload={},
+            design_result_payload={},
+            repos_meta={},
+            repo_scopes=[
+                RepoScope(repo_id="live-web", repo_path="/tmp/live-web"),
+                RepoScope(repo_id="live-api", repo_path="/tmp/live-api"),
+            ],
+            repo_ids={"live-api", "live-web"},
+            refined_sections=RefinedSections(
+                change_scope=["支持直播列表按国家筛选并保持原有排序"],
+                non_goals=[],
+                key_constraints=[],
+                acceptance_criteria=[],
+                open_questions=[],
+                raw="",
+            ),
+        )
+
+        tasks = normalize_plan_work_items(build_local_plan_task_outline_payload(prepared), prepared)
+
+        task_by_repo = {task.repo_id: task for task in tasks}
+        self.assertEqual(task_by_repo["live-web"].depends_on, [task_by_repo["live-api"].id])
+
+    def test_scheduler_hard_edges_are_reflected_back_to_work_items(self) -> None:
+        work_items = [
+            PlanWorkItem(
+                id="W1",
+                title="upstream",
+                repo_id="repo-a",
+                task_type="implementation",
+                serves_change_points=[1],
+                goal="upstream",
+                specific_steps=["step"],
+                change_scope=[],
+                inputs=[],
+                outputs=[],
+                done_definition=[],
+                verification_steps=[],
+                risk_notes=[],
+                handoff_notes=[],
+            ),
+            PlanWorkItem(
+                id="W2",
+                title="downstream",
+                repo_id="repo-b",
+                task_type="implementation",
+                serves_change_points=[1],
+                goal="downstream",
+                specific_steps=["step"],
+                change_scope=[],
+                inputs=[],
+                outputs=[],
+                done_definition=[],
+                verification_steps=[],
+                risk_notes=[],
+                handoff_notes=[],
+            ),
+        ]
+        graph = PlanExecutionGraph(
+            nodes=["W1", "W2"],
+            edges=[PlanExecutionEdge(from_task_id="W1", to_task_id="W2", type="hard_dependency", reason="W2 依赖 W1")],
+            execution_order=["W1", "W2"],
+            parallel_groups=[],
+            critical_path=["W1", "W2"],
+            coordination_points=[],
+        )
+
+        _sync_work_item_dependencies_from_graph(work_items, graph)
+
+        self.assertEqual(work_items[1].depends_on, ["W1"])
 
     def test_normalize_keeps_distinct_implementation_items_in_same_repo(self) -> None:
         prepared = self._prepared_input_for_plan_review()

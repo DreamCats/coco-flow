@@ -203,6 +203,7 @@ uv run python -m unittest discover -s tests -v
   - `design-review.json`
   - `design-debate.json`
   - `design-decision.json`
+- `design-decision.json` 会记录 repo 级 producer / consumer 依赖；`design-repo-binding.json` 会派生 `depends_on`，`design-sections.json` 会派生 `system_dependencies`。
 - 兼容产物仍会派生：
   - `design-repo-binding.json`
   - `design-sections.json`

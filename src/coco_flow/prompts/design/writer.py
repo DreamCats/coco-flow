@@ -23,6 +23,7 @@ def build_writer_prompt(
                 "不要新增 repo 裁决、候选文件或需求。",
                 "结论先行，使用自然语言，不暴露 must_change/confidence 等内部标签。",
                 "每个涉及仓库都说明主要做什么、候选文件或模块、边界是什么。",
+                "如果 Design Decision 含 repo_dependencies，必须单独写“仓库依赖与发布顺序”，说明上游 producer、下游 consumer、依赖原因和前置关系。",
                 "只需检查的仓库不要写成本次代码改造项。",
                 "待确认项只写会影响研发判断的问题。",
                 "如果 finalized=false 或 review_blocking_count>0，必须在结论中明确写“当前不能进入 Plan”，并列出阻断原因。",
