@@ -30,13 +30,9 @@ def prepare_code_input(task_dir: Path, task_meta: dict[str, object]) -> CodePrep
     plan_markdown = _read_text_if_exists(task_dir / "plan.md")
     title = str(task_meta.get("title") or input_meta.get("title") or task_id)
 
-    _require_payload(design_repo_binding_payload, "design-repo-binding.json 缺失，无法执行 code")
-    _require_payload(plan_work_items_payload, "plan-work-items.json 缺失，无法执行 code")
-    _require_payload(plan_execution_graph_payload, "plan-execution-graph.json 缺失，无法执行 code")
-    _require_payload(plan_validation_payload, "plan-validation.json 缺失，无法执行 code")
-    _require_payload(plan_result_payload, "plan-result.json 缺失，无法执行 code")
     _require_payload(repos_meta, "repos.json 缺失，无法执行 code")
-    _ensure_plan_allows_code(plan_result_payload)
+    if plan_result_payload:
+        _ensure_plan_allows_code(plan_result_payload)
 
     return CodePreparedInput(
         task_dir=task_dir,

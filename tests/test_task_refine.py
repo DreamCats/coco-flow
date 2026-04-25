@@ -377,12 +377,8 @@ class RefineTaskTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "人工提炼范围不能为空"):
                 start_refining_task("task-missing-manual-extract", settings=settings)
-            diagnosis = json.loads((task_dir / "refine-diagnosis.json").read_text(encoding="utf-8"))
-            self.assertEqual(diagnosis["severity"], "needs_human")
-            self.assertEqual(diagnosis["failure_type"], "missing_human_scope")
-            self.assertEqual(diagnosis["next_action"], "needs_human")
-            self.assertFalse(diagnosis["retryable"])
-            self.assertEqual(diagnosis["missing_sections"], ["本次范围", "人工提炼改动点"])
+            self.assertFalse((task_dir / "refine-diagnosis.json").exists())
+            self.assertFalse((task_dir / "refine-verify.json").exists())
 
     def test_start_refining_task_writes_needs_human_for_incomplete_manual_extract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -406,16 +402,10 @@ class RefineTaskTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "人工提炼范围未填写完整"):
                 start_refining_task("task-incomplete-manual-extract", settings=settings)
-            diagnosis = json.loads((task_dir / "refine-diagnosis.json").read_text(encoding="utf-8"))
-            verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
+            self.assertFalse((task_dir / "refine-diagnosis.json").exists())
+            self.assertFalse((task_dir / "refine-verify.json").exists())
 
-            self.assertEqual(diagnosis["severity"], "needs_human")
-            self.assertEqual(diagnosis["missing_sections"], ["人工提炼改动点"])
-            self.assertEqual(diagnosis["issues"][0]["path"], "人工提炼范围.人工提炼改动点")
-            self.assertFalse(diagnosis["issues"][0]["auto_repairable"])
-            self.assertEqual(verify["next_action"], "needs_human")
-
-    def test_local_refine_writes_new_brief_and_verify_artifacts(self) -> None:
+    def test_local_refine_writes_markdown_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
             task_dir = build_task(
@@ -437,22 +427,13 @@ class RefineTaskTest(unittest.TestCase):
 
             self.assertEqual(status, "refined")
             refined = (task_dir / "prd-refined.md").read_text(encoding="utf-8")
-            brief = json.loads((task_dir / "refine-brief.json").read_text(encoding="utf-8"))
-            verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
-            diagnosis = json.loads((task_dir / "refine-diagnosis.json").read_text(encoding="utf-8"))
-            compat_intent = json.loads((task_dir / "refine-intent.json").read_text(encoding="utf-8"))
 
             self.assertIn("# 需求确认书", refined)
             self.assertIn("## 具体变更点", refined)
-            self.assertEqual(brief["target_surface"], "backend")
-            self.assertTrue(brief["in_scope"])
-            self.assertTrue(verify["ok"])
-            self.assertEqual(verify["stage"], "refine")
-            self.assertEqual(verify["next_action"], "continue")
-            self.assertEqual(diagnosis["stage"], "refine")
-            self.assertTrue(diagnosis["ok"])
-            self.assertEqual(compat_intent["mode"], "manual_first")
-            self.assertEqual(compat_intent["change_points"], brief["in_scope"])
+            self.assertFalse((task_dir / "refine-brief.json").exists())
+            self.assertFalse((task_dir / "refine-intent.json").exists())
+            self.assertFalse((task_dir / "refine-verify.json").exists())
+            self.assertFalse((task_dir / "refine-diagnosis.json").exists())
 
     def test_native_refine_now_uses_same_manual_first_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -485,16 +466,12 @@ class RefineTaskTest(unittest.TestCase):
                 status = refine_task("task-native", settings=settings)
 
             self.assertEqual(status, "refined")
-            brief = json.loads((task_dir / "refine-brief.json").read_text(encoding="utf-8"))
-            verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
-            diagnosis = json.loads((task_dir / "refine-diagnosis.json").read_text(encoding="utf-8"))
             refined = (task_dir / "prd-refined.md").read_text(encoding="utf-8")
             refine_log = (task_dir / "refine.log").read_text(encoding="utf-8")
-            self.assertEqual(brief["target_surface"], "backend")
-            self.assertTrue(verify["ok"])
-            self.assertEqual(diagnosis["next_action"], "continue")
             self.assertIn("当命中第一个实验", refined)
-            self.assertIn("购物袋商卡和Maxbid面板卡片先不改。", brief["out_of_scope"])
+            self.assertIn("购物袋商卡和Maxbid面板卡片先不改。", refined)
+            self.assertFalse((task_dir / "refine-brief.json").exists())
+            self.assertFalse((task_dir / "refine-verify.json").exists())
             self.assertFalse((task_dir / "refine-skills-selection.json").exists())
             self.assertEqual(session_roles, ["refine_generate", "refine_verify"])
             self.assertEqual(prompt_roles, ["refine_generate", "refine_generate", "refine_verify"])
@@ -549,11 +526,9 @@ class RefineTaskTest(unittest.TestCase):
                 status = refine_task("task-native-table", settings=settings)
 
             refined = (task_dir / "prd-refined.md").read_text(encoding="utf-8")
-            verify = json.loads((task_dir / "refine-verify.json").read_text(encoding="utf-8"))
 
             self.assertEqual(status, "refined")
-            self.assertTrue(verify["ok"])
-            self.assertEqual(verify["repair_attempts"], 1)
+            self.assertFalse((task_dir / "refine-verify.json").exists())
             self.assertIn("| 状态 | 展示内容 |", refined)
             self.assertIn("### 普通竞拍 / Temporary listing", refined)
             self.assertIn("命中第一个实验时，surprise set 的预热态、竞拍中 / 无人出价按上表展示。", refined)

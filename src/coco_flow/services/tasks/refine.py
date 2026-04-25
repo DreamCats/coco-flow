@@ -51,19 +51,6 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
     try:
         result = run_refine_engine(task_dir, task_meta, cfg, logger)
         _write_markdown_artifact(task_dir / "prd-refined.md", result.refined_markdown)
-        for name, payload in result.intermediate_artifacts.items():
-            _write_intermediate_artifact(task_dir / name, payload)
-        _write_json_artifact(
-            task_dir / "refine-result.json",
-            {
-                "task_id": task_id,
-                "status": result.status,
-                "skills_used": result.skills_used,
-                "selected_skill_ids": result.selected_skill_ids,
-                "intermediate_artifacts": sorted(result.intermediate_artifacts.keys()),
-                "updated_at": datetime.now().astimezone().isoformat(),
-            },
-        )
         task_meta["status"] = result.status
         task_meta["updated_at"] = datetime.now().astimezone().isoformat()
         (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n")
@@ -114,17 +101,6 @@ def start_refining_task(task_id: str, settings: Settings | None = None) -> str:
 
 def _write_markdown_artifact(path: Path, content: str) -> None:
     path.write_text(content.rstrip() + "\n", encoding="utf-8")
-
-
-def _write_json_artifact(path: Path, payload: dict[str, object]) -> None:
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -> None:
-    if isinstance(payload, dict):
-        _write_json_artifact(path, payload)
-        return
-    _write_markdown_artifact(path, payload)
 
 
 def _reset_refine_outputs(task_dir: Path) -> None:
@@ -250,31 +226,5 @@ def _ensure_manual_extract_ready(task_dir: Path) -> None:
 
 
 def _write_manual_extract_needs_human_diagnosis(task_dir: Path, reason: str, missing_sections: list[str]) -> None:
-    issues = [
-        {
-            "id": f"R{index:03d}",
-            "artifact": "prd.source.md",
-            "path": f"人工提炼范围.{section}",
-            "expected": f"人工提炼范围必须填写“{section}”。",
-            "actual": "当前为空、仍是模板占位，或缺少该章节。",
-            "repair_hint": f"请在 prd.source.md 的“人工提炼范围”中补齐“{section}”，然后重新执行 refine。",
-            "auto_repairable": False,
-        }
-        for index, section in enumerate(missing_sections or ["本次范围", "人工提炼改动点"], start=1)
-    ]
-    verify_payload: dict[str, object] = {
-        "ok": False,
-        "stage": "refine",
-        "severity": "needs_human",
-        "failure_type": "missing_human_scope",
-        "next_action": "needs_human",
-        "retryable": False,
-        "attempt": 0,
-        "max_attempts": 0,
-        "issues": issues,
-        "missing_sections": missing_sections,
-        "reason": reason,
-    }
-    diagnosis_payload = dict(verify_payload)
-    _write_json_artifact(task_dir / "refine-verify.json", verify_payload)
-    _write_json_artifact(task_dir / "refine-diagnosis.json", diagnosis_payload)
+    del task_dir, missing_sections
+    raise ValueError(reason)

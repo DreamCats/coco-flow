@@ -24,6 +24,94 @@ def generate_plan_markdown(
     return generate_local_plan_markdown(prepared, decision_payload), "local"
 
 
+def generate_doc_only_plan_markdown(
+    prepared: PlanPreparedInput,
+    settings: Settings,
+    on_log,
+) -> tuple[str, str]:
+    if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
+        try:
+            raw = run_plan_agent_markdown_with_new_session(
+                prepared,
+                settings,
+                build_plan_template_markdown(),
+                lambda template_path: _build_doc_only_plan_prompt(prepared, template_path),
+                ".plan-template-",
+                role="plan_writer",
+                stage="write_doc_only",
+                on_log=on_log,
+            )
+            on_log("plan_writer_mode: native_doc_only")
+            return _normalize_native_plan_markdown(raw), "native"
+        except Exception as error:
+            on_log(f"plan_writer_fallback: {error}")
+    on_log("plan_writer_mode: local_doc_only")
+    return generate_local_doc_only_plan_markdown(prepared), "local"
+
+
+def generate_local_doc_only_plan_markdown(prepared: PlanPreparedInput) -> str:
+    repos = [scope.repo_id for scope in prepared.repo_scopes if scope.repo_id]
+    change_scope = prepared.refined_sections.change_scope or [prepared.title]
+    acceptance = prepared.refined_sections.acceptance_criteria or ["完成与 Design 文档一致的最小验证。"]
+    non_goals = prepared.refined_sections.non_goals
+    lines = [
+        "# Plan",
+        "",
+        f"- task_id: {prepared.task_id}",
+        f"- title: {prepared.title}",
+        "",
+        "## 任务清单",
+        "",
+    ]
+    for index, repo_id in enumerate(repos or ["未绑定仓库"], start=1):
+        lines.extend(
+            [
+                f"### W{index} [{repo_id}] 执行 Design 方案",
+                f"- 目标：在 {repo_id} 按 design.md 和 prd-refined.md 完成本次需求范围内的改动。",
+                "- 输入：prd-refined.md、design.md、业务 Skills/SOP。",
+                "- 具体做什么：",
+            ]
+        )
+        lines.extend(f"  - {item}" for item in change_scope[:5])
+        lines.extend(
+            [
+                "- 完成标准：",
+                f"  - {repo_id} 的改动不超出 Design 文档确认范围。",
+                "  - 关键链路完成最小验证。",
+                "",
+            ]
+        )
+    lines.extend(["## 执行顺序", ""])
+    if len(repos) > 1:
+        lines.append("- 按 design.md 中描述的仓库依赖和发布顺序执行；未声明硬依赖的仓库可并行推进。")
+    else:
+        lines.append("- 单仓执行，无额外跨仓排序要求。")
+    lines.extend(["", "## 验证策略", ""])
+    lines.extend(f"- {item}" for item in acceptance[:6])
+    if non_goals:
+        lines.append("- 回归边界：")
+        lines.extend(f"  - 不引入非目标：{item}" for item in non_goals[:4])
+    lines.extend(["", "## 风险与阻塞项", ""])
+    lines.append("- 如果执行时发现 design.md 与真实代码职责不一致，先回到 Design 文档修正后再继续。")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_doc_only_plan_prompt(prepared: PlanPreparedInput, template_path: str) -> str:
+    skills = prepared.skills_brief_markdown.strip() or "当前没有额外 Skills/SOP 摘要。"
+    return (
+        "你在做 coco-flow Plan 阶段。当前第一版采用文档流，不使用结构化 Plan schema。\n\n"
+        f"请直接编辑模板文件：{template_path}\n"
+        "保留模板的一级标题与章节顺序，输出可交给研发执行的 plan.md。\n"
+        "只允许依据 prd-refined.md、design.md、绑定仓库与 Skills/SOP；不要发明新仓库、新需求或新业务规则。\n\n"
+        f"## 任务标题\n{prepared.title}\n\n"
+        f"## 绑定仓库\n{', '.join(scope.repo_id for scope in prepared.repo_scopes if scope.repo_id) or '未绑定'}\n\n"
+        f"## prd-refined.md\n{prepared.refined_markdown.strip()}\n\n"
+        f"## design.md\n{prepared.design_markdown.strip()}\n\n"
+        f"## Skills/SOP 摘要\n{skills}\n\n"
+        "完成后只需简短回复已完成。"
+    )
+
+
 def generate_local_plan_markdown(
     prepared: PlanPreparedInput,
     decision_payload: dict[str, object],

@@ -13,7 +13,7 @@ def build_refine_generate_agent_prompt(
     template_path: str,
 ) -> str:
     document = PromptDocument(
-        goal="本次任务：基于 Refine artifact 生成需求确认书，只编辑指定模板文件。",
+        goal="本次任务：基于人工提炼范围和原文片段生成需求确认书，只编辑指定模板文件。",
         requirements=[],
         output_contract="完成后只需简短回复已完成。",
         sections=[

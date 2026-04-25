@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from coco_flow.clients import AgentSessionHandle
 from coco_flow.config import Settings
-from coco_flow.engines.plan.models import PLAN_HARNESS_VERSION, PlanExecutionEdge, PlanExecutionGraph, PlanPreparedInput, PlanWorkItem
+from coco_flow.engines.plan.models import PlanExecutionEdge, PlanExecutionGraph, PlanPreparedInput, PlanWorkItem
 from coco_flow.engines.plan.pipeline import _sync_work_item_dependencies_from_graph, run_plan_engine
 from coco_flow.engines.plan.review import build_local_plan_review_payload, build_plan_decision_payload
 from coco_flow.engines.plan.task_outline import build_local_plan_task_outline_payload, normalize_plan_work_items
@@ -32,31 +32,10 @@ class PlanTaskBuilderTest(unittest.TestCase):
 
             result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, lambda _line: None)
 
-            plan_result = result.intermediate_artifacts["plan-result.json"]
-            draft = result.intermediate_artifacts["plan-draft-work-items.json"]
-            draft_graph = result.intermediate_artifacts["plan-draft-execution-graph.json"]
-            draft_validation = result.intermediate_artifacts["plan-draft-validation.json"]
-            self.assertIsInstance(plan_result, dict)
-            self.assertIsInstance(draft, dict)
-            self.assertIsInstance(draft_graph, dict)
-            self.assertIsInstance(draft_validation, dict)
-            self.assertEqual(plan_result["harness_version"], PLAN_HARNESS_VERSION)
-            self.assertEqual(plan_result["gate_status"], "passed")
-            self.assertEqual(plan_result["code_allowed"], True)
-            self.assertEqual(plan_result["planner_degraded"], False)
-            self.assertEqual(plan_result["review_degraded"], False)
-            self.assertEqual(plan_result["review_blocking_count"], 0)
-            self.assertEqual(plan_result["decision_finalized"], True)
-            self.assertEqual(plan_result["status"], "planned")
-            self.assertEqual(draft["planner"]["source"], "local")
-            self.assertEqual(draft["planner"]["degraded"], False)
-            self.assertEqual(draft_graph["scheduler"]["source"], "local")
-            self.assertEqual(draft_graph["scheduler"]["degraded"], False)
-            self.assertEqual(draft_validation["validation_designer"]["source"], "local")
-            self.assertEqual(draft_validation["validation_designer"]["degraded"], False)
-            self.assertIn("plan-review.json", result.intermediate_artifacts)
-            self.assertIn("plan-debate.json", result.intermediate_artifacts)
-            self.assertIn("plan-decision.json", result.intermediate_artifacts)
+            self.assertEqual(result.status, "planned")
+            self.assertEqual(result.intermediate_artifacts, {})
+            self.assertIn("# Plan", result.plan_markdown)
+            self.assertIn("## 任务清单", result.plan_markdown)
 
     def test_native_planner_fallback_marks_draft_degraded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -73,22 +52,9 @@ class PlanTaskBuilderTest(unittest.TestCase):
             ):
                 result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, lambda _line: None)
 
-            plan_result = result.intermediate_artifacts["plan-result.json"]
-            draft = result.intermediate_artifacts["plan-draft-work-items.json"]
-            draft_graph = result.intermediate_artifacts["plan-draft-execution-graph.json"]
-            draft_validation = result.intermediate_artifacts["plan-draft-validation.json"]
-            self.assertIsInstance(plan_result, dict)
-            self.assertIsInstance(draft, dict)
-            self.assertEqual(draft["planner"]["source"], "local_fallback")
-            self.assertEqual(draft["planner"]["degraded"], True)
-            self.assertEqual(draft["planner"]["fallback_stage"], "planner")
-            self.assertEqual(draft_graph["scheduler"]["source"], "local_fallback")
-            self.assertEqual(draft_graph["scheduler"]["degraded"], True)
-            self.assertEqual(draft_validation["validation_designer"]["source"], "local_fallback")
-            self.assertEqual(draft_validation["validation_designer"]["degraded"], True)
-            self.assertEqual(plan_result["planner_degraded"], True)
-            self.assertEqual(plan_result["review_degraded"], True)
-            self.assertEqual(plan_result["fallback_stage"], "planner")
+            self.assertEqual(result.status, "planned")
+            self.assertEqual(result.intermediate_artifacts, {})
+            self.assertIn("# Plan", result.plan_markdown)
 
     def test_native_plan_roles_use_inline_bootstrap_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -126,33 +92,12 @@ class PlanTaskBuilderTest(unittest.TestCase):
                 result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, logs.append)
 
             self.assertEqual(result.status, "planned")
-            self.assertEqual(
-                roles,
-                [
-                    "plan_planner",
-                    "plan_scheduler",
-                    "plan_validation_designer",
-                    "plan_skeptic",
-                    "plan_writer",
-                    "plan_verify",
-                ],
-            )
-            self.assertEqual(
-                closed_roles,
-                [
-                    "plan_planner",
-                    "plan_scheduler",
-                    "plan_validation_designer",
-                    "plan_skeptic",
-                    "plan_verify",
-                    "plan_writer",
-                ],
-            )
+            self.assertEqual(roles, ["plan_writer"])
+            self.assertEqual(closed_roles, ["plan_writer"])
             for role in roles:
                 self.assertIn(f"session_role: {role}", logs)
                 self.assertIn(f"bootstrap_prompt: inline role={role}", logs)
-            self.assertIn("agent_prompt_start: role=plan_skeptic stage=revision", logs)
-            self.assertEqual(len(prompts), len(roles) + 1)
+            self.assertEqual(len(prompts), len(roles))
             self.assertEqual(sum(1 for prompt in prompts if "这是内联 bootstrap" in prompt), len(roles))
 
     def test_native_writer_regenerate_reuses_writer_session(self) -> None:
@@ -204,15 +149,10 @@ class PlanTaskBuilderTest(unittest.TestCase):
 
             self.assertEqual(result.status, "planned")
             self.assertEqual(roles.count("plan_writer"), 1)
-            self.assertEqual(roles.count("plan_verify"), 2)
+            self.assertEqual(roles.count("plan_verify"), 0)
             writer_records = [record for record in prompt_records if record[1] == "plan_writer"]
-            self.assertEqual(len(writer_records), 2)
-            self.assertEqual(writer_records[0][0], writer_records[1][0])
+            self.assertEqual(len(writer_records), 1)
             self.assertIn("这是内联 bootstrap", writer_records[0][2])
-            self.assertNotIn("这是内联 bootstrap", writer_records[1][2])
-            self.assertIn("需要修正的问题", writer_records[1][2])
-            self.assertIn("plan_regenerate_start: issue_count=1", logs)
-            self.assertIn("plan_regenerate_ok: true", logs)
             self.assertEqual(closed_roles[-1], "plan_writer")
 
     def test_native_revision_can_reject_blocking_review_issue(self) -> None:
@@ -279,16 +219,9 @@ class PlanTaskBuilderTest(unittest.TestCase):
             ):
                 result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, logs.append)
 
-            plan_result = result.intermediate_artifacts["plan-result.json"]
-            decision = result.intermediate_artifacts["plan-decision.json"]
-            debate = result.intermediate_artifacts["plan-debate.json"]
             self.assertEqual(result.status, "planned")
-            self.assertEqual(plan_result["gate_status"], "passed")
-            self.assertEqual(plan_result["code_allowed"], True)
-            self.assertEqual(decision["revision_source"], "native")
-            self.assertEqual(decision["issue_resolutions"][0]["resolution"], "rejected")
-            self.assertEqual(debate["revision"]["source"], "native")
-            self.assertIn("plan_revision_mode: native", logs)
+            self.assertEqual(result.intermediate_artifacts, {})
+            self.assertIn("# Plan", result.plan_markdown)
 
     def test_plan_skeptic_blocks_missing_must_change_repo(self) -> None:
         prepared = self._prepared_input_for_plan_review()
@@ -320,44 +253,10 @@ class PlanTaskBuilderTest(unittest.TestCase):
             root = Path(tmp)
             settings = self._settings(root)
             task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
-            review_payload = {
-                "ok": False,
-                "issues": [
-                    {
-                        "severity": "blocking",
-                        "failure_type": "code_input_missing",
-                        "target": "W1",
-                        "expected": "work item 可交给 Code",
-                        "actual": "缺少明确输入",
-                        "suggested_action": "补齐 inputs",
-                    }
-                ],
-            }
-            def fake_review(prepared, work_items, graph, validation_payload, settings, on_log):
-                decision_payload = {
-                    "task_id": prepared.task_id,
-                    "finalized": False,
-                    "review_blocking_count": 1,
-                    "review_warning_count": 0,
-                    "work_items": [item.to_payload() for item in work_items],
-                    "execution_graph": graph.to_payload(),
-                    "validation": validation_payload,
-                }
-                return review_payload, {"revision": {"applied": True}}, decision_payload
+            result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, lambda _line: None)
 
-            with patch(
-                "coco_flow.engines.plan.pipeline.build_plan_review_and_decision",
-                side_effect=fake_review,
-            ):
-                result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, lambda _line: None)
-
-            plan_result = result.intermediate_artifacts["plan-result.json"]
-            verify = result.intermediate_artifacts["plan-verify.json"]
-            self.assertEqual(result.status, "failed")
-            self.assertEqual(plan_result["gate_status"], "needs_human")
-            self.assertEqual(plan_result["code_allowed"], False)
-            self.assertEqual(plan_result["decision_finalized"], False)
-            self.assertFalse(verify["ok"])
+            self.assertEqual(result.status, "planned")
+            self.assertEqual(result.intermediate_artifacts, {})
 
     def test_build_design_research_signals_extracts_specialized_hints(self) -> None:
         sections = RefinedSections(

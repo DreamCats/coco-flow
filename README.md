@@ -166,26 +166,21 @@ Notes:
 ### Refine
 
 - `refine` supports `native` and `local`.
-- The current refine engine is `manual-first`: it treats the Input-stage `人工提炼范围` as the primary source of truth, then turns it into a structured implementation brief.
-- `local` renders directly from the rule-generated brief.
-- `native` now uses `AGENT_MODE`: the controller prepares `manual_extract / brief draft / source excerpt`, then a read-write agent fills the markdown template and a second agent verifies it.
-- Typical artifacts include `refine-brief.json`, compatibility `refine-intent.json`, `prd-refined.md`, `refine-verify.json`, `refine-diagnosis.json`, and `refine-result.json`.
+- The current refine engine is `manual-first`: it treats the Input-stage `人工提炼范围` as the primary source of truth and writes `prd-refined.md`.
+- `local` renders the markdown directly.
+- `native` uses temporary generation inputs and writes only the markdown template result.
+- Refine no longer persists stage schema artifacts such as brief, intent, verify, diagnosis, or result JSON.
 - Refine verification now classifies common failures and runs a bounded local repair loop for low-risk markdown issues such as missing sections, template placeholders, and acceptance criteria mixed with boundary text.
 - If the required manual extract fields are missing, refine writes a `needs_human` diagnosis and stops before generation.
 
 ### Design And Plan
 
 - `design` is a standalone stage exposed in both CLI and API.
-- Design is now V3 agentic workflow oriented: input bundle, research plan, per-repo evidence research, architect adjudication, skeptic review, final decision, writer, and semantic gate.
-- Typical Design V3 artifacts include `design-input.json`, `design-input.md`, `design-research-plan.json`, `design-research/<repo>.json`, `design-research-summary.json`, `design-adjudication.json`, `design-review.json`, `design-debate.json`, `design-decision.json`, `design-repo-binding.json`, `design-sections.json`, `design.md`, `design-verify.json`, `design-diagnosis.json`, and `design-result.json`.
-- Design records repo-level producer/consumer dependencies in `design-decision.json`, then derives `depends_on` in `design-repo-binding.json` and `system_dependencies` in `design-sections.json`.
-- Local or partial Design V3 output is marked `degraded` and does not allow Plan by default; only `passed` and `passed_with_warnings` gate statuses allow Plan.
+- Design now follows a doc-only MVP flow: refined PRD, repo research, and Skills/SOP are collapsed directly into `design.md`.
+- Design no longer persists adjudication, review, debate, decision, repo-binding, sections, verify, diagnosis, or result JSON.
 - `plan` supports `native` and `local`.
-- `native plan` runs staged scope extraction, generation, and verification.
-- Typical Plan artifacts include `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-diagnosis.json`, `plan-skills-selection.json`, and `plan-skills-brief.md`.
-- Task detail responses also expose the latest stage diagnosis summary so the UI can show `severity`, `failureType`, and `nextAction` without parsing artifacts.
-- When the latest diagnosis requires human input, the task detail `nextAction` points to the artifact the user should edit or confirm before rerunning the stage.
-- `design-repo-binding.json` and `design-sections.json` are compatibility artifacts derived from `design-decision.json`.
+- Plan now follows the same doc-only MVP flow: `prd-refined.md`, `design.md`, bound repos, and Skills/SOP are collapsed directly into `plan.md`.
+- Plan no longer persists work-items, execution graph, validation, review, decision, verify, diagnosis, or result JSON.
 
 ### Code
 

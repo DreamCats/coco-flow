@@ -85,8 +85,8 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("Artifact 契约", rendered)
         self.assertIn("角色隔离策略", rendered)
         self.assertIn("Design 边界策略", rendered)
-        self.assertIn("Code 可执行的结构化计划", rendered)
-        self.assertIn("不得把 validate_only repo 默认升级成 implementation", rendered)
+        self.assertIn("可交给研发执行的计划文档", rendered)
+        self.assertIn("`plan.md`：唯一 Plan 阶段产物", rendered)
         self.assertIn("plan-skill: 任务拆解与验证边界规则", rendered)
         self.assertNotIn("AGENT_MODE", rendered)
 
@@ -215,7 +215,7 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("Skills 使用策略", rendered)
         self.assertIn("文件读写规则", rendered)
         self.assertIn("用户绑定的 repo 是搜索空间，不天然等于 must_change", rendered)
-        self.assertIn("Skeptic Session 负责独立反向审查", rendered)
+        self.assertIn("当前第一版不拆多角色 schema", rendered)
         self.assertIn("auction-design: 竞拍 repo role 与验收边界规则", rendered)
         self.assertNotIn("AGENT_MODE", rendered)
 
@@ -296,7 +296,7 @@ class PromptSystemTest(unittest.TestCase):
             source_excerpt_path="/tmp/refine-source.excerpt.md",
             template_path="/tmp/refine-template.md",
         )
-        self.assertIn("本次任务：基于 Refine artifact 生成需求确认书", rendered)
+        self.assertIn("本次任务：基于人工提炼范围和原文片段生成需求确认书", rendered)
         self.assertNotIn("AGENT_MODE", rendered)
         self.assertIn("/tmp/refine-manual-extract.json", rendered)
         self.assertIn("/tmp/refine-brief.draft.json", rendered)

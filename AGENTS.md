@@ -157,15 +157,11 @@ uv run python -m unittest discover -s tests -v
 - `refine` 当前已经切到 `manual-first` 新引擎：
   - 主输入是 Input 阶段的“人工提炼范围”
   - 不再运行旧的 `scope -> intent -> skills -> generate -> verify` 多段链路
-  - `local` 直接从规则生成的 brief 渲染文档
-  - `native` 通过 `AGENT_MODE` 读取 `manual_extract / brief draft / source excerpt`，填充模板并做 verify
+  - `local` 直接渲染 `prd-refined.md`
+  - `native` 通过临时输入文件填充 Markdown 模板
   - verify 会细分常见 `failure_type`，并对缺章节、模板占位、验收标准混入边界说明做最多 2 次本地定点 repair
-  - 人工提炼范围缺“本次范围”或“人工提炼改动点”时，会写入 `severity=needs_human` 的 `refine-diagnosis.json` 并停止生成
-- `refine` 当前会额外生成：
-  - `refine-brief.json`
-  - `refine-intent.json`
-  - `refine-verify.json`
-  - `refine-diagnosis.json`
+  - 人工提炼范围缺“本次范围”或“人工提炼改动点”时会直接停止生成
+- `refine` 阶段目录只保留 `prd-refined.md` 和 `refine.log`，不再持久化 brief / intent / verify / diagnosis / result schema。
 - 飞书文档若暂时拉不到正文，会生成 pending refine 占位稿，状态保持 `initialized`
 - `refine.log` 当前会记录：
   - `=== REFINE START === / === REFINE END ===`
@@ -180,74 +176,26 @@ uv run python -m unittest discover -s tests -v
 
 ### design
 
-- `design` 当前已切到 V3 agentic workflow 骨架：
-  - prepare input bundle
-  - research plan
-  - parallel repo research
-  - architect adjudication
-  - skeptic review
-  - bounded decision
-  - writer
-  - semantic gate
-- `native design` 当前采用分层 prompt + 角色隔离 session：
-  - Architect Session：standalone bootstrap -> adjudication -> bounded revision
-  - Skeptic / Writer / Gate：短 session + inline bootstrap
-  - 角色之间只通过 Design artifact 传递事实，不共享聊天历史
-- 旧的 change points / repo assignment / responsibility matrix / section repair 规则引擎已从主代码删除。
-- 新的机器事实源是：
-  - `design-input.json`
-  - `design-research-plan.json`
-  - `design-research/<repo_id>.json`
-  - `design-research-summary.json`
-  - `design-adjudication.json`
-  - `design-review.json`
-  - `design-debate.json`
-  - `design-decision.json`
-- `design-decision.json` 会记录 repo 级 producer / consumer 依赖；`design-repo-binding.json` 会派生 `depends_on`，`design-sections.json` 会派生 `system_dependencies`。
-- 兼容产物仍会派生：
-  - `design-repo-binding.json`
-  - `design-sections.json`
-  - `design.md`
-  - `design-verify.json`
-  - `design-diagnosis.json`
-  - `design-result.json`
-- `design-result.json` 的 `gate_status` 使用：
-  - `passed`
-  - `passed_with_warnings`
-  - `needs_human`
-  - `degraded`
-  - `failed`
-- 默认只有 `passed` / `passed_with_warnings` 允许进入 `plan`。
-- local 或 native 失败后的部分产物必须标记为 `degraded`，不得包装成通过。
+- `design` 当前采用 doc-only MVP：
+  - prepare input
+  - select Skills/SOP
+  - repo research
+  - writer 直接生成 `design.md`
+- `design` 阶段目录只保留 `design.md` 和 `design.log`，不再持久化 adjudication / review / debate / decision / repo-binding / sections / verify / diagnosis / result schema。
+- Plan 是否可执行由 `design.md` 是否存在和任务状态判断，不再依赖 `design-result.json` gate。
 
 ### plan
 
 - `plan` 支持 `native` 和 `local`
-- `native` 基于 Design 结构化产物生成 `plan.md`
-- `local` 会基于 refined PRD、本地 context 和代码调研生成本地方案
-- `plan` 当前内部已拆成 orchestrator + 多模块：
-  - `src/coco_flow/engines/plan/pipeline.py`：主流程编排、native/local 调度、artifact 组织
-  - `src/coco_flow/engines/plan/source.py`：读取上游产物并准备 plan 输入
-  - `src/coco_flow/engines/plan/task_outline.py`：生成/归一化 `plan-work-items.json`
-  - `src/coco_flow/engines/plan/generate.py`：生成 `plan.md`
-  - `src/coco_flow/engines/plan/graph.py`、`validation.py`、`verify.py`：执行图、验证矩阵与 verify
-  - `src/coco_flow/engines/shared/models.py`、`shared/research.py`：Design / Plan 共用的共享模型与 repo research 能力
-  - `src/coco_flow/engines/plan_skills.py`：selected skills 的规则筛选与 brief 构建
-- `native plan` 当前已升级成三段式 LLM 编排：
-  - `scope extractor`
-  - `plan generator`
-  - `verifier / judge`
+- `native` / `local` 都基于 `prd-refined.md`、`design.md`、绑定仓库和 Skills/SOP 生成 `plan.md`
+- `plan` 当前目录只保留 `plan.md` 和 `plan.log`，不再持久化 work-items / execution graph / validation / review / decision / verify / diagnosis / result schema。
 - 当前 `plan` 已支持多 repo research：
   - 对 task 绑定的每个 repo 分别读取 `.livecoding/context`
   - 分别提取 glossary 命中、未命中术语、candidate files / dirs
   - 在 `design.md`、`plan.md`、prompt 和 `plan.log` 中按 repo 聚合
 - `plan` 当前已接入 skills 的规则筛选：
   - 优先消费 `skills_root` 下的 `SKILL.md + references/*`
-  - 先生成 `plan-skills-selection.json`
-  - 再生成 `plan-skills-brief.md`
-  - brief 会尽量压成“决策边界 / 稳定规则 / 验证要点”
-  - native prompt 和 local `plan.md` 会消费该 brief
-- `plan` 默认会阻止消费 `degraded` / `needs_human` / `failed` 的 Design V3 结果
+  - selection 与 brief 只在内存中给 prompt 使用，不再落阶段 schema
 - `plan.log` 当前会记录：
   - `repo_count`
   - 每个 repo 的 `repo_research`
@@ -262,12 +210,9 @@ uv run python -m unittest discover -s tests -v
 - 单 repo task 可直接推进；多 repo task 支持：
   - `POST /api/tasks/{task_id}/code?repo=<repo_id>`
   - `POST /api/tasks/{task_id}/code-all`
-- `Code V2` 正式消费：
-  - `design-repo-binding.json`
-  - `plan-work-items.json`
-  - `plan-execution-graph.json`
-  - `plan-validation.json`
-  - `plan-result.json`
+- `Code V2` 当前兼容 doc-only Plan：
+  - 优先消费旧结构化产物（如果存在）
+  - 缺少结构化产物时，退回到 `repos.json` + `prd-refined.md` + `design.md` + `plan.md`
 - `native code` 通过 ACP agent 模式在隔离 worktree 内执行 repo batch
 - worktree 根目录：
   - `<repo-parent>/.coco-flow-worktree/`
@@ -294,36 +239,11 @@ uv run python -m unittest discover -s tests -v
   - `prd-refined.md`
   - `design.md`
   - `plan.md`
-- 当前 task 级非编辑 artifact 还包括：
-  - `refine-brief.json`
-  - `refine-intent.json`
-  - `refine-verify.json`
-  - `refine-diagnosis.json`
-  - `refine-result.json`
-  - `design-input.json`
-  - `design-input.md`
-  - `design-research-plan.json`
-  - `design-research/<repo_id>.json`
-  - `design-research-summary.json`
-  - `design-adjudication.json`
-  - `design-review.json`
-  - `design-debate.json`
-  - `design-decision.json`
-  - `design-repo-binding.json`
-  - `design-sections.json`
-  - `design-verify.json`
-  - `design-diagnosis.json`
-  - `design-result.json`
-  - `plan-skills-selection.json`
-  - `plan-skills-brief.md`
+- 当前 Refine / Design / Plan 不再额外写阶段 schema artifact。
+- Code 阶段仍会写执行结果类 artifact：
   - `code-dispatch.json`
   - `code-progress.json`
-  - `plan-scope.json`
-  - `plan-execution.json`
-  - `plan-verify.json`
-  - `plan-diagnosis.json`
-- 任务详情 API 会额外暴露最新阶段的 diagnosis 摘要，供 UI 直接展示 `severity / failureType / nextAction`
-- 最新 diagnosis 为 `needs_human` 时，任务详情的顶层 `nextAction` 会优先提示用户编辑或确认对应 artifact 后重跑该阶段
+  - `code-result.json`
 
 ### daemon / ACP
 

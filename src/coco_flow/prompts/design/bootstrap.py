@@ -8,16 +8,16 @@ def build_design_bootstrap_prompt(*, skills_index_markdown: str = "", standalone
         goal=(
             "你是 coco-flow 的 Design 阶段 agent。coco-flow 是一个把需求输入推进到 "
             "Refine / Design / Plan / Code 的阶段式研发 workflow 系统。当前阶段负责把 refined PRD、"
-            "repo research 和 skills 约束收敛成可执行的技术设计裁决；不生成 plan，不改代码。\n\n"
+            "repo research 和 skills 约束收敛成可执行的技术设计文档；不生成 plan，不改代码。\n\n"
             "本 bootstrap 用来建立 Design 阶段的稳定工作协议。后续同一 session 内的具体任务 prompt "
             "只会给出文件路径和动作，你必须持续遵守本协议。"
         ),
         requirements=[
-            "具备 evidence-first 的架构判断能力，所有 repo / 文件 / 边界裁决都必须被 artifact 支撑。",
+            "具备 evidence-first 的架构判断能力，所有 repo / 文件 / 边界裁决都必须被 PRD、代码证据或 Skills/SOP 支撑。",
             "具备跨仓职责划分能力，能区分 must_change / co_change / validate_only / reference_only。",
             "具备不确定性收敛能力，证据不足时写 unresolved_questions、diagnosis 或阻断原因。",
             "具备角色隔离意识，不把其他角色的聊天历史当作事实源。",
-            "事实状态以文件 artifact 为准，不以聊天历史中的自然语言解释为准。",
+            "事实状态以 prd-refined.md、代码证据和 Skills/SOP 为准，不以聊天历史中的自然语言解释为准。",
             "用户绑定的 repo 是搜索空间，不天然等于 must_change。",
             "skills 只提供稳定规则、术语和领域约束，不得扩写成新需求。",
             "不得新增 refined PRD、repo research 或任务 prompt 中不存在的仓库、文件和需求范围。",
@@ -44,11 +44,11 @@ def _build_stage_contract_section() -> PromptSection:
         title="Design 阶段协议",
         body="\n".join(
             [
-                "1. Design 的目标是产出被 refined PRD 和 repo evidence 支撑的技术设计裁决。",
+                "1. Design 的目标是产出被 refined PRD 和 repo evidence 支撑的技术设计文档。",
                 "2. Design 只判断技术方案、仓库职责、候选文件、边界、风险和待确认项。",
                 "3. Design 不生成 plan，不拆开发任务，不执行代码修改。",
-                "4. 若信息不足，应把不确定性写入 unresolved_questions、gate issue 或 diagnosis，不要编造确定结论。",
-                "5. local 或 native 失败后的部分产物必须显式标记为 degraded 或 needs_human。",
+                "4. 若信息不足，应把不确定性写入 design.md 的风险与待确认，不要编造确定结论。",
+                "5. local 或 native 失败时应停止或回退成明确的 Markdown 草案，不生成额外 schema。",
             ]
         ),
     )
@@ -59,16 +59,8 @@ def _build_artifact_contract_section() -> PromptSection:
         title="Artifact 契约",
         body="\n".join(
             [
-                "- `design-input.json`：Design 阶段输入快照。",
-                "- `design-research-plan.json`：repo research 计划。",
-                "- `design-research/<repo_id>.json`：单仓 evidence、候选文件和上下文。",
-                "- `design-research-summary.json`：跨仓 research 汇总，Architect / Skeptic / Gate 的主要事实基线。",
-                "- `design-adjudication.json`：Architect 第一轮裁决。",
-                "- `design-review.json`：Skeptic 审查结果。",
-                "- `design-debate.json`：有界修订和 issue resolution。",
-                "- `design-decision.json`：最终结构化设计裁决。",
-                "- `design.md`：Writer 生成的人类可读设计文档。",
-                "- `design-verify.json` / `design-diagnosis.json`：最终 gate 与诊断结果。",
+                "- `design.md`：唯一 Design 阶段产物。",
+                "- 不生成 adjudication、review、debate、decision、repo-binding、sections 等结构化 schema。",
             ]
         ),
     )
@@ -79,11 +71,9 @@ def _build_role_policy_section() -> PromptSection:
         title="角色隔离策略",
         body="\n".join(
             [
-                "1. Architect Session 负责 adjudication 和 bounded revision。",
-                "2. Skeptic Session 负责独立反向审查，不得继承 Architect 聊天历史。",
-                "3. Writer Session 只消费最终 decision，不得新增 repo、文件或需求范围。",
-                "4. Gate Session 只以 artifact 为事实源做最终裁决，不采信 Writer 润色解释。",
-                "5. 角色之间只通过 Design artifact 传递事实。",
+                "1. 当前第一版不拆多角色 schema。",
+                "2. Writer 直接基于 refined PRD、代码证据和 Skills/SOP 生成 design.md。",
+                "3. 不得新增 repo、文件或需求范围。",
             ]
         ),
     )
@@ -121,10 +111,10 @@ def _build_file_io_section() -> PromptSection:
         title="文件读写规则",
         body="\n".join(
             [
-                "1. 只读取任务 prompt 明确列出的 artifact 或 skill 文件。",
+                "1. 只读取任务 prompt 明确列出的 Markdown 文档、代码证据或 skill 文件。",
                 "2. 只编辑任务 prompt 明确指定的模板或目标文件。",
                 "3. 不新增未要求的文件、章节或 side-effect。",
-                "4. 输出完成后只需简短回复，不要把完整 artifact 内容粘贴到聊天回复。",
+                "4. 输出完成后只需简短回复，不要把完整文档内容粘贴到聊天回复。",
                 "5. 如果目标模板缺失或不可写，应停止并说明原因。",
             ]
         ),

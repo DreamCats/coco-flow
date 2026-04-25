@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
+import tempfile
+
 from coco_flow.config import Settings
-from coco_flow.engines.shared.diagnostics import diagnosis_payload_from_verify, enrich_verify_payload
 
 from .brief import (
-    build_compat_intent_payload,
     build_refine_brief,
     build_source_excerpt,
     merge_brief_with_refined_markdown,
@@ -38,41 +39,26 @@ def run_refine_engine(
     manual_extract_payload = manual_extract.to_payload()
     brief_draft_payload = brief.to_payload()
     # 这三个中间产物就是 agent 的全部输入，便于复现和排查。
-    artifacts: dict[str, str | dict[str, object]] = {
-        "refine-manual-extract.json": manual_extract_payload,
-        "refine-brief.draft.json": brief_draft_payload,
-        "refine-source.excerpt.md": source_excerpt,
-        "refine-brief.json": brief_draft_payload,
-        "refine-intent.json": build_compat_intent_payload(prepared, brief),
-    }
+    with tempfile.TemporaryDirectory(prefix="coco-flow-refine-") as temp_dir:
+        manual_extract_path = _write_temp_file(temp_dir, "manual-extract.json", manual_extract_payload)
+        brief_draft_path = _write_temp_file(temp_dir, "brief-draft.json", brief_draft_payload)
+        source_excerpt_path = _write_temp_file(temp_dir, "source-excerpt.md", source_excerpt)
 
-    manual_extract_path = prepared.task_dir / "refine-manual-extract.json"
-    brief_draft_path = prepared.task_dir / "refine-brief.draft.json"
-    source_excerpt_path = prepared.task_dir / "refine-source.excerpt.md"
-    manual_extract_path.write_text(_json_dump(manual_extract_payload), encoding="utf-8")
-    brief_draft_path.write_text(_json_dump(brief_draft_payload), encoding="utf-8")
-    source_excerpt_path.write_text(source_excerpt.rstrip() + "\n", encoding="utf-8")
-
-    refined_markdown, verify = generate_refined_markdown(
-        prepared=prepared,
-        brief=brief,
-        manual_extract_path=manual_extract_path,
-        brief_draft_path=brief_draft_path,
-        source_excerpt_path=source_excerpt_path,
-        settings=settings,
-        on_log=on_log,
-    )
+        refined_markdown, verify = generate_refined_markdown(
+            prepared=prepared,
+            brief=brief,
+            manual_extract_path=manual_extract_path,
+            brief_draft_path=brief_draft_path,
+            source_excerpt_path=source_excerpt_path,
+            settings=settings,
+            on_log=on_log,
+        )
     finalized_brief = merge_brief_with_refined_markdown(brief, refined_markdown)
-    verify_payload = enrich_verify_payload(stage="refine", verify_payload=verify.to_payload(), artifact="prd-refined.md")
-    artifacts["refine-verify.json"] = verify_payload
-    diagnosis_payload = diagnosis_payload_from_verify(
-        stage="refine",
-        verify_payload=verify_payload,
-        artifact="prd-refined.md",
-    )
-    artifacts["refine-diagnosis.json"] = diagnosis_payload
-    artifacts["refine-brief.json"] = finalized_brief.to_payload()
-    artifacts["refine-intent.json"] = build_compat_intent_payload(prepared, finalized_brief)
+    diagnosis_payload = {
+        "severity": "passed" if verify.ok else "failed",
+        "failure_type": verify.failure_type,
+        "next_action": "",
+    }
 
     on_log("refine_mode: manual_first")
     on_log(f"manual_scope_count: {len(manual_extract.scope)}")
@@ -90,11 +76,16 @@ def run_refine_engine(
         refined_markdown=refined_markdown,
         skills_used=settings.refine_executor.strip().lower() == "native",
         selected_skill_ids=["agent_refine"] if settings.refine_executor.strip().lower() == "native" else [],
-        intermediate_artifacts=artifacts,
+        intermediate_artifacts={},
     )
 
 
-def _json_dump(payload: dict[str, object]) -> str:
-    import json
+def _write_temp_file(temp_dir: str, name: str, payload: str | dict[str, object]):
+    from pathlib import Path
 
-    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    path = Path(temp_dir) / name
+    if isinstance(payload, dict):
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    else:
+        path.write_text(payload.rstrip() + "\n", encoding="utf-8")
+    return path

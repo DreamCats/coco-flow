@@ -390,7 +390,7 @@ class DesignV3PipelineTest(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["gate_status"], "needs_human")
 
-    def test_local_design_v3_writes_agentic_artifacts_and_blocks_plan(self) -> None:
+    def test_local_design_doc_only_writes_markdown_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             settings = make_settings(root, plan_executor="local")
@@ -398,30 +398,14 @@ class DesignV3PipelineTest(unittest.TestCase):
 
             status = design_task("task-design-v3", settings=settings)
 
-            self.assertEqual(status, "failed")
-            self.assertTrue((task_dir / "design-input.json").exists())
-            self.assertTrue((task_dir / "design-research-plan.json").exists())
-            self.assertTrue((task_dir / "design-skills-selection.json").exists())
-            self.assertTrue((task_dir / "design-search-hints.json").exists())
-            self.assertTrue((task_dir / "design-research" / "demo.json").exists())
-            self.assertTrue((task_dir / "design-research-summary.json").exists())
-            self.assertTrue((task_dir / "design-adjudication.json").exists())
-            self.assertTrue((task_dir / "design-review.json").exists())
-            self.assertTrue((task_dir / "design-debate.json").exists())
-            self.assertTrue((task_dir / "design-decision.json").exists())
-            self.assertTrue((task_dir / "design-repo-binding.json").exists())
-            self.assertTrue((task_dir / "design-sections.json").exists())
+            self.assertEqual(status, "designed")
             self.assertTrue((task_dir / "design.md").exists())
-            self.assertTrue((task_dir / "design-verify.json").exists())
-            self.assertTrue((task_dir / "design-diagnosis.json").exists())
+            self.assertFalse((task_dir / "design-decision.json").exists())
+            self.assertFalse((task_dir / "design-repo-binding.json").exists())
+            self.assertFalse((task_dir / "design-sections.json").exists())
+            self.assertEqual(start_planning_task("task-design-v3", settings=settings), "planning")
 
-            result = self._read_json(task_dir / "design-result.json")
-            self.assertEqual(result["gate_status"], "degraded")
-            self.assertEqual(result["plan_allowed"], False)
-            with self.assertRaisesRegex(ValueError, "does not allow plan"):
-                start_planning_task("task-design-v3", settings=settings)
-
-    def test_native_design_uses_layered_role_sessions(self) -> None:
+    def test_native_design_doc_only_uses_writer_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             settings = make_settings(root, plan_executor="native")
@@ -456,32 +440,14 @@ class DesignV3PipelineTest(unittest.TestCase):
                 status = design_task("task-design-native", settings=settings)
 
             design_log = (task_dir / "design.log").read_text(encoding="utf-8")
-            decision = self._read_json(task_dir / "design-decision.json")
-            verify = self._read_json(task_dir / "design-verify.json")
-
             self.assertEqual(status, "designed")
-            self.assertEqual(session_roles, ["design_architect", "design_skeptic", "design_writer", "design_gate"])
-            self.assertEqual(
-                prompt_events,
-                [
-                    ("design_architect", "bootstrap"),
-                    ("design_architect", "architect"),
-                    ("design_skeptic", "skeptic"),
-                    ("design_architect", "revision"),
-                    ("design_writer", "writer"),
-                    ("design_gate", "gate"),
-                ],
-            )
-            self.assertEqual(closed_roles, ["design_skeptic", "design_writer", "design_gate", "design_architect"])
-            self.assertEqual(decision["review_blocking_count"], 0)
-            self.assertTrue(decision["finalized"])
-            self.assertTrue(verify["ok"])
-            self.assertIn("session_role: design_architect", design_log)
-            self.assertIn("bootstrap_prompt: true role=design_architect", design_log)
-            self.assertIn("bootstrap_prompt: inline role=design_skeptic", design_log)
+            self.assertEqual(session_roles, ["design_writer"])
+            self.assertEqual(prompt_events, [("design_writer", "writer")])
+            self.assertEqual(closed_roles, ["design_writer"])
+            self.assertIn("session_role: design_writer", design_log)
             self.assertIn("bootstrap_prompt: inline role=design_writer", design_log)
-            self.assertIn("bootstrap_prompt: inline role=design_gate", design_log)
-            self.assertIn("agent_prompt_start: role=design_architect stage=revision", design_log)
+            self.assertFalse((task_dir / "design-decision.json").exists())
+            self.assertFalse((task_dir / "design-verify.json").exists())
 
     def test_design_v3_requires_bound_repos(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

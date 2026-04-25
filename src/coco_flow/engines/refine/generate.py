@@ -9,7 +9,6 @@ from pathlib import Path
 
 from coco_flow.clients import AgentSessionHandle, CocoACPClient
 from coco_flow.config import Settings
-from coco_flow.engines.shared.diagnostics import diagnosis_payload_from_verify, enrich_verify_payload
 from coco_flow.prompts.refine import (
     build_refine_bootstrap_prompt,
     build_refine_generate_agent_prompt,
@@ -301,15 +300,8 @@ def _join_prompts(*parts: str) -> str:
 
 
 def _write_native_refine_failure_artifacts(task_dir: Path, refined_markdown: str, verify: RefineVerifyResult) -> None:
-    verify_payload = enrich_verify_payload(stage="refine", verify_payload=verify.to_payload(), artifact="prd-refined.md")
-    diagnosis_payload = diagnosis_payload_from_verify(
-        stage="refine",
-        verify_payload=verify_payload,
-        artifact="prd-refined.md",
-    )
+    del verify
     (task_dir / "prd-refined.md").write_text(refined_markdown.rstrip() + "\n", encoding="utf-8")
-    (task_dir / "refine-verify.json").write_text(json.dumps(verify_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (task_dir / "refine-diagnosis.json").write_text(json.dumps(diagnosis_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _verify_with_local_repair(brief: RefineBrief, refined_markdown: str, on_log) -> tuple[str, RefineVerifyResult]:

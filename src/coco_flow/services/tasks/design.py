@@ -46,22 +46,6 @@ def design_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
     try:
         result = run_design_engine(task_dir, task_meta, cfg, logger)
         (task_dir / "design.md").write_text(result.design_markdown, encoding="utf-8")
-        for name, payload in result.intermediate_artifacts.items():
-            _write_intermediate_artifact(task_dir / name, payload)
-        _write_intermediate_artifact(
-            task_dir / "design-result.json",
-            {
-                "task_id": task_id,
-                "status": result.status,
-                "gate_status": result.gate_status,
-                "agentic_version": "v3",
-                "plan_allowed": result.status == STATUS_DESIGNED,
-                "repo_binding": result.repo_binding_payload,
-                "sections": result.sections_payload,
-                "intermediate_artifacts": sorted(result.intermediate_artifacts.keys()),
-                "updated_at": datetime.now().astimezone().isoformat(),
-            },
-        )
         task_meta["status"] = result.status
         task_meta["updated_at"] = datetime.now().astimezone().isoformat()
         (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -101,14 +85,6 @@ def start_designing_task(task_id: str, settings: Settings | None = None) -> str:
     (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     _sync_repo_status(task_dir, STATUS_DESIGNING)
     return STATUS_DESIGNING
-
-
-def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(payload, dict):
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        return
-    path.write_text(payload.rstrip() + "\n", encoding="utf-8")
 
 
 def _ensure_bound_repos(task_dir: Path) -> None:

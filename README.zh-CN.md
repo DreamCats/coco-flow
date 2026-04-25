@@ -164,18 +164,17 @@ coco-flow remote disconnect
 ### Refine
 
 - `refine` 支持 `native` 和 `local`
-- 当前 refine 是 `manual-first`：以 Input 阶段的“人工提炼范围”为主输入，收敛成结构化 implementation brief。
-- `local` 直接基于规则生成的 brief 渲染文档。
-- `native` 现在走 `AGENT_MODE`：controller 先准备 `manual_extract / brief draft / source excerpt`，再由可读写 agent 填充 markdown 模板，并用第二个 agent 做 verify。
-- 常见产物包括 `refine-brief.json`、兼容用的 `refine-intent.json`、`prd-refined.md`、`refine-verify.json`、`refine-result.json`
+- 当前 refine 是 `manual-first`：以 Input 阶段的“人工提炼范围”为主输入，生成 `prd-refined.md`。
+- `local` 直接渲染 Markdown。
+- `native` 使用临时生成输入填充 Markdown 模板，阶段目录只保留 `prd-refined.md`。
+- Refine 不再持久化 brief、intent、verify、diagnosis、result 等阶段 schema。
 
 ### Design 与 Plan
 
 - `design` 是独立阶段，CLI 和 API 都已暴露
-- Design 会在 `design-decision.json` 中记录 repo 级 producer / consumer 依赖，并派生到 `design-repo-binding.json` 的 `depends_on` 与 `design-sections.json` 的 `system_dependencies`
+- Design 采用 doc-only MVP：基于 refined PRD、repo research 和 Skills/SOP 直接生成 `design.md`，不再持久化 adjudication、review、decision、repo-binding、sections、verify、diagnosis、result 等阶段 schema。
 - `plan` 支持 `native` 和 `local`
-- `native plan` 采用 scope 提取、生成、验证的分段编排
-- 常见产物包括 `design.md`、`plan.md`、`plan-scope.json`、`plan-execution.json`、`plan-verify.json`、`plan-knowledge-selection.json`、`plan-knowledge-brief.md`
+- Plan 同样采用 doc-only MVP：基于 `prd-refined.md`、`design.md`、绑定仓库和 Skills/SOP 直接生成 `plan.md`，不再持久化 work-items、execution graph、validation、review、decision、verify、diagnosis、result 等阶段 schema。
 
 ### Code
 
