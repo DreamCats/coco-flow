@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-import tempfile
-
-from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.prompts.plan import (
-    build_plan_bootstrap_prompt,
     build_plan_review_template_json,
+    build_plan_revision_prompt,
+    build_plan_revision_template_json,
     build_plan_skeptic_prompt,
 )
 
+from .agent_io import close_plan_agent_session, new_plan_agent_session, run_plan_agent_json_in_session, run_plan_agent_json_with_new_session
 from .models import EXECUTOR_NATIVE, PlanExecutionGraph, PlanPreparedInput, PlanWorkItem
 
 _SEVERITIES = {"blocking", "warning", "info"}
@@ -29,6 +26,32 @@ def build_plan_review_and_decision(
     settings: Settings,
     on_log,
 ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
+        try:
+            return _build_native_plan_review_and_revision_payloads(
+                prepared,
+                work_items,
+                graph,
+                validation_payload,
+                settings,
+                on_log,
+            )
+        except Exception as error:
+            on_log(f"plan_skeptic_fallback: {error}")
+            review_payload = build_local_plan_review_payload(prepared, work_items, graph, validation_payload)
+            review_payload["source"] = "local_fallback"
+            review_payload["degraded"] = True
+            review_payload["degraded_reason"] = str(error)
+            review_payload["fallback_stage"] = "skeptic"
+            debate_payload, decision_payload = build_plan_decision_payload(
+                prepared,
+                work_items,
+                graph,
+                validation_payload,
+                review_payload,
+            )
+            return review_payload, debate_payload, decision_payload
+
     review_payload = build_plan_review_payload(prepared, work_items, graph, validation_payload, settings, on_log)
     debate_payload, decision_payload = build_plan_decision_payload(
         prepared,
@@ -244,6 +267,7 @@ def build_plan_decision_payload(
         "finalized": finalized,
         "review_blocking_count": len(blocking),
         "review_warning_count": len([item for item in issues if str(item.get("severity") or "") == "warning"]),
+        "issue_resolutions": issue_resolutions,
         "work_items": [item.to_payload() for item in work_items],
         "execution_graph": graph.to_payload(),
         "validation": validation_payload,
@@ -274,6 +298,80 @@ def normalize_plan_review_payload(payload: dict[str, object]) -> dict[str, objec
     }
 
 
+def normalize_plan_revision_payload(
+    payload: dict[str, object],
+    prepared: PlanPreparedInput,
+    work_items: list[PlanWorkItem],
+    graph: PlanExecutionGraph,
+    validation_payload: dict[str, object],
+    review_payload: dict[str, object],
+) -> tuple[dict[str, object], dict[str, object]]:
+    fallback_debate, fallback_decision = build_plan_decision_payload(
+        prepared,
+        work_items,
+        graph,
+        validation_payload,
+        review_payload,
+    )
+    debate_raw = payload.get("debate")
+    debate_payload = dict(debate_raw) if isinstance(debate_raw, dict) else {}
+    revision_raw = debate_payload.get("revision")
+    revision_payload = dict(revision_raw) if isinstance(revision_raw, dict) else {}
+    raw_resolutions = _dict_list(revision_payload.get("issue_resolutions"))
+    if not raw_resolutions:
+        raw_resolutions = _dict_list(payload.get("issue_resolutions"))
+    if not raw_resolutions:
+        decision_raw = payload.get("decision")
+        if isinstance(decision_raw, dict):
+            raw_resolutions = _dict_list(decision_raw.get("issue_resolutions"))
+    issue_resolutions = _normalize_issue_resolutions(raw_resolutions, _issues(review_payload))
+
+    blocking = [item for item in _issues(review_payload) if str(item.get("severity") or "") == "blocking"]
+    unresolved_blocking = _unresolved_blocking_issues(blocking, issue_resolutions)
+    decision_raw = payload.get("decision")
+    decision_input = decision_raw if isinstance(decision_raw, dict) else {}
+    finalized = not unresolved_blocking and bool(decision_input.get("finalized", True))
+
+    revision_payload.update(
+        {
+            "applied": bool(blocking),
+            "source": "native",
+            "summary": str(revision_payload.get("summary") or fallback_debate.get("revision", {}).get("summary") or "").strip(),
+            "issue_resolutions": issue_resolutions,
+        }
+    )
+    debate_payload.update(
+        {
+            "rounds": [
+                {"role": "planner", "artifact": "plan-draft-work-items.json"},
+                {"role": "scheduler", "artifact": "plan-execution-graph.json"},
+                {"role": "validation_designer", "artifact": "plan-validation.json"},
+                {"role": "skeptic", "artifact": "plan-review.json", "blocking_count": len(blocking)},
+                {"role": "revision", "artifact": "plan-decision.json", "unresolved_blocking_count": len(unresolved_blocking)},
+            ],
+            "revision": revision_payload,
+            "task_id": prepared.task_id,
+        }
+    )
+
+    decision_payload = dict(fallback_decision)
+    decision_payload.update(
+        {
+            "finalized": finalized,
+            "review_blocking_count": len(blocking),
+            "review_warning_count": len([item for item in _issues(review_payload) if str(item.get("severity") or "") == "warning"]),
+            "issue_resolutions": issue_resolutions,
+            "unresolved_questions": [
+                str(item.get("suggested_action") or item.get("actual") or "")
+                for item in unresolved_blocking
+                if str(item.get("suggested_action") or item.get("actual") or "").strip()
+            ],
+            "revision_source": "native",
+        }
+    )
+    return debate_payload, decision_payload
+
+
 def _build_native_plan_review_payload(
     prepared: PlanPreparedInput,
     work_items: list[PlanWorkItem],
@@ -282,21 +380,42 @@ def _build_native_plan_review_payload(
     settings: Settings,
     on_log,
 ) -> dict[str, object]:
-    client = CocoACPClient(settings.coco_bin, idle_timeout_seconds=settings.acp_idle_timeout_seconds, settings=settings)
-    on_log("session_role: plan_skeptic")
-    handle = client.new_agent_session(
-        query_timeout=settings.native_query_timeout,
-        cwd=str(prepared.task_dir),
+    return run_plan_agent_json_with_new_session(
+        prepared,
+        settings,
+        build_plan_review_template_json(),
+        lambda template_path: build_plan_skeptic_prompt(
+            title=prepared.title,
+            design_markdown=prepared.design_markdown,
+            refined_markdown=prepared.refined_markdown,
+            skills_brief_markdown=prepared.skills_brief_markdown,
+            repo_binding_payload=prepared.design_repo_binding_payload,
+            work_items_payload={"work_items": [item.to_payload() for item in work_items]},
+            execution_graph_payload=graph.to_payload(),
+            validation_payload=validation_payload,
+            template_path=template_path,
+        ),
+        ".plan-skeptic-",
         role="plan_skeptic",
+        stage="review",
+        on_log=on_log,
     )
-    template_path = _write_template(prepared.task_dir, ".plan-skeptic-", ".json", build_plan_review_template_json())
+
+
+def _build_native_plan_review_and_revision_payloads(
+    prepared: PlanPreparedInput,
+    work_items: list[PlanWorkItem],
+    graph: PlanExecutionGraph,
+    validation_payload: dict[str, object],
+    settings: Settings,
+    on_log,
+) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    session = new_plan_agent_session(prepared, settings, role="plan_skeptic", on_log=on_log, bootstrap=False)
     try:
-        prompt = _join_prompts(
-            build_plan_bootstrap_prompt(
-                skills_index_markdown=prepared.skills_brief_markdown,
-                standalone=False,
-            ),
-            build_plan_skeptic_prompt(
+        review_payload = run_plan_agent_json_in_session(
+            prepared,
+            build_plan_review_template_json(),
+            lambda template_path: build_plan_skeptic_prompt(
                 title=prepared.title,
                 design_markdown=prepared.design_markdown,
                 refined_markdown=prepared.refined_markdown,
@@ -305,26 +424,46 @@ def _build_native_plan_review_payload(
                 work_items_payload={"work_items": [item.to_payload() for item in work_items]},
                 execution_graph_payload=graph.to_payload(),
                 validation_payload=validation_payload,
-                template_path=str(template_path),
+                template_path=template_path,
             ),
+            ".plan-skeptic-",
+            session,
+            stage="review",
+            inline_bootstrap=True,
+            on_log=on_log,
         )
-        on_log("bootstrap_prompt: inline role=plan_skeptic")
-        on_log("agent_prompt_start: role=plan_skeptic stage=review")
-        client.prompt_agent_session(handle, prompt)
-        on_log("agent_prompt_done: role=plan_skeptic stage=review")
-        raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
+        review_payload = normalize_plan_review_payload(review_payload)
+        on_log("plan_skeptic_mode: native")
+
+        revision_payload = run_plan_agent_json_in_session(
+            prepared,
+            build_plan_revision_template_json(),
+            lambda template_path: build_plan_revision_prompt(
+                title=prepared.title,
+                review_payload=review_payload,
+                work_items_payload={"work_items": [item.to_payload() for item in work_items]},
+                execution_graph_payload=graph.to_payload(),
+                validation_payload=validation_payload,
+                template_path=template_path,
+            ),
+            ".plan-revision-",
+            session,
+            stage="revision",
+            inline_bootstrap=False,
+            on_log=on_log,
+        )
+        on_log("plan_revision_mode: native")
+        debate_payload, decision_payload = normalize_plan_revision_payload(
+            revision_payload,
+            prepared,
+            work_items,
+            graph,
+            validation_payload,
+            review_payload,
+        )
+        return review_payload, debate_payload, decision_payload
     finally:
-        try:
-            client.close_agent_session(handle)
-        finally:
-            if template_path.exists():
-                template_path.unlink()
-    if "__FILL__" in raw or not raw.strip():
-        raise ValueError("plan_review_template_unfilled")
-    payload = json.loads(raw)
-    if not isinstance(payload, dict):
-        raise ValueError("plan_review_output_invalid")
-    return payload
+        close_plan_agent_session(session, on_log)
 
 
 def _issue(
@@ -363,7 +502,7 @@ def _resolution_for_issue(item: dict[str, object]) -> dict[str, object]:
     return {
         "failure_type": item.get("failure_type"),
         "target": item.get("target"),
-        "resolution": "needs_human" if item.get("failure_type") == "needs_design_revision" else "deferred",
+        "resolution": "needs_design_revision" if item.get("failure_type") == "needs_design_revision" else "needs_human",
         "reason": "Phase 3 只记录结构化 review 和 revision 决议；需要后续 Planner 或 Design rerun 处理。",
         "decision_change": "none",
     }
@@ -379,6 +518,55 @@ def _dict_list(value: object) -> list[dict[str, object]]:
     return [item for item in value if isinstance(item, dict)]
 
 
+def _normalize_issue_resolutions(
+    raw_resolutions: list[dict[str, object]],
+    issues: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    by_key = {
+        _issue_key(item): item
+        for item in raw_resolutions
+        if str(item.get("failure_type") or "").strip() or str(item.get("target") or "").strip()
+    }
+    result: list[dict[str, object]] = []
+    for issue in issues:
+        raw = by_key.get(_issue_key(issue), {})
+        resolution = str(raw.get("resolution") or "").strip()
+        if resolution not in {"resolved", "rejected", "needs_human", "needs_design_revision", "deferred"}:
+            resolution = (
+                "needs_design_revision"
+                if str(issue.get("failure_type") or "") in {"needs_design_revision", "design_artifact_conflict"}
+                else "needs_human"
+                if str(issue.get("severity") or "") == "blocking"
+                else "deferred"
+            )
+        result.append(
+            {
+                "failure_type": issue.get("failure_type"),
+                "target": issue.get("target"),
+                "resolution": resolution,
+                "reason": str(raw.get("reason") or issue.get("suggested_action") or issue.get("actual") or "").strip(),
+                "decision_change": str(raw.get("decision_change") or "none").strip(),
+            }
+        )
+    return result
+
+
+def _unresolved_blocking_issues(
+    blocking_issues: list[dict[str, object]],
+    issue_resolutions: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    resolved_keys = {
+        _issue_key(item)
+        for item in issue_resolutions
+        if str(item.get("resolution") or "") in {"resolved", "rejected"}
+    }
+    return [item for item in blocking_issues if _issue_key(item) not in resolved_keys]
+
+
+def _issue_key(item: dict[str, object]) -> tuple[str, str]:
+    return (str(item.get("failure_type") or "").strip(), str(item.get("target") or "").strip())
+
+
 def _in_scope_binding_items(prepared: PlanPreparedInput) -> list[dict[str, object]]:
     raw = prepared.design_repo_binding_payload.get("repo_bindings")
     if not isinstance(raw, list):
@@ -391,14 +579,3 @@ def _validation_is_too_vague(verification_steps: list[str]) -> bool:
         return True
     concrete = [step for step in verification_steps if step.strip() and step.strip() not in _GENERIC_VALIDATION_TEXTS]
     return not concrete
-
-
-def _write_template(task_dir: Path, prefix: str, suffix: str, content: str) -> Path:
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=task_dir, prefix=prefix, suffix=suffix, delete=False) as handle:
-        handle.write(content)
-        handle.flush()
-        return Path(handle.name)
-
-
-def _join_prompts(*parts: str) -> str:
-    return "\n\n---\n\n".join(part.strip() for part in parts if part.strip()).rstrip() + "\n"

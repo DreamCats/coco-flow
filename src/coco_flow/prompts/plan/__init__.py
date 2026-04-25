@@ -6,7 +6,7 @@ from .graph import (
     build_plan_scheduler_agent_prompt,
     build_plan_scheduler_template_json,
 )
-from .review import build_plan_review_template_json, build_plan_skeptic_prompt
+from .review import build_plan_review_template_json, build_plan_revision_prompt, build_plan_revision_template_json, build_plan_skeptic_prompt
 from .task_outline import (
     build_plan_planner_agent_prompt,
     build_plan_planner_template_json,
@@ -29,6 +29,8 @@ __all__ = [
     "build_plan_planner_agent_prompt",
     "build_plan_planner_template_json",
     "build_plan_review_template_json",
+    "build_plan_revision_prompt",
+    "build_plan_revision_template_json",
     "build_plan_scheduler_agent_prompt",
     "build_plan_scheduler_template_json",
     "build_plan_skeptic_prompt",

@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-import tempfile
-
-from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.prompts.plan import build_plan_template_markdown, build_plan_writer_agent_prompt
 
+from .agent_io import PlanAgentSession, run_plan_agent_markdown_in_session, run_plan_agent_markdown_with_new_session
 from .models import EXECUTOR_NATIVE, PlanPreparedInput
 
 
@@ -19,7 +15,7 @@ def generate_plan_markdown(
 ) -> tuple[str, str]:
     if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
-            content = generate_native_plan_markdown(prepared, decision_payload, settings)
+            content = generate_native_plan_markdown(prepared, decision_payload, settings, on_log=on_log)
             on_log("plan_writer_mode: native")
             return content, "native"
         except Exception as error:
@@ -119,30 +115,55 @@ def generate_native_plan_markdown(
     settings: Settings,
     regeneration_issues: list[str] | None = None,
     previous_plan_markdown: str = "",
+    on_log=None,
 ) -> str:
-    client = CocoACPClient(
-        settings.coco_bin,
-        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
-        settings=settings,
+    raw = run_plan_agent_markdown_with_new_session(
+        prepared,
+        settings,
+        build_plan_template_markdown(),
+        lambda template_path: build_plan_writer_agent_prompt(
+            title=prepared.title,
+            decision_payload=decision_payload,
+            template_path=template_path,
+            regeneration_issues=regeneration_issues,
+            previous_plan_markdown=previous_plan_markdown,
+        ),
+        ".plan-template-",
+        role="plan_writer",
+        stage="regenerate" if regeneration_issues else "write",
+        on_log=on_log or (lambda _line: None),
     )
-    template_path = _write_template(prepared.task_dir)
-    try:
-        client.run_agent(
-            build_plan_writer_agent_prompt(
-                title=prepared.title,
-                decision_payload=decision_payload,
-                template_path=str(template_path),
-                regeneration_issues=regeneration_issues,
-                previous_plan_markdown=previous_plan_markdown,
-            ),
-            settings.native_query_timeout,
-            cwd=str(prepared.task_dir),
-            fresh_session=True,
-        )
-        raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
-    finally:
-        if template_path.exists():
-            template_path.unlink()
+    return _normalize_native_plan_markdown(raw)
+
+
+def generate_native_plan_markdown_in_session(
+    prepared: PlanPreparedInput,
+    decision_payload: dict[str, object],
+    writer_session: PlanAgentSession,
+    regeneration_issues: list[str] | None = None,
+    previous_plan_markdown: str = "",
+    on_log=None,
+) -> str:
+    raw = run_plan_agent_markdown_in_session(
+        prepared,
+        build_plan_template_markdown(),
+        lambda template_path: build_plan_writer_agent_prompt(
+            title=prepared.title,
+            decision_payload=decision_payload,
+            template_path=template_path,
+            regeneration_issues=regeneration_issues,
+            previous_plan_markdown=previous_plan_markdown,
+        ),
+        ".plan-template-",
+        writer_session,
+        stage="regenerate" if regeneration_issues else "write",
+        inline_bootstrap=not regeneration_issues,
+        on_log=on_log or (lambda _line: None),
+    )
+    return _normalize_native_plan_markdown(raw)
+
+
+def _normalize_native_plan_markdown(raw: str) -> str:
     content = raw.strip()
     if not content or "待补充" in content or not content.startswith("# Plan"):
         raise ValueError("plan_template_unfilled")
@@ -159,17 +180,3 @@ def _str_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _write_template(task_dir: Path) -> Path:
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=task_dir,
-        prefix=".plan-template-",
-        suffix=".md",
-        delete=False,
-    ) as handle:
-        handle.write(build_plan_template_markdown())
-        handle.flush()
-        return Path(handle.name)

@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-import tempfile
-
-from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.prompts.plan import (
     build_plan_validation_designer_agent_prompt,
     build_plan_validation_designer_template_json,
 )
 
+from .agent_io import run_plan_agent_json_with_new_session
 from .models import EXECUTOR_NATIVE, PlanExecutionGraph, PlanPreparedInput, PlanValidationCheck, PlanWorkItem
 
 
@@ -27,7 +23,7 @@ def build_plan_validation(
     draft_payload = _with_validation_metadata(fallback_payload, source="local", degraded=False)
     if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
-            native_payload = _build_plan_validation_with_designer(prepared, work_items, graph, settings)
+            native_payload = _build_plan_validation_with_designer(prepared, work_items, graph, settings, on_log)
             validation_payload = normalize_plan_validation_payload(native_payload, prepared, work_items)
             risk_payload = build_plan_risk_payload(work_items)
             draft_payload = _with_validation_metadata(native_payload, source="native", degraded=False)
@@ -123,34 +119,26 @@ def _build_plan_validation_with_designer(
     work_items: list[PlanWorkItem],
     graph: PlanExecutionGraph,
     settings: Settings,
+    on_log,
 ) -> dict[str, object]:
-    client = CocoACPClient(settings.coco_bin, idle_timeout_seconds=settings.acp_idle_timeout_seconds, settings=settings)
-    template_path = _write_template(prepared.task_dir, ".plan-validation-designer-", ".json", build_plan_validation_designer_template_json())
-    try:
-        client.run_agent(
-            build_plan_validation_designer_agent_prompt(
-                title=prepared.title,
-                design_markdown=prepared.design_markdown,
-                refined_markdown=prepared.refined_markdown,
-                skills_brief_markdown=prepared.skills_brief_markdown,
-                work_items_payload={"work_items": [item.to_payload() for item in work_items]},
-                execution_graph_payload=graph.to_payload(),
-                template_path=str(template_path),
-            ),
-            settings.native_query_timeout,
-            cwd=str(prepared.task_dir),
-            fresh_session=True,
-        )
-        raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
-    finally:
-        if template_path.exists():
-            template_path.unlink()
-    if "__FILL__" in raw or not raw.strip():
-        raise ValueError("plan_validation_designer_template_unfilled")
-    payload = json.loads(raw)
-    if not isinstance(payload, dict):
-        raise ValueError("plan_validation_designer_output_invalid")
-    return payload
+    return run_plan_agent_json_with_new_session(
+        prepared,
+        settings,
+        build_plan_validation_designer_template_json(),
+        lambda template_path: build_plan_validation_designer_agent_prompt(
+            title=prepared.title,
+            design_markdown=prepared.design_markdown,
+            refined_markdown=prepared.refined_markdown,
+            skills_brief_markdown=prepared.skills_brief_markdown,
+            work_items_payload={"work_items": [item.to_payload() for item in work_items]},
+            execution_graph_payload=graph.to_payload(),
+            template_path=template_path,
+        ),
+        ".plan-validation-designer-",
+        role="plan_validation_designer",
+        stage="draft_validation",
+        on_log=on_log,
+    )
 
 
 def _critical_flows(prepared: PlanPreparedInput) -> list[str]:
@@ -225,10 +213,3 @@ def _dedupe_terms(items: list[str]) -> list[str]:
         seen.add(lowered)
         result.append(item)
     return result
-
-
-def _write_template(task_dir: Path, prefix: str, suffix: str, content: str) -> Path:
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=task_dir, prefix=prefix, suffix=suffix, delete=False) as handle:
-        handle.write(content)
-        handle.flush()
-        return Path(handle.name)

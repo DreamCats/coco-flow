@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-import tempfile
-
-from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.prompts.plan import build_plan_planner_agent_prompt, build_plan_planner_template_json
 
+from .agent_io import run_plan_agent_json_with_new_session
 from .models import EXECUTOR_NATIVE, PlanPreparedInput, PlanWorkItem
 
 _ALLOWED_TASK_TYPES = {"implementation", "coordination", "validation", "preparation"}
@@ -23,7 +19,7 @@ def build_plan_work_items(
     outline_payload = _with_planner_metadata(fallback_payload, source="local", degraded=False)
     if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
-            planner_payload = _build_plan_work_items_with_planner(prepared, settings, skills_brief_markdown)
+            planner_payload = _build_plan_work_items_with_planner(prepared, settings, skills_brief_markdown, on_log)
             outline_payload = _with_planner_metadata(planner_payload, source="native", degraded=False)
             on_log(f"plan_planner_mode: native work_items={len(_payload_task_units(outline_payload))}")
         except Exception as error:
@@ -120,36 +116,27 @@ def _build_plan_work_items_with_planner(
     prepared: PlanPreparedInput,
     settings: Settings,
     skills_brief_markdown: str,
+    on_log,
 ) -> dict[str, object]:
-    client = CocoACPClient(
-        settings.coco_bin,
-        idle_timeout_seconds=settings.acp_idle_timeout_seconds,
-        settings=settings,
+    payload = run_plan_agent_json_with_new_session(
+        prepared,
+        settings,
+        build_plan_planner_template_json(),
+        lambda template_path: build_plan_planner_agent_prompt(
+            title=prepared.title,
+            design_markdown=prepared.design_markdown,
+            refined_markdown=prepared.refined_markdown,
+            skills_brief_markdown=skills_brief_markdown,
+            repo_binding_payload=prepared.design_repo_binding_payload,
+            design_sections_payload=prepared.design_sections_payload,
+            template_path=template_path,
+        ),
+        ".plan-planner-",
+        role="plan_planner",
+        stage="draft_work_items",
+        on_log=on_log,
     )
-    template_path = _write_template(prepared.task_dir, ".plan-planner-", ".json", build_plan_planner_template_json())
-    try:
-        client.run_agent(
-            build_plan_planner_agent_prompt(
-                title=prepared.title,
-                design_markdown=prepared.design_markdown,
-                refined_markdown=prepared.refined_markdown,
-                skills_brief_markdown=skills_brief_markdown,
-                repo_binding_payload=prepared.design_repo_binding_payload,
-                design_sections_payload=prepared.design_sections_payload,
-                template_path=str(template_path),
-            ),
-            settings.native_query_timeout,
-            cwd=str(prepared.task_dir),
-            fresh_session=True,
-        )
-        raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
-    finally:
-        if template_path.exists():
-            template_path.unlink()
-    if "__FILL__" in raw or not raw.strip():
-        raise ValueError("plan_task_outline_template_unfilled")
-    payload = json.loads(raw)
-    if not isinstance(payload, dict) or not _payload_task_units(payload):
+    if not _payload_task_units(payload):
         raise ValueError("plan_planner_output_invalid")
     return payload
 
@@ -176,20 +163,6 @@ def _with_planner_metadata(
         planner_payload["fallback_stage"] = "planner"
     result["planner"] = planner_payload
     return result
-
-
-def _write_template(task_dir: Path, prefix: str, suffix: str, content: str) -> Path:
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=task_dir,
-        prefix=prefix,
-        suffix=suffix,
-        delete=False,
-    ) as handle:
-        handle.write(content)
-        handle.flush()
-        return Path(handle.name)
 
 
 def _payload_task_units(payload: dict[str, object]) -> list[dict[str, object]]:

@@ -5,7 +5,8 @@ import json
 from coco_flow.config import Settings
 from coco_flow.engines.shared.diagnostics import diagnosis_payload_from_verify
 
-from .generate import generate_native_plan_markdown, generate_plan_markdown
+from .agent_io import PlanAgentSession, close_plan_agent_session, new_plan_agent_session
+from .generate import generate_local_plan_markdown, generate_native_plan_markdown, generate_native_plan_markdown_in_session
 from .graph import build_plan_execution_graph
 from .skills import build_plan_skills_bundle
 from .models import (
@@ -113,7 +114,30 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
 
     # 6. Writer 只消费 finalized decision，负责把机器结构化计划落成给人读的 plan.md。
     on_log("plan_writer_start: true")
-    plan_markdown, plan_generate_mode = generate_plan_markdown(prepared, decision_payload, settings, on_log)
+    writer_session: PlanAgentSession | None = None
+    if settings.plan_executor.strip().lower() == "native":
+        try:
+            writer_session = new_plan_agent_session(prepared, settings, role="plan_writer", on_log=on_log, bootstrap=False)
+            plan_markdown = generate_native_plan_markdown_in_session(
+                prepared,
+                decision_payload,
+                writer_session,
+                on_log=on_log,
+            )
+            plan_generate_mode = "native"
+            on_log("plan_writer_mode: native")
+        except Exception as error:
+            if writer_session is not None:
+                close_plan_agent_session(writer_session, on_log)
+                writer_session = None
+            on_log(f"plan_writer_fallback: {error}")
+            on_log("plan_writer_mode: local")
+            plan_markdown = generate_local_plan_markdown(prepared, decision_payload)
+            plan_generate_mode = "local"
+    else:
+        on_log("plan_writer_mode: local")
+        plan_markdown = generate_local_plan_markdown(prepared, decision_payload)
+        plan_generate_mode = "local"
     on_log(f"plan_writer_ok: mode={plan_generate_mode}")
 
     # 7. Markdown verify 是成稿完整性检查；它先看文档是否覆盖结构化计划，再进入最终 gate。
@@ -132,12 +156,24 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
         on_log(f"plan_regenerate_start: issue_count={len(issues)}")
         logged_regenerate_failure = False
         try:
-            regenerated_plan_markdown = generate_native_plan_markdown(
-                prepared,
-                decision_payload,
-                settings,
-                regeneration_issues=issues,
-                previous_plan_markdown=plan_markdown,
+            regenerated_plan_markdown = (
+                generate_native_plan_markdown_in_session(
+                    prepared,
+                    decision_payload,
+                    writer_session,
+                    regeneration_issues=issues,
+                    previous_plan_markdown=plan_markdown,
+                    on_log=on_log,
+                )
+                if writer_session is not None
+                else generate_native_plan_markdown(
+                    prepared,
+                    decision_payload,
+                    settings,
+                    regeneration_issues=issues,
+                    previous_plan_markdown=plan_markdown,
+                    on_log=on_log,
+                )
             )
             regenerated_verify_payload = build_plan_verify_payload(
                 prepared,
@@ -160,6 +196,9 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
                     artifact="plan.md",
                 )
                 _write_failure_diagnosis_artifacts(prepared.task_dir, artifacts)
+                if writer_session is not None:
+                    close_plan_agent_session(writer_session, on_log)
+                    writer_session = None
                 raise ValueError(f"plan verify failed: {issue_text}")
             on_log("plan_regenerate_ok: true")
             plan_markdown = regenerated_plan_markdown
@@ -174,6 +213,9 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
         except Exception as error:
             if not logged_regenerate_failure:
                 on_log(f"plan_regenerate_failed: {error}")
+            if writer_session is not None:
+                close_plan_agent_session(writer_session, on_log)
+                writer_session = None
             raise
     if not bool(verify_payload.get("ok")):
         # local writer 或重写后仍失败，立即落诊断并中止，避免把坏 plan 包装成可进入 code。
@@ -181,6 +223,9 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
         issue_text = "; ".join(issues[:3])
         on_log(f"plan_verify_failed: {issue_text}")
         _write_failure_diagnosis_artifacts(prepared.task_dir, artifacts)
+        if writer_session is not None:
+            close_plan_agent_session(writer_session, on_log)
+            writer_session = None
         raise ValueError(f"plan verify failed: {issue_text}")
     # 8. 最终 gate 合并 markdown verify 和 skeptic decision，决定 code 阶段是否允许消费该 plan。
     gate_payload = _build_plan_gate_payload(verify_payload, review_payload, decision_payload)
@@ -227,6 +272,9 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
         "artifacts": sorted(artifacts.keys()) + ["plan.md"],
     }
     on_log(f"status: {result_status}")
+    if writer_session is not None:
+        close_plan_agent_session(writer_session, on_log)
+        writer_session = None
     return PlanEngineResult(
         status=result_status,
         plan_markdown=plan_markdown,
@@ -240,11 +288,12 @@ def _build_plan_gate_payload(
     decision_payload: dict[str, object],
 ) -> dict[str, object]:
     # gate 的输入只有两类：markdown verify 是否通过，以及 skeptic 是否留下 blocking issue。
-    blocking_issues = [
+    review_blocking_issues = [
         item
         for item in _dict_list(review_payload.get("issues"))
         if str(item.get("severity") or "") == "blocking"
     ]
+    blocking_issues = _unresolved_plan_blocking_issues(review_blocking_issues, decision_payload)
     if not blocking_issues and bool(verify_payload.get("ok")) and bool(decision_payload.get("finalized", True)):
         # 所有角色都收敛且成稿校验通过时，plan 才对 code 开放。
         payload = dict(verify_payload)
@@ -290,6 +339,22 @@ def _dict_list(value: object) -> list[dict[str, object]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
+
+
+def _unresolved_plan_blocking_issues(
+    blocking_issues: list[dict[str, object]],
+    decision_payload: dict[str, object],
+) -> list[dict[str, object]]:
+    resolved_keys = {
+        _issue_key(item)
+        for item in _dict_list(decision_payload.get("issue_resolutions"))
+        if str(item.get("resolution") or "") in {"resolved", "rejected"}
+    }
+    return [item for item in blocking_issues if _issue_key(item) not in resolved_keys]
+
+
+def _issue_key(item: dict[str, object]) -> tuple[str, str]:
+    return (str(item.get("failure_type") or "").strip(), str(item.get("target") or "").strip())
 
 
 def _log_plan_diagnosis(payload: object, on_log) -> None:

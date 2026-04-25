@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from coco_flow.clients import AgentSessionHandle
 from coco_flow.config import Settings
 from coco_flow.engines.plan.models import PLAN_HARNESS_VERSION, PlanExecutionGraph, PlanPreparedInput
 from coco_flow.engines.plan.pipeline import run_plan_engine
@@ -65,8 +67,8 @@ class PlanTaskBuilderTest(unittest.TestCase):
             with (
                 patch("coco_flow.clients.CocoACPClient.run_agent", side_effect=ValueError("native unavailable")),
                 patch(
-                    "coco_flow.engines.plan.review.CocoACPClient.new_agent_session",
-                    side_effect=ValueError("skeptic native unavailable"),
+                    "coco_flow.engines.plan.agent_io.CocoACPClient.new_agent_session",
+                    side_effect=ValueError("plan native unavailable"),
                 ),
             ):
                 result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, lambda _line: None)
@@ -87,6 +89,206 @@ class PlanTaskBuilderTest(unittest.TestCase):
             self.assertEqual(plan_result["planner_degraded"], True)
             self.assertEqual(plan_result["review_degraded"], True)
             self.assertEqual(plan_result["fallback_stage"], "planner")
+
+    def test_native_plan_roles_use_inline_bootstrap_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root, plan_executor="native")
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            logs: list[str] = []
+            roles: list[str] = []
+            prompts: list[str] = []
+            closed_roles: list[str] = []
+
+            def fake_new_session(*, query_timeout: str, cwd: str, role: str) -> AgentSessionHandle:
+                roles.append(role)
+                return AgentSessionHandle(
+                    handle_id=f"handle-{role}-{len(roles)}",
+                    cwd=cwd,
+                    mode="agent",
+                    query_timeout=query_timeout,
+                    role=role,
+                )
+
+            def fake_prompt_session(handle: AgentSessionHandle, prompt: str) -> str:
+                prompts.append(prompt)
+                _write_plan_native_template(prompt)
+                return "ok"
+
+            def fake_close_session(handle: AgentSessionHandle) -> None:
+                closed_roles.append(handle.role)
+
+            with (
+                patch("coco_flow.engines.plan.agent_io.CocoACPClient.new_agent_session", side_effect=fake_new_session),
+                patch("coco_flow.engines.plan.agent_io.CocoACPClient.prompt_agent_session", side_effect=fake_prompt_session),
+                patch("coco_flow.engines.plan.agent_io.CocoACPClient.close_agent_session", side_effect=fake_close_session),
+            ):
+                result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, logs.append)
+
+            self.assertEqual(result.status, "planned")
+            self.assertEqual(
+                roles,
+                [
+                    "plan_planner",
+                    "plan_scheduler",
+                    "plan_validation_designer",
+                    "plan_skeptic",
+                    "plan_writer",
+                    "plan_verify",
+                ],
+            )
+            self.assertEqual(
+                closed_roles,
+                [
+                    "plan_planner",
+                    "plan_scheduler",
+                    "plan_validation_designer",
+                    "plan_skeptic",
+                    "plan_verify",
+                    "plan_writer",
+                ],
+            )
+            for role in roles:
+                self.assertIn(f"session_role: {role}", logs)
+                self.assertIn(f"bootstrap_prompt: inline role={role}", logs)
+            self.assertIn("agent_prompt_start: role=plan_skeptic stage=revision", logs)
+            self.assertEqual(len(prompts), len(roles) + 1)
+            self.assertEqual(sum(1 for prompt in prompts if "这是内联 bootstrap" in prompt), len(roles))
+
+    def test_native_writer_regenerate_reuses_writer_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root, plan_executor="native")
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            logs: list[str] = []
+            roles: list[str] = []
+            prompt_records: list[tuple[str, str, str]] = []
+            closed_roles: list[str] = []
+            verify_calls = 0
+
+            def fake_new_session(*, query_timeout: str, cwd: str, role: str) -> AgentSessionHandle:
+                roles.append(role)
+                return AgentSessionHandle(
+                    handle_id=f"handle-{role}-{len(roles)}",
+                    cwd=cwd,
+                    mode="agent",
+                    query_timeout=query_timeout,
+                    role=role,
+                )
+
+            def fake_prompt_session(handle: AgentSessionHandle, prompt: str) -> str:
+                nonlocal verify_calls
+                prompt_records.append((handle.handle_id, handle.role, prompt))
+                template_path = _extract_template_path(prompt)
+                if ".plan-verify-" in template_path:
+                    verify_calls += 1
+                    payload = (
+                        {"ok": False, "issues": ["plan.md 缺少必要章节: 验证策略"], "reason": "first verify failed"}
+                        if verify_calls == 1
+                        else {"ok": True, "issues": [], "reason": "second verify passed"}
+                    )
+                    Path(template_path).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+                else:
+                    _write_plan_native_template(prompt)
+                return "ok"
+
+            def fake_close_session(handle: AgentSessionHandle) -> None:
+                closed_roles.append(handle.role)
+
+            with (
+                patch("coco_flow.engines.plan.agent_io.CocoACPClient.new_agent_session", side_effect=fake_new_session),
+                patch("coco_flow.engines.plan.agent_io.CocoACPClient.prompt_agent_session", side_effect=fake_prompt_session),
+                patch("coco_flow.engines.plan.agent_io.CocoACPClient.close_agent_session", side_effect=fake_close_session),
+            ):
+                result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, logs.append)
+
+            self.assertEqual(result.status, "planned")
+            self.assertEqual(roles.count("plan_writer"), 1)
+            self.assertEqual(roles.count("plan_verify"), 2)
+            writer_records = [record for record in prompt_records if record[1] == "plan_writer"]
+            self.assertEqual(len(writer_records), 2)
+            self.assertEqual(writer_records[0][0], writer_records[1][0])
+            self.assertIn("这是内联 bootstrap", writer_records[0][2])
+            self.assertNotIn("这是内联 bootstrap", writer_records[1][2])
+            self.assertIn("需要修正的问题", writer_records[1][2])
+            self.assertIn("plan_regenerate_start: issue_count=1", logs)
+            self.assertIn("plan_regenerate_ok: true", logs)
+            self.assertEqual(closed_roles[-1], "plan_writer")
+
+    def test_native_revision_can_reject_blocking_review_issue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root, plan_executor="native")
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            logs: list[str] = []
+
+            def fake_new_session(*, query_timeout: str, cwd: str, role: str) -> AgentSessionHandle:
+                return AgentSessionHandle(
+                    handle_id=f"handle-{role}",
+                    cwd=cwd,
+                    mode="agent",
+                    query_timeout=query_timeout,
+                    role=role,
+                )
+
+            def fake_prompt_session(handle: AgentSessionHandle, prompt: str) -> str:
+                template_path = _extract_template_path(prompt)
+                if ".plan-skeptic-" in template_path:
+                    payload = {
+                        "ok": False,
+                        "issues": [
+                            {
+                                "severity": "blocking",
+                                "failure_type": "code_input_missing",
+                                "target": "W1",
+                                "expected": "work item 已有 Code 输入",
+                                "actual": "误判 inputs 缺失",
+                                "suggested_action": "确认现有 inputs 是否足够",
+                            }
+                        ],
+                    }
+                    Path(template_path).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+                elif ".plan-revision-" in template_path:
+                    payload = {
+                        "debate": {
+                            "revision": {
+                                "applied": True,
+                                "summary": "Revision 判断该 blocking issue 是误报。",
+                                "issue_resolutions": [
+                                    {
+                                        "failure_type": "code_input_missing",
+                                        "target": "W1",
+                                        "resolution": "rejected",
+                                        "reason": "W1 已包含 design-repo-binding.json 和 prd-refined.md inputs。",
+                                        "decision_change": "allow_code",
+                                    }
+                                ],
+                            }
+                        },
+                        "decision": {"finalized": True, "unresolved_questions": []},
+                    }
+                    Path(template_path).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+                else:
+                    _write_plan_native_template(prompt)
+                return "ok"
+
+            with (
+                patch("coco_flow.engines.plan.agent_io.CocoACPClient.new_agent_session", side_effect=fake_new_session),
+                patch("coco_flow.engines.plan.agent_io.CocoACPClient.prompt_agent_session", side_effect=fake_prompt_session),
+                patch("coco_flow.engines.plan.agent_io.CocoACPClient.close_agent_session", return_value=None),
+            ):
+                result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, logs.append)
+
+            plan_result = result.intermediate_artifacts["plan-result.json"]
+            decision = result.intermediate_artifacts["plan-decision.json"]
+            debate = result.intermediate_artifacts["plan-debate.json"]
+            self.assertEqual(result.status, "planned")
+            self.assertEqual(plan_result["gate_status"], "passed")
+            self.assertEqual(plan_result["code_allowed"], True)
+            self.assertEqual(decision["revision_source"], "native")
+            self.assertEqual(decision["issue_resolutions"][0]["resolution"], "rejected")
+            self.assertEqual(debate["revision"]["source"], "native")
+            self.assertIn("plan_revision_mode: native", logs)
 
     def test_plan_skeptic_blocks_missing_must_change_repo(self) -> None:
         prepared = self._prepared_input_for_plan_review()
@@ -375,6 +577,102 @@ class PlanTaskBuilderTest(unittest.TestCase):
                 raw="",
             ),
         )
+
+
+def _write_plan_native_template(prompt: str) -> None:
+    template_path = _extract_template_path(prompt)
+    if ".plan-planner-" in template_path:
+        payload = {
+            "task_units": [
+                {
+                    "id": "W1",
+                    "title": "[live-api] 实现国家筛选",
+                    "repo_id": "live-api",
+                    "task_type": "implementation",
+                    "serves_change_points": [1],
+                    "goal": "补齐国家筛选主链路。",
+                    "specific_steps": ["在 internal/handler/list.go 中接入国家筛选参数。"],
+                    "scope_summary": ["补齐国家筛选主链路"],
+                    "inputs": ["design-repo-binding.json", "prd-refined.md"],
+                    "outputs": ["live-api 国家筛选实现"],
+                    "done_definition": ["国家筛选结果正确。"],
+                    "validation_focus": ["覆盖国家筛选查询链路。"],
+                    "risk_notes": ["保持现有接口兼容。"],
+                }
+            ]
+        }
+        Path(template_path).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return
+    if ".plan-scheduler-" in template_path:
+        payload = {
+            "nodes": [{"task_id": "W1", "repo_id": "live-api", "title": "[live-api] 实现国家筛选"}],
+            "edges": [],
+            "execution_order": ["W1"],
+            "parallel_groups": [],
+            "critical_path": ["W1"],
+            "coordination_points": [],
+        }
+        Path(template_path).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return
+    if ".plan-validation-designer-" in template_path:
+        payload = {
+            "global_validation_focus": ["国家筛选结果正确"],
+            "task_validations": [
+                {
+                    "task_id": "W1",
+                    "repo_id": "live-api",
+                    "checks": [{"kind": "review", "target": "internal/handler/list.go", "reason": "检查国家筛选查询链路。"}],
+                    "linked_design_flows": ["国家筛选 / 查询直播列表"],
+                    "non_goal_regressions": [],
+                }
+            ],
+        }
+        Path(template_path).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return
+    if ".plan-skeptic-" in template_path:
+        Path(template_path).write_text('{"ok": true, "issues": []}\n', encoding="utf-8")
+        return
+    if ".plan-revision-" in template_path:
+        payload = {
+            "debate": {
+                "revision": {
+                    "applied": False,
+                    "summary": "Plan Skeptic 未发现 blocking issue。",
+                    "issue_resolutions": [],
+                }
+            },
+            "decision": {
+                "finalized": True,
+                "unresolved_questions": [],
+            },
+        }
+        Path(template_path).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return
+    if ".plan-template-" in template_path:
+        Path(template_path).write_text(
+            "# Plan\n\n"
+            "## 任务清单\n"
+            "- W1: 实现国家筛选。\n\n"
+            "## 执行顺序\n"
+            "- W1\n\n"
+            "## 验证策略\n"
+            "- 检查国家筛选查询链路。\n\n"
+            "## 风险与阻塞项\n"
+            "- 保持现有接口兼容。\n",
+            encoding="utf-8",
+        )
+        return
+    if ".plan-verify-" in template_path:
+        Path(template_path).write_text('{"ok": true, "issues": [], "reason": "native verify passed"}\n', encoding="utf-8")
+        return
+    raise AssertionError(f"unknown plan template path: {template_path}")
+
+
+def _extract_template_path(prompt: str) -> str:
+    match = re.search(r"file: (/.+?\.plan-[^\s]+)", prompt)
+    if not match:
+        raise AssertionError("prompt did not include a plan template path")
+    return match.group(1).strip()
 
 
 if __name__ == "__main__":

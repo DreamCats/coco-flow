@@ -17,6 +17,7 @@ from coco_flow.prompts.plan import __all__ as plan_prompt_exports
 from coco_flow.prompts.plan import (
     build_plan_bootstrap_prompt,
     build_plan_planner_agent_prompt,
+    build_plan_revision_prompt,
     build_plan_scheduler_agent_prompt,
     build_plan_skeptic_prompt,
     build_plan_validation_designer_agent_prompt,
@@ -69,6 +70,7 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("build_plan_scheduler_agent_prompt", plan_prompt_exports)
         self.assertIn("build_plan_validation_designer_agent_prompt", plan_prompt_exports)
         self.assertIn("build_plan_skeptic_prompt", plan_prompt_exports)
+        self.assertIn("build_plan_revision_prompt", plan_prompt_exports)
         self.assertIn("build_plan_writer_agent_prompt", plan_prompt_exports)
 
     def test_plan_bootstrap_prompt_defines_open_harness_contract(self) -> None:
@@ -157,6 +159,34 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("是否可交给 Code 阶段执行", rendered)
         self.assertIn("不得重新做 Design repo adjudication", rendered)
         self.assertIn("/tmp/plan-review.json", rendered)
+
+    def test_plan_revision_prompt_resolves_review_issues(self) -> None:
+        rendered = build_plan_revision_prompt(
+            title="直播列表国家筛选",
+            review_payload={
+                "ok": False,
+                "issues": [
+                    {
+                        "severity": "blocking",
+                        "failure_type": "code_input_missing",
+                        "target": "W1",
+                        "expected": "可执行",
+                        "actual": "缺少输入",
+                        "suggested_action": "补齐 inputs",
+                    }
+                ],
+            },
+            work_items_payload={"work_items": []},
+            execution_graph_payload={"nodes": []},
+            validation_payload={"task_validations": []},
+            template_path="/tmp/plan-revision.json",
+        )
+
+        self.assertIn("Skeptic/Revision session", rendered)
+        self.assertIn("resolution= rejected", rendered)
+        self.assertIn("resolution= needs_human", rendered)
+        self.assertIn("decision.finalized 必须为 false", rendered)
+        self.assertIn("/tmp/plan-revision.json", rendered)
 
     def test_plan_writer_prompt_consumes_plan_decision_only(self) -> None:
         rendered = build_plan_writer_agent_prompt(
