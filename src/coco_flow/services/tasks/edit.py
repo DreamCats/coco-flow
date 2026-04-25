@@ -22,10 +22,16 @@ STATUS_PLANNED = "planned"
 STATUS_FAILED = "failed"
 
 PLAN_V2_ARTIFACTS = [
+    "plan-draft-work-items.json",
+    "plan-draft-execution-graph.json",
+    "plan-draft-validation.json",
     "plan-task-outline.json",
     "plan-work-items.json",
     "plan-execution-graph.json",
     "plan-validation.json",
+    "plan-review.json",
+    "plan-debate.json",
+    "plan-decision.json",
     "plan-dependency-notes.json",
     "plan-risk-check.json",
     "plan-verify.json",

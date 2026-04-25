@@ -133,10 +133,16 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         "plan.log",
         "plan-skills-selection.json",
         "plan-skills-brief.md",
+        "plan-draft-work-items.json",
+        "plan-draft-execution-graph.json",
+        "plan-draft-validation.json",
         "plan-task-outline.json",
         "plan-work-items.json",
         "plan-execution-graph.json",
         "plan-validation.json",
+        "plan-review.json",
+        "plan-debate.json",
+        "plan-decision.json",
         "plan-dependency-notes.json",
         "plan-risk-check.json",
         "plan-verify.json",
@@ -148,6 +154,14 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         path = task_dir / name
         if path.exists():
             path.unlink()
-    for pattern in (".plan-template-*.md", ".plan-task-outline-*.json", ".plan-verify-*.json"):
+    for pattern in (
+        ".plan-template-*.md",
+        ".plan-task-outline-*.json",
+        ".plan-planner-*.json",
+        ".plan-scheduler-*.json",
+        ".plan-validation-designer-*.json",
+        ".plan-skeptic-*.json",
+        ".plan-verify-*.json",
+    ):
         for path in task_dir.glob(pattern):
             path.unlink()

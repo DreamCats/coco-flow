@@ -36,6 +36,7 @@ def prepare_code_input(task_dir: Path, task_meta: dict[str, object]) -> CodePrep
     _require_payload(plan_validation_payload, "plan-validation.json 缺失，无法执行 code")
     _require_payload(plan_result_payload, "plan-result.json 缺失，无法执行 code")
     _require_payload(repos_meta, "repos.json 缺失，无法执行 code")
+    _ensure_plan_allows_code(plan_result_payload)
 
     return CodePreparedInput(
         task_dir=task_dir,
@@ -66,3 +67,12 @@ def _read_text_if_exists(path: Path) -> str:
 def _require_payload(payload: dict[str, object], message: str) -> None:
     if not payload:
         raise ValueError(message)
+
+
+def _ensure_plan_allows_code(plan_result_payload: dict[str, object]) -> None:
+    gate_status = str(plan_result_payload.get("gate_status") or "").strip()
+    code_allowed = plan_result_payload.get("code_allowed")
+    if code_allowed is False:
+        raise ValueError(f"plan gate status {gate_status or 'blocked'} does not allow code")
+    if gate_status and gate_status not in {"passed", "passed_with_warnings"}:
+        raise ValueError(f"plan gate status {gate_status} does not allow code")

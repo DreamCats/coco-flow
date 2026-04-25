@@ -10,7 +10,7 @@ from .shared import (
 )
 
 
-def build_plan_task_outline_template_json() -> str:
+def build_plan_planner_template_json() -> str:
     return (
         '{\n'
         '  "task_units": [\n'
@@ -34,7 +34,11 @@ def build_plan_task_outline_template_json() -> str:
     )
 
 
-def build_plan_task_outline_agent_prompt(
+def build_plan_task_outline_template_json() -> str:
+    return build_plan_planner_template_json()
+
+
+def build_plan_planner_agent_prompt(
     *,
     title: str,
     design_markdown: str,
@@ -45,8 +49,8 @@ def build_plan_task_outline_agent_prompt(
     template_path: str,
 ) -> str:
     document = PromptDocument(
-        intro="你在做 coco-flow Plan V2 的任务骨架生成。",
-        goal="基于已经完成 adjudication 的 Design artifacts，直接编辑指定 JSON 模板文件，产出 plan-task-outline.json。",
+        intro="你在做 coco-flow Plan Open Harness 的 Planner 角色。",
+        goal="基于已经完成 adjudication 的 Design artifacts，直接编辑指定 JSON 模板文件，产出 plan-draft-work-items.json。",
         requirements=[
             "必须直接编辑指定 JSON 文件，不要只在回复里输出结果。",
             "Plan 只负责执行拆分，不要重新判断 repo 是否 in scope，也不要改写 scope_tier。",
@@ -75,3 +79,24 @@ def build_plan_task_outline_agent_prompt(
         ],
     )
     return render_prompt(document)
+
+
+def build_plan_task_outline_agent_prompt(
+    *,
+    title: str,
+    design_markdown: str,
+    refined_markdown: str,
+    skills_brief_markdown: str,
+    repo_binding_payload: dict[str, object],
+    design_sections_payload: dict[str, object],
+    template_path: str,
+) -> str:
+    return build_plan_planner_agent_prompt(
+        title=title,
+        design_markdown=design_markdown,
+        refined_markdown=refined_markdown,
+        skills_brief_markdown=skills_brief_markdown,
+        repo_binding_payload=repo_binding_payload,
+        design_sections_payload=design_sections_payload,
+        template_path=template_path,
+    )

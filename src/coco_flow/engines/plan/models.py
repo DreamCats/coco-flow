@@ -12,6 +12,17 @@ STATUS_FAILED = "failed"
 EXECUTOR_NATIVE = "native"
 EXECUTOR_LOCAL = "local"
 
+PLAN_HARNESS_VERSION = "open-harness-phase-0"
+
+GATE_PASSED = "passed"
+GATE_PASSED_WITH_WARNINGS = "passed_with_warnings"
+GATE_NEEDS_HUMAN = "needs_human"
+GATE_NEEDS_DESIGN_REVISION = "needs_design_revision"
+GATE_DEGRADED = "degraded"
+GATE_FAILED = "failed"
+
+CODE_ALLOWED_GATE_STATUSES = {GATE_PASSED, GATE_PASSED_WITH_WARNINGS}
+
 LogHandler = Callable[[str], None]
 
 

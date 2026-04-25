@@ -6,7 +6,7 @@ import tempfile
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
-from coco_flow.prompts.plan import build_plan_task_outline_agent_prompt, build_plan_task_outline_template_json
+from coco_flow.prompts.plan import build_plan_planner_agent_prompt, build_plan_planner_template_json
 
 from .models import EXECUTOR_NATIVE, PlanPreparedInput, PlanWorkItem
 
@@ -18,19 +18,25 @@ def build_plan_work_items(
     settings: Settings,
     skills_brief_markdown: str,
     on_log,
-) -> tuple[list[PlanWorkItem], dict[str, object]]:
+) -> tuple[list[PlanWorkItem], dict[str, object], dict[str, object]]:
     fallback_payload = build_local_plan_task_outline_payload(prepared)
-    outline_payload = fallback_payload
+    outline_payload = _with_planner_metadata(fallback_payload, source="local", degraded=False)
     if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
-            outline_payload = _build_plan_task_outline_with_agent(prepared, settings, skills_brief_markdown)
-            on_log(f"plan_task_outline_mode: native repos={len(_payload_task_units(outline_payload))}")
+            planner_payload = _build_plan_work_items_with_planner(prepared, settings, skills_brief_markdown)
+            outline_payload = _with_planner_metadata(planner_payload, source="native", degraded=False)
+            on_log(f"plan_planner_mode: native work_items={len(_payload_task_units(outline_payload))}")
         except Exception as error:
-            on_log(f"plan_task_outline_fallback: {error}")
-            outline_payload = fallback_payload
+            on_log(f"plan_planner_fallback: {error}")
+            outline_payload = _with_planner_metadata(
+                fallback_payload,
+                source="local_fallback",
+                degraded=True,
+                degraded_reason=str(error),
+            )
     else:
-        on_log("plan_task_outline_mode: local")
-    return normalize_plan_work_items(outline_payload, prepared), outline_payload
+        on_log("plan_planner_mode: local")
+    return normalize_plan_work_items(outline_payload, prepared), outline_payload, outline_payload
 
 
 def build_local_plan_task_outline_payload(prepared: PlanPreparedInput) -> dict[str, object]:
@@ -110,7 +116,7 @@ def normalize_plan_work_items(outline_payload: dict[str, object], prepared: Plan
     return _dedupe_and_reindex_work_items(normalized, prepared)
 
 
-def _build_plan_task_outline_with_agent(
+def _build_plan_work_items_with_planner(
     prepared: PlanPreparedInput,
     settings: Settings,
     skills_brief_markdown: str,
@@ -120,10 +126,10 @@ def _build_plan_task_outline_with_agent(
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
         settings=settings,
     )
-    template_path = _write_template(prepared.task_dir, ".plan-task-outline-", ".json", build_plan_task_outline_template_json())
+    template_path = _write_template(prepared.task_dir, ".plan-planner-", ".json", build_plan_planner_template_json())
     try:
         client.run_agent(
-            build_plan_task_outline_agent_prompt(
+            build_plan_planner_agent_prompt(
                 title=prepared.title,
                 design_markdown=prepared.design_markdown,
                 refined_markdown=prepared.refined_markdown,
@@ -144,8 +150,32 @@ def _build_plan_task_outline_with_agent(
         raise ValueError("plan_task_outline_template_unfilled")
     payload = json.loads(raw)
     if not isinstance(payload, dict) or not _payload_task_units(payload):
-        raise ValueError("plan_task_outline_invalid")
+        raise ValueError("plan_planner_output_invalid")
     return payload
+
+
+def _with_planner_metadata(
+    payload: dict[str, object],
+    *,
+    source: str,
+    degraded: bool,
+    degraded_reason: str = "",
+) -> dict[str, object]:
+    result = dict(payload)
+    planner = result.get("planner")
+    planner_payload = dict(planner) if isinstance(planner, dict) else {}
+    planner_payload.update(
+        {
+            "role": "planner",
+            "source": source,
+            "degraded": degraded,
+        }
+    )
+    if degraded_reason:
+        planner_payload["degraded_reason"] = degraded_reason
+        planner_payload["fallback_stage"] = "planner"
+    result["planner"] = planner_payload
+    return result
 
 
 def _write_template(task_dir: Path, prefix: str, suffix: str, content: str) -> Path:

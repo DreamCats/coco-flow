@@ -57,3 +57,7 @@ def build_plan_execution_graph_section(payload: dict[str, object]) -> PromptSect
 
 def build_plan_validation_section(payload: dict[str, object]) -> PromptSection:
     return PromptSection(title="Plan Validation", body=render_json_block(payload))
+
+
+def build_plan_decision_section(payload: dict[str, object]) -> PromptSection:
+    return PromptSection(title="Plan Decision", body=render_json_block(payload))

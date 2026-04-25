@@ -14,9 +14,13 @@ from coco_flow.services.runtime.repo_state import (
 )
 
 PLAN_V2_PRIMARY_ARTIFACTS = [
+    "plan-draft-work-items.json",
+    "plan-draft-execution-graph.json",
+    "plan-draft-validation.json",
     "plan-work-items.json",
     "plan-execution-graph.json",
     "plan-validation.json",
+    "plan-decision.json",
     "plan-result.json",
     "plan.md",
 ]
@@ -25,6 +29,8 @@ PLAN_V2_INTERMEDIATE_ARTIFACTS = [
     "plan-task-outline.json",
     "plan-dependency-notes.json",
     "plan-risk-check.json",
+    "plan-review.json",
+    "plan-debate.json",
 ]
 
 TRACKED_ARTIFACTS = [
@@ -506,6 +512,8 @@ def build_next_action(
     has_refined = (task_dir / "prd-refined.md").exists()
     has_design = (task_dir / "design.md").exists()
     has_plan = has_plan_artifacts(task_dir)
+    if diagnosis and diagnosis.severity == "needs_design_revision":
+        return f"请先查看 {task_dir / 'plan-diagnosis.json'} 和 {task_dir / 'plan-review.json'}，必要时重新执行 coco-flow tasks design {task_id}"
     if diagnosis and diagnosis.severity in {"needs_human", "degraded"}:
         if diagnosis.failure_type == "missing_human_scope":
             return f"请先补齐 {task_dir / 'prd.source.md'} 中的人工提炼范围，然后重新执行 coco-flow tasks refine {task_id}"

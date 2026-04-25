@@ -6,36 +6,37 @@ import tempfile
 
 from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
-from coco_flow.prompts.plan import build_plan_generate_agent_prompt, build_plan_template_markdown
+from coco_flow.prompts.plan import build_plan_template_markdown, build_plan_writer_agent_prompt
 
-from .models import EXECUTOR_NATIVE, PlanExecutionGraph, PlanPreparedInput, PlanWorkItem
+from .models import EXECUTOR_NATIVE, PlanPreparedInput
 
 
 def generate_plan_markdown(
     prepared: PlanPreparedInput,
-    work_items: list[PlanWorkItem],
-    graph: PlanExecutionGraph,
-    validation_payload: dict[str, object],
+    decision_payload: dict[str, object],
     settings: Settings,
     on_log,
 ) -> tuple[str, str]:
     if settings.plan_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
-            content = generate_native_plan_markdown(prepared, work_items, graph, validation_payload, settings)
-            on_log("plan_generate_mode: native")
+            content = generate_native_plan_markdown(prepared, decision_payload, settings)
+            on_log("plan_writer_mode: native")
             return content, "native"
         except Exception as error:
-            on_log(f"plan_generate_fallback: {error}")
-    on_log("plan_generate_mode: local")
-    return generate_local_plan_markdown(prepared, work_items, graph, validation_payload), "local"
+            on_log(f"plan_writer_fallback: {error}")
+    on_log("plan_writer_mode: local")
+    return generate_local_plan_markdown(prepared, decision_payload), "local"
 
 
 def generate_local_plan_markdown(
     prepared: PlanPreparedInput,
-    work_items: list[PlanWorkItem],
-    graph: PlanExecutionGraph,
-    validation_payload: dict[str, object],
+    decision_payload: dict[str, object],
 ) -> str:
+    work_items = _dict_list(decision_payload.get("work_items"))
+    graph = decision_payload.get("execution_graph")
+    graph_payload = graph if isinstance(graph, dict) else {}
+    validation = decision_payload.get("validation")
+    validation_payload = validation if isinstance(validation, dict) else {}
     lines = [
         "# Plan",
         "",
@@ -46,34 +47,45 @@ def generate_local_plan_markdown(
         "",
     ]
     for item in work_items:
+        item_id = str(item.get("id") or "")
+        title = str(item.get("title") or "")
+        goal = str(item.get("goal") or "")
         lines.extend(
             [
-                f"### {item.id} {item.title}",
-                f"- 目标：{item.goal}",
+                f"### {item_id} {title}".rstrip(),
+                f"- 目标：{goal}",
             ]
         )
-        if item.change_scope:
+        change_scope = _str_list(item.get("change_scope"))
+        if change_scope:
             lines.append("- 改动范围：")
-            lines.extend(f"  - {entry}" for entry in item.change_scope[:6])
-        if item.specific_steps:
+            lines.extend(f"  - {entry}" for entry in change_scope[:6])
+        specific_steps = _str_list(item.get("specific_steps"))
+        if specific_steps:
             lines.append("- 具体做什么：")
-            lines.extend(f"  - {entry}" for entry in item.specific_steps[:5])
-        if item.done_definition:
+            lines.extend(f"  - {entry}" for entry in specific_steps[:5])
+        done_definition = _str_list(item.get("done_definition"))
+        if done_definition:
             lines.append("- 完成标准：")
-            lines.extend(f"  - {entry}" for entry in item.done_definition[:4])
-        if item.depends_on:
-            lines.append(f"- 依赖：{', '.join(item.depends_on)}")
+            lines.extend(f"  - {entry}" for entry in done_definition[:4])
+        depends_on = _str_list(item.get("depends_on"))
+        if depends_on:
+            lines.append(f"- 依赖：{', '.join(depends_on)}")
         else:
             lines.append("- 依赖：无前置任务约束。")
         lines.append("")
     lines.extend(["## 执行顺序", ""])
-    lines.append("- " + " -> ".join(graph.execution_order) if graph.execution_order else "- 当前未形成稳定执行顺序。")
-    if graph.parallel_groups:
-        for index, group in enumerate(graph.parallel_groups, start=1):
-            lines.append(f"- 并行组 {index}：{', '.join(group)}")
-    if graph.coordination_points:
+    execution_order = _str_list(graph_payload.get("execution_order"))
+    lines.append("- " + " -> ".join(execution_order) if execution_order else "- 当前未形成稳定执行顺序。")
+    parallel_groups = graph_payload.get("parallel_groups")
+    if isinstance(parallel_groups, list):
+        for index, group in enumerate(parallel_groups, start=1):
+            if isinstance(group, list):
+                lines.append(f"- 并行组 {index}：{', '.join(str(item) for item in group if str(item).strip())}")
+    coordination_points = _str_list(graph_payload.get("coordination_points"))
+    if coordination_points:
         lines.append("- 协同约束：")
-        lines.extend(f"  - {item}" for item in graph.coordination_points[:6])
+        lines.extend(f"  - {item}" for item in coordination_points[:6])
     lines.extend(["", "## 验证策略", ""])
     global_focus = validation_payload.get("global_validation_focus")
     if isinstance(global_focus, list) and global_focus:
@@ -81,10 +93,13 @@ def generate_local_plan_markdown(
     else:
         lines.append("- 优先覆盖关键链路和最小范围验证。")
     for item in work_items:
-        for verification in item.verification_steps[:3]:
-            lines.append(f"- {item.id}：{verification}")
+        item_id = str(item.get("id") or "")
+        for verification in _str_list(item.get("verification_steps"))[:3]:
+            lines.append(f"- {item_id}：{verification}")
     lines.extend(["", "## 风险与阻塞项", ""])
-    risks = [risk for item in work_items for risk in item.risk_notes]
+    if not bool(decision_payload.get("finalized", True)):
+        lines.append("- 当前不能进入 Code，Plan review 仍存在 blocking issue。")
+    risks = [risk for item in work_items for risk in _str_list(item.get("risk_notes"))]
     if risks:
         seen: set[str] = set()
         for risk in risks:
@@ -100,9 +115,7 @@ def generate_local_plan_markdown(
 
 def generate_native_plan_markdown(
     prepared: PlanPreparedInput,
-    work_items: list[PlanWorkItem],
-    graph: PlanExecutionGraph,
-    validation_payload: dict[str, object],
+    decision_payload: dict[str, object],
     settings: Settings,
     regeneration_issues: list[str] | None = None,
     previous_plan_markdown: str = "",
@@ -115,14 +128,9 @@ def generate_native_plan_markdown(
     template_path = _write_template(prepared.task_dir)
     try:
         client.run_agent(
-            build_plan_generate_agent_prompt(
+            build_plan_writer_agent_prompt(
                 title=prepared.title,
-                design_markdown=prepared.design_markdown,
-                refined_markdown=prepared.refined_markdown,
-                skills_brief_markdown=prepared.skills_brief_markdown,
-                work_items_payload={"work_items": [item.to_payload() for item in work_items]},
-                execution_graph_payload=graph.to_payload(),
-                validation_payload=validation_payload,
+                decision_payload=decision_payload,
                 template_path=str(template_path),
                 regeneration_issues=regeneration_issues,
                 previous_plan_markdown=previous_plan_markdown,
@@ -139,6 +147,18 @@ def generate_native_plan_markdown(
     if not content or "待补充" in content or not content.startswith("# Plan"):
         raise ValueError("plan_template_unfilled")
     return content.rstrip() + "\n"
+
+
+def _dict_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _write_template(task_dir: Path) -> Path:

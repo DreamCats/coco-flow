@@ -10,7 +10,7 @@ from .shared import (
 )
 
 
-def build_plan_execution_graph_template_json() -> str:
+def build_plan_scheduler_template_json() -> str:
     return (
         '{\n'
         '  "nodes": [\n'
@@ -41,7 +41,11 @@ def build_plan_execution_graph_template_json() -> str:
     )
 
 
-def build_plan_execution_graph_agent_prompt(
+def build_plan_execution_graph_template_json() -> str:
+    return build_plan_scheduler_template_json()
+
+
+def build_plan_scheduler_agent_prompt(
     *,
     title: str,
     design_markdown: str,
@@ -52,8 +56,8 @@ def build_plan_execution_graph_agent_prompt(
     template_path: str,
 ) -> str:
     document = PromptDocument(
-        intro="你在做 coco-flow Plan V2 的执行图构建。",
-        goal="基于已归一化的 work items 和 Design 结论，直接编辑指定 JSON 模板文件，产出 plan-execution-graph.json。",
+        intro="你在做 coco-flow Plan Open Harness 的 Scheduler 角色。",
+        goal="基于已归一化的 work items 和 Design 结论，直接编辑指定 JSON 模板文件，产出 plan-draft-execution-graph.json。",
         requirements=[
             "必须直接编辑指定 JSON 文件，不要只在回复里输出结果。",
             "只使用 hard_dependency / soft_dependency / parallel / coordination 作为 edge type。",
@@ -81,3 +85,24 @@ def build_plan_execution_graph_agent_prompt(
         ],
     )
     return render_prompt(document)
+
+
+def build_plan_execution_graph_agent_prompt(
+    *,
+    title: str,
+    design_markdown: str,
+    refined_markdown: str,
+    skills_brief_markdown: str,
+    repo_binding_payload: dict[str, object],
+    work_items_payload: dict[str, object],
+    template_path: str,
+) -> str:
+    return build_plan_scheduler_agent_prompt(
+        title=title,
+        design_markdown=design_markdown,
+        refined_markdown=refined_markdown,
+        skills_brief_markdown=skills_brief_markdown,
+        repo_binding_payload=repo_binding_payload,
+        work_items_payload=work_items_payload,
+        template_path=template_path,
+    )

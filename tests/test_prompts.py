@@ -13,6 +13,15 @@ from coco_flow.prompts.design import (
     build_skeptic_prompt,
     build_writer_prompt,
 )
+from coco_flow.prompts.plan import __all__ as plan_prompt_exports
+from coco_flow.prompts.plan import (
+    build_plan_bootstrap_prompt,
+    build_plan_planner_agent_prompt,
+    build_plan_scheduler_agent_prompt,
+    build_plan_skeptic_prompt,
+    build_plan_validation_designer_agent_prompt,
+    build_plan_writer_agent_prompt,
+)
 from coco_flow.prompts.refine import __all__ as refine_prompt_exports
 from coco_flow.prompts.refine import (
     build_refine_bootstrap_prompt,
@@ -53,6 +62,113 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("build_design_bootstrap_prompt", design_prompt_exports)
         self.assertIn("build_search_hints_prompt", design_prompt_exports)
         self.assertIn("build_search_hints_template_json", design_prompt_exports)
+
+    def test_plan_prompt_package_exports_bootstrap_builder(self) -> None:
+        self.assertIn("build_plan_bootstrap_prompt", plan_prompt_exports)
+        self.assertIn("build_plan_planner_agent_prompt", plan_prompt_exports)
+        self.assertIn("build_plan_scheduler_agent_prompt", plan_prompt_exports)
+        self.assertIn("build_plan_validation_designer_agent_prompt", plan_prompt_exports)
+        self.assertIn("build_plan_skeptic_prompt", plan_prompt_exports)
+        self.assertIn("build_plan_writer_agent_prompt", plan_prompt_exports)
+
+    def test_plan_bootstrap_prompt_defines_open_harness_contract(self) -> None:
+        rendered = build_plan_bootstrap_prompt(
+            skills_index_markdown="- plan-skill: 任务拆解与验证边界规则。"
+        )
+
+        self.assertIn("coco-flow 的 Plan 阶段 agent", rendered)
+        self.assertIn("Plan Open Harness", rendered)
+        self.assertIn("不重新做 Design 裁决，不改代码", rendered)
+        self.assertIn("Plan 阶段协议", rendered)
+        self.assertIn("Artifact 契约", rendered)
+        self.assertIn("角色隔离策略", rendered)
+        self.assertIn("Design 边界策略", rendered)
+        self.assertIn("Code 可执行的结构化计划", rendered)
+        self.assertIn("不得把 validate_only repo 默认升级成 implementation", rendered)
+        self.assertIn("plan-skill: 任务拆解与验证边界规则", rendered)
+        self.assertNotIn("AGENT_MODE", rendered)
+
+    def test_plan_bootstrap_prompt_can_be_inlined(self) -> None:
+        rendered = build_plan_bootstrap_prompt(standalone=False)
+
+        self.assertIn("这是内联 bootstrap", rendered)
+        self.assertNotIn("收到 bootstrap 后只需简短回复已完成", rendered)
+
+    def test_plan_planner_prompt_targets_draft_work_items(self) -> None:
+        rendered = build_plan_planner_agent_prompt(
+            title="直播列表国家筛选",
+            design_markdown="# Design",
+            refined_markdown="# PRD Refined",
+            skills_brief_markdown="- plan-skill",
+            repo_binding_payload={"repo_bindings": []},
+            design_sections_payload={"critical_flows": []},
+            template_path="/tmp/plan-draft-work-items.json",
+        )
+
+        self.assertIn("Plan Open Harness 的 Planner 角色", rendered)
+        self.assertIn("plan-draft-work-items.json", rendered)
+        self.assertIn("不要重新判断 repo 是否 in scope", rendered)
+        self.assertIn("/tmp/plan-draft-work-items.json", rendered)
+
+    def test_plan_scheduler_prompt_targets_draft_execution_graph(self) -> None:
+        rendered = build_plan_scheduler_agent_prompt(
+            title="直播列表国家筛选",
+            design_markdown="# Design",
+            refined_markdown="# PRD Refined",
+            skills_brief_markdown="- plan-skill",
+            repo_binding_payload={"repo_bindings": []},
+            work_items_payload={"work_items": []},
+            template_path="/tmp/plan-draft-execution-graph.json",
+        )
+
+        self.assertIn("Plan Open Harness 的 Scheduler 角色", rendered)
+        self.assertIn("plan-draft-execution-graph.json", rendered)
+        self.assertIn("不要重新做 repo binding adjudication", rendered)
+
+    def test_plan_validation_designer_prompt_targets_draft_validation(self) -> None:
+        rendered = build_plan_validation_designer_agent_prompt(
+            title="直播列表国家筛选",
+            design_markdown="# Design",
+            refined_markdown="# PRD Refined",
+            skills_brief_markdown="- plan-skill",
+            work_items_payload={"work_items": []},
+            execution_graph_payload={"nodes": []},
+            template_path="/tmp/plan-draft-validation.json",
+        )
+
+        self.assertIn("Plan Open Harness 的 Validation Designer 角色", rendered)
+        self.assertIn("plan-draft-validation.json", rendered)
+        self.assertIn("每个 task_id 都必须有对应 task_validations", rendered)
+
+    def test_plan_skeptic_prompt_reviews_structured_artifacts(self) -> None:
+        rendered = build_plan_skeptic_prompt(
+            title="直播列表国家筛选",
+            design_markdown="# Design",
+            refined_markdown="# PRD Refined",
+            skills_brief_markdown="- plan-skill",
+            repo_binding_payload={"repo_bindings": []},
+            work_items_payload={"work_items": []},
+            execution_graph_payload={"nodes": []},
+            validation_payload={"task_validations": []},
+            template_path="/tmp/plan-review.json",
+        )
+
+        self.assertIn("Plan Open Harness 的 Skeptic 角色", rendered)
+        self.assertIn("是否可交给 Code 阶段执行", rendered)
+        self.assertIn("不得重新做 Design repo adjudication", rendered)
+        self.assertIn("/tmp/plan-review.json", rendered)
+
+    def test_plan_writer_prompt_consumes_plan_decision_only(self) -> None:
+        rendered = build_plan_writer_agent_prompt(
+            title="直播列表国家筛选",
+            decision_payload={"finalized": True, "work_items": []},
+            template_path="/tmp/plan.md",
+        )
+
+        self.assertIn("Plan Open Harness 的 Writer 角色", rendered)
+        self.assertIn("只消费 Plan Decision", rendered)
+        self.assertIn("plan-decision.json 的可读投影", rendered)
+        self.assertIn("/tmp/plan.md", rendered)
 
     def test_design_bootstrap_prompt_defines_layered_contract(self) -> None:
         rendered = build_design_bootstrap_prompt(
