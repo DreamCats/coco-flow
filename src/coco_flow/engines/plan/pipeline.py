@@ -38,10 +38,12 @@ def _collect_plan_verify_issues(verify_payload: dict[str, object]) -> list[str]:
 def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, on_log) -> PlanEngineResult:
     artifacts: dict[str, str | dict[str, object]] = {}
 
+    # 0. 统一准备上游输入：Design 结构化产物、repo scope、context、skills 输入都收束到 prepared。
     on_log("plan_prepare_start: true")
     prepared = prepare_plan_input(task_dir, task_meta)
     on_log(f"plan_prepare_ok: repos={len(prepared.repo_scopes)}, title={prepared.title}")
 
+    # 1. Skills 是给后续各角色共用的约束摘要，不直接生成计划，只提供稳定规则和验证边界。
     on_log("plan_skills_start: true")
     skills_brief_markdown, skills_selection_payload, selected_skill_ids = build_plan_skills_bundle(prepared, settings)
     prepared.skills_brief_markdown = skills_brief_markdown
@@ -52,6 +54,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
         artifacts["plan-skills-brief.md"] = skills_brief_markdown
     on_log(f"plan_skills_ok: selected={len(selected_skill_ids)}")
 
+    # 2. Planner 角色只负责拆 work items；native 失败时允许退回 local，但要显式标记 degraded。
     on_log("plan_planner_start: true")
     work_items, outline_payload, draft_work_items_payload = build_plan_work_items(
         prepared,
@@ -68,6 +71,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     planner_degraded = bool(planner_meta.get("degraded")) if isinstance(planner_meta, dict) else False
     on_log(f"plan_planner_ok: work_items={len(work_items)} degraded={'true' if planner_degraded else 'false'}")
 
+    # 3. Scheduler 角色在 work items 之上生成依赖图，保持“怎么并行 / 怎么排序”和任务拆分解耦。
     on_log("plan_graph_start: true")
     graph, dependency_notes, draft_graph_payload = build_plan_execution_graph(prepared, work_items, settings, on_log)
     artifacts["plan-draft-execution-graph.json"] = draft_graph_payload
@@ -75,6 +79,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     artifacts["plan-dependency-notes.json"] = dependency_notes
     on_log(f"plan_graph_ok: edges={len(graph.edges)}, parallel_groups={len(graph.parallel_groups)}")
 
+    # 4. Validation Designer 角色补齐每个 work item 的验证方式和风险检查，不参与改写任务本身。
     on_log("plan_validation_start: true")
     validation_payload, risk_payload, draft_validation_payload = build_plan_validation(prepared, work_items, graph, settings, on_log)
     artifacts["plan-draft-validation.json"] = draft_validation_payload
@@ -82,6 +87,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     artifacts["plan-risk-check.json"] = risk_payload
     on_log(f"plan_validation_ok: task_validations={len(validation_payload.get('task_validations', []))}")
 
+    # 5. Skeptic + Decision 是计划的质量闸：只通过 artifact 交接，不共享前面角色的会话历史。
     on_log("plan_skeptic_start: true")
     review_payload, debate_payload, decision_payload = build_plan_review_and_decision(
         prepared,
@@ -105,10 +111,12 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
         f"finalized={'true' if decision_finalized else 'false'}"
     )
 
+    # 6. Writer 只消费 finalized decision，负责把机器结构化计划落成给人读的 plan.md。
     on_log("plan_writer_start: true")
     plan_markdown, plan_generate_mode = generate_plan_markdown(prepared, decision_payload, settings, on_log)
     on_log(f"plan_writer_ok: mode={plan_generate_mode}")
 
+    # 7. Markdown verify 是成稿完整性检查；它先看文档是否覆盖结构化计划，再进入最终 gate。
     on_log("plan_verify_start: true")
     verify_payload = build_plan_verify_payload(prepared, work_items, graph, validation_payload, plan_markdown, settings, on_log)
     artifacts["plan-verify.json"] = verify_payload
@@ -119,6 +127,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     )
     _log_plan_diagnosis(artifacts["plan-diagnosis.json"], on_log)
     if not bool(verify_payload.get("ok")) and plan_generate_mode == "native" and settings.plan_executor.strip().lower() == "native":
+        # native writer 的成稿问题允许带着 verify issues 做一次定点重写；结构化 artifact 不在这里重算。
         issues = _collect_plan_verify_issues(verify_payload)
         on_log(f"plan_regenerate_start: issue_count={len(issues)}")
         logged_regenerate_failure = False
@@ -167,11 +176,13 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
                 on_log(f"plan_regenerate_failed: {error}")
             raise
     if not bool(verify_payload.get("ok")):
+        # local writer 或重写后仍失败，立即落诊断并中止，避免把坏 plan 包装成可进入 code。
         issues = _collect_plan_verify_issues(verify_payload)
         issue_text = "; ".join(issues[:3])
         on_log(f"plan_verify_failed: {issue_text}")
         _write_failure_diagnosis_artifacts(prepared.task_dir, artifacts)
         raise ValueError(f"plan verify failed: {issue_text}")
+    # 8. 最终 gate 合并 markdown verify 和 skeptic decision，决定 code 阶段是否允许消费该 plan。
     gate_payload = _build_plan_gate_payload(verify_payload, review_payload, decision_payload)
     verify_payload = gate_payload
     artifacts["plan-verify.json"] = verify_payload
@@ -190,6 +201,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     gate_status = str(verify_payload.get("gate_status") or GATE_NEEDS_HUMAN)
     code_allowed = gate_status in CODE_ALLOWED_GATE_STATUSES
     result_status = STATUS_PLANNED if code_allowed else STATUS_FAILED
+    # plan-result 是下游 code 和 UI 的稳定入口；中间 artifact 名称仍完整保留，便于审计每个角色输出。
     artifacts["plan-result.json"] = {
         "task_id": prepared.task_id,
         "status": result_status,
@@ -227,12 +239,14 @@ def _build_plan_gate_payload(
     review_payload: dict[str, object],
     decision_payload: dict[str, object],
 ) -> dict[str, object]:
+    # gate 的输入只有两类：markdown verify 是否通过，以及 skeptic 是否留下 blocking issue。
     blocking_issues = [
         item
         for item in _dict_list(review_payload.get("issues"))
         if str(item.get("severity") or "") == "blocking"
     ]
     if not blocking_issues and bool(verify_payload.get("ok")) and bool(decision_payload.get("finalized", True)):
+        # 所有角色都收敛且成稿校验通过时，plan 才对 code 开放。
         payload = dict(verify_payload)
         payload["ok"] = True
         payload["gate_status"] = GATE_PASSED
@@ -244,6 +258,7 @@ def _build_plan_gate_payload(
         if any(str(item.get("failure_type") or "") in {"needs_design_revision", "design_artifact_conflict"} for item in blocking_issues)
         else GATE_NEEDS_HUMAN
     )
+    # blocking issue 分两类：设计事实冲突要退回 design；其余交给人修 plan 或确认取舍。
     reason = "Plan review has blocking issues."
     if blocking_issues:
         first = blocking_issues[0]
