@@ -7,6 +7,7 @@ from coco_flow.prompts.design import __all__ as design_prompt_exports
 from coco_flow.prompts.design import (
     build_architect_prompt,
     build_design_bootstrap_prompt,
+    build_doc_only_design_prompt,
     build_revision_prompt,
     build_search_hints_prompt,
     build_semantic_gate_prompt,
@@ -15,10 +16,12 @@ from coco_flow.prompts.design import (
 )
 from coco_flow.prompts.plan import __all__ as plan_prompt_exports
 from coco_flow.prompts.plan import (
+    build_doc_only_plan_prompt,
     build_plan_bootstrap_prompt,
     build_plan_planner_agent_prompt,
     build_plan_revision_prompt,
     build_plan_scheduler_agent_prompt,
+    build_plan_template_markdown,
     build_plan_skeptic_prompt,
     build_plan_validation_designer_agent_prompt,
     build_plan_writer_agent_prompt,
@@ -61,11 +64,13 @@ class PromptSystemTest(unittest.TestCase):
 
     def test_design_prompt_package_exports_search_hints_builder(self) -> None:
         self.assertIn("build_design_bootstrap_prompt", design_prompt_exports)
+        self.assertIn("build_doc_only_design_prompt", design_prompt_exports)
         self.assertIn("build_search_hints_prompt", design_prompt_exports)
         self.assertIn("build_search_hints_template_json", design_prompt_exports)
 
     def test_plan_prompt_package_exports_bootstrap_builder(self) -> None:
         self.assertIn("build_plan_bootstrap_prompt", plan_prompt_exports)
+        self.assertIn("build_doc_only_plan_prompt", plan_prompt_exports)
         self.assertIn("build_plan_planner_agent_prompt", plan_prompt_exports)
         self.assertIn("build_plan_scheduler_agent_prompt", plan_prompt_exports)
         self.assertIn("build_plan_validation_designer_agent_prompt", plan_prompt_exports)
@@ -95,6 +100,32 @@ class PromptSystemTest(unittest.TestCase):
 
         self.assertIn("这是内联 bootstrap", rendered)
         self.assertNotIn("收到 bootstrap 后只需简短回复已完成", rendered)
+
+    def test_plan_template_requires_dependency_fields(self) -> None:
+        rendered = build_plan_template_markdown()
+
+        self.assertIn("depends_on", rendered)
+        self.assertIn("hard_dependencies", rendered)
+        self.assertIn("coordination_points", rendered)
+        self.assertIn("acceptance_mapping", rendered)
+        self.assertIn("blockers", rendered)
+
+    def test_doc_only_plan_prompt_requires_dependency_contract(self) -> None:
+        rendered = build_doc_only_plan_prompt(
+            title="更新竞拍讲解卡",
+            repo_ids=["live_common", "live_pack"],
+            refined_markdown="# PRD\n- 验收标准",
+            design_markdown="# Design\n- live_common -> live_pack",
+            skills_brief_markdown="- auction-plan",
+            template_path="/tmp/plan.md",
+        )
+
+        self.assertIn("/tmp/plan.md", rendered)
+        self.assertIn("live_common, live_pack", rendered)
+        self.assertIn("hard dependency", rendered)
+        self.assertIn("depends_on", rendered)
+        self.assertIn("blockers", rendered)
+        self.assertIn("acceptance_mapping", rendered)
 
     def test_plan_planner_prompt_targets_draft_work_items(self) -> None:
         rendered = build_plan_planner_agent_prompt(
@@ -224,6 +255,21 @@ class PromptSystemTest(unittest.TestCase):
 
         self.assertIn("这是内联 bootstrap", rendered)
         self.assertNotIn("收到 bootstrap 后只需简短回复已完成", rendered)
+
+    def test_doc_only_design_prompt_lives_in_prompt_package(self) -> None:
+        rendered = build_doc_only_design_prompt(
+            title="更新竞拍讲解卡",
+            refined_markdown="# PRD",
+            repo_scope_markdown="- live_pack: /repo",
+            research_summary_payload={"repos": [{"repo_id": "live_pack"}]},
+            skills_brief_markdown="- auction-design",
+            template_path="/tmp/design.md",
+        )
+
+        self.assertIn("/tmp/design.md", rendered)
+        self.assertIn("prd-refined.md", rendered)
+        self.assertIn("live_pack", rendered)
+        self.assertIn("Repo research summary", rendered)
 
     def test_design_role_prompts_are_task_prompts(self) -> None:
         prompts = [

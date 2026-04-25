@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from coco_flow.config import Settings
-from coco_flow.prompts.plan import build_plan_template_markdown
+from coco_flow.prompts.plan import build_doc_only_plan_prompt, build_plan_template_markdown
 
 from .agent_io import run_plan_agent_markdown_with_new_session
 from .models import EXECUTOR_NATIVE, PlanPreparedInput
@@ -24,7 +24,14 @@ def generate_doc_only_plan_markdown(
                 prepared,
                 settings,
                 build_plan_template_markdown(),
-                lambda template_path: _build_doc_only_plan_prompt(prepared, template_path),
+                lambda template_path: build_doc_only_plan_prompt(
+                    title=prepared.title,
+                    repo_ids=[scope.repo_id for scope in prepared.repo_scopes if scope.repo_id],
+                    refined_markdown=prepared.refined_markdown,
+                    design_markdown=prepared.design_markdown,
+                    skills_brief_markdown=prepared.skills_brief_markdown,
+                    template_path=template_path,
+                ),
                 ".plan-template-",
                 role="plan_writer",
                 stage="write_doc_only",
@@ -83,23 +90,6 @@ def generate_local_doc_only_plan_markdown(prepared: PlanPreparedInput) -> str:
     lines.extend(["", "## 风险与阻塞项", ""])
     lines.append("- 如果执行时发现 design.md 与真实代码职责不一致，先回到 Design 文档修正后再继续。")
     return "\n".join(lines).rstrip() + "\n"
-
-
-def _build_doc_only_plan_prompt(prepared: PlanPreparedInput, template_path: str) -> str:
-    skills = prepared.skills_brief_markdown.strip() or "当前没有额外 Skills/SOP 摘要。"
-    return (
-        "你在做 coco-flow Plan 阶段。当前第一版采用文档流，不使用结构化 Plan schema。\n\n"
-        f"请直接编辑模板文件：{template_path}\n"
-        "保留模板的一级标题与章节顺序，输出可交给研发执行的 plan.md。\n"
-        "只允许依据 prd-refined.md、design.md、绑定仓库与 Skills/SOP；不要发明新仓库、新需求或新业务规则。\n\n"
-        f"## 任务标题\n{prepared.title}\n\n"
-        f"## 绑定仓库\n{', '.join(scope.repo_id for scope in prepared.repo_scopes if scope.repo_id) or '未绑定'}\n\n"
-        f"## prd-refined.md\n{prepared.refined_markdown.strip()}\n\n"
-        f"## design.md\n{prepared.design_markdown.strip()}\n\n"
-        f"## Skills/SOP 摘要\n{skills}\n\n"
-        "完成后只需简短回复已完成。"
-    )
-
 
 def _normalize_native_plan_markdown(raw: str) -> str:
     content = raw.strip()

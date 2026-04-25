@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from coco_flow.config import Settings
+from coco_flow.prompts.design import build_doc_only_design_prompt
 
 from .agent_io import run_agent_markdown_with_new_session
 from .models import DesignInputBundle
@@ -28,7 +29,14 @@ def write_doc_only_design_markdown(
                 prepared,
                 settings,
                 draft,
-                lambda template_path: _build_doc_only_design_prompt(prepared, research_summary_payload, template_path),
+                lambda template_path: build_doc_only_design_prompt(
+                    title=prepared.title,
+                    refined_markdown=prepared.refined_markdown,
+                    repo_scope_markdown=_repo_scope_text(prepared),
+                    research_summary_payload=research_summary_payload,
+                    skills_brief_markdown=prepared.design_skills_brief_markdown,
+                    template_path=template_path,
+                ),
                 ".design-writer-",
                 role="design_writer",
                 stage="writer_doc_only",
@@ -70,22 +78,6 @@ def build_local_doc_only_design_markdown(prepared: DesignInputBundle, research_s
         lines.extend(["", "## 明确不做"])
         lines.extend(f"- {item}" for item in prepared.sections.non_goals)
     return "\n".join(lines).rstrip() + "\n"
-
-
-def _build_doc_only_design_prompt(prepared: DesignInputBundle, research_summary_payload: dict[str, object], template_path: str) -> str:
-    return (
-        "你在做 coco-flow Design 阶段。当前第一版采用文档流，不使用结构化 Design schema。\n\n"
-        f"请直接编辑模板文件：{template_path}\n"
-        "保留 Markdown 文档形态，输出可给研发评审和后续 Plan 使用的 design.md。\n"
-        "只允许依据 prd-refined.md、绑定仓库代码证据、仓库职责和 Skills/SOP；不要输出 JSON，不要发明新需求。\n\n"
-        f"## 任务标题\n{prepared.title}\n\n"
-        f"## prd-refined.md\n{prepared.refined_markdown.strip()}\n\n"
-        f"## 绑定仓库\n{_repo_scope_text(prepared)}\n\n"
-        f"## Repo research summary\n{research_summary_payload}\n\n"
-        f"## Skills/SOP 摘要\n{prepared.design_skills_brief_markdown.strip() or '当前没有额外 Skills/SOP 摘要。'}\n\n"
-        "完成后只需简短回复已完成。"
-    )
-
 
 def _research_candidate_files(payload: dict[str, object]) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}

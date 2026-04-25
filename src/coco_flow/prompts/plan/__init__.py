@@ -1,5 +1,10 @@
 from .bootstrap import build_plan_bootstrap_prompt
-from .generate import build_plan_generate_agent_prompt, build_plan_template_markdown, build_plan_writer_agent_prompt
+from .generate import (
+    build_doc_only_plan_prompt,
+    build_plan_generate_agent_prompt,
+    build_plan_template_markdown,
+    build_plan_writer_agent_prompt,
+)
 from .graph import (
     build_plan_execution_graph_agent_prompt,
     build_plan_execution_graph_template_json,
@@ -23,6 +28,7 @@ from .verify import build_plan_verify_agent_prompt, build_plan_verify_template_j
 
 __all__ = [
     "build_plan_bootstrap_prompt",
+    "build_doc_only_plan_prompt",
     "build_plan_execution_graph_agent_prompt",
     "build_plan_execution_graph_template_json",
     "build_plan_generate_agent_prompt",
