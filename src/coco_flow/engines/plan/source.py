@@ -1,3 +1,9 @@
+"""Plan 输入准备。
+
+把任务目录中的 prd-refined.md、design.md、input.json 和 repos.json
+归一成 PlanPreparedInput，并在进入 writer 前做最小完整性校验。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,9 +27,6 @@ def prepare_plan_input(task_dir: Path, task_meta: dict[str, object]) -> PlanPrep
     task_id = task_dir.name
     input_meta = read_json_file(task_dir / "input.json")
     repos_meta = read_json_file(task_dir / "repos.json")
-    design_repo_binding_payload: dict[str, object] = {}
-    design_sections_payload: dict[str, object] = {}
-    design_result_payload: dict[str, object] = {}
     design_markdown = read_text_if_exists(task_dir / "design.md")
     refined_markdown = read_text_if_exists(task_dir / "prd-refined.md")
     title = str(task_meta.get("title") or input_meta.get("title") or task_id)
@@ -42,9 +45,6 @@ def prepare_plan_input(task_dir: Path, task_meta: dict[str, object]) -> PlanPrep
         refined_markdown=refined_markdown,
         input_meta=input_meta,
         task_meta=task_meta,
-        design_repo_binding_payload=design_repo_binding_payload,
-        design_sections_payload=design_sections_payload,
-        design_result_payload=design_result_payload,
         repos_meta=repos_meta,
         repo_scopes=repo_scopes,
         repo_ids={scope.repo_id for scope in repo_scopes},

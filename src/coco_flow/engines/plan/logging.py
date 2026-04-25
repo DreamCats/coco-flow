@@ -1,3 +1,8 @@
+"""Plan 日志写入工具。
+
+服务层和引擎共用该函数向 task 目录追加 plan.log，记录阶段推进过程。
+"""
+
 from __future__ import annotations
 
 from datetime import datetime

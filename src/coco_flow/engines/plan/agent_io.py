@@ -1,7 +1,12 @@
+"""Plan 阶段 agent I/O 封装。
+
+当前只保留 Markdown session 写作能力，用于 native writer 编辑 plan.md 模板；
+旧结构化 JSON agent 调用已随 Plan schema 删除。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from pathlib import Path
 import tempfile
 
@@ -16,62 +21,6 @@ from .models import PlanPreparedInput
 class PlanAgentSession:
     client: CocoACPClient
     handle: AgentSessionHandle
-
-
-def run_plan_agent_json(
-    prepared: PlanPreparedInput,
-    settings: Settings,
-    template: str,
-    prompt_builder,
-    prefix: str,
-) -> dict[str, object]:
-    raw = _run_plan_agent_template(prepared, settings, template, prompt_builder, prefix, ".json")
-    if "__FILL__" in raw or not raw.strip():
-        raise ValueError("plan_agent_template_unfilled")
-    payload = json.loads(raw)
-    if not isinstance(payload, dict):
-        raise ValueError("plan_agent_payload_not_object")
-    return payload
-
-
-def run_plan_agent_markdown(
-    prepared: PlanPreparedInput,
-    settings: Settings,
-    template: str,
-    prompt_builder,
-    prefix: str,
-) -> str:
-    raw = _run_plan_agent_template(prepared, settings, template, prompt_builder, prefix, ".md")
-    if not raw.strip():
-        raise ValueError("plan_agent_markdown_empty")
-    return raw.rstrip() + "\n"
-
-
-def run_plan_agent_json_with_new_session(
-    prepared: PlanPreparedInput,
-    settings: Settings,
-    template: str,
-    prompt_builder,
-    prefix: str,
-    *,
-    role: str,
-    stage: str,
-    on_log,
-) -> dict[str, object]:
-    session = new_plan_agent_session(prepared, settings, role=role, on_log=on_log, bootstrap=False)
-    try:
-        return run_plan_agent_json_in_session(
-            prepared,
-            template,
-            prompt_builder,
-            prefix,
-            session,
-            stage=stage,
-            inline_bootstrap=True,
-            on_log=on_log,
-        )
-    finally:
-        close_plan_agent_session(session, on_log)
 
 
 def run_plan_agent_markdown_with_new_session(
@@ -99,36 +48,6 @@ def run_plan_agent_markdown_with_new_session(
         )
     finally:
         close_plan_agent_session(session, on_log)
-
-
-def run_plan_agent_json_in_session(
-    prepared: PlanPreparedInput,
-    template: str,
-    prompt_builder,
-    prefix: str,
-    session: PlanAgentSession,
-    *,
-    stage: str,
-    inline_bootstrap: bool,
-    on_log,
-) -> dict[str, object]:
-    raw = _run_plan_agent_template_in_session(
-        prepared,
-        template,
-        prompt_builder,
-        prefix,
-        ".json",
-        session,
-        stage=stage,
-        inline_bootstrap=inline_bootstrap,
-        on_log=on_log,
-    )
-    if "__FILL__" in raw or not raw.strip():
-        raise ValueError("plan_agent_template_unfilled")
-    payload = json.loads(raw)
-    if not isinstance(payload, dict):
-        raise ValueError("plan_agent_payload_not_object")
-    return payload
 
 
 def run_plan_agent_markdown_in_session(
@@ -194,29 +113,6 @@ def close_plan_agent_session(session: PlanAgentSession, on_log) -> None:
         session.client.close_agent_session(session.handle)
     except Exception as error:
         on_log(f"session_close_warning: role={session.handle.role} error={error}")
-
-
-def _run_plan_agent_template(
-    prepared: PlanPreparedInput,
-    settings: Settings,
-    template: str,
-    prompt_builder,
-    prefix: str,
-    suffix: str,
-) -> str:
-    path = _write_template(prepared.task_dir, prefix, suffix, template)
-    client = CocoACPClient(settings.coco_bin, idle_timeout_seconds=settings.acp_idle_timeout_seconds, settings=settings)
-    try:
-        client.run_agent(
-            prompt_builder(str(path)),
-            settings.native_query_timeout,
-            cwd=str(prepared.task_dir),
-            fresh_session=True,
-        )
-        return path.read_text(encoding="utf-8") if path.exists() else ""
-    finally:
-        if path.exists():
-            path.unlink()
 
 
 def _run_plan_agent_template_in_session(

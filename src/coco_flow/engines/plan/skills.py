@@ -1,3 +1,9 @@
+"""Plan Skills/SOP 适配层。
+
+负责把通用 Plan skills 选择逻辑接入当前 doc-only Plan 输入，
+产出 writer 可消费的知识摘要和 selected skill 信息。
+"""
+
 from __future__ import annotations
 
 from coco_flow.config import Settings

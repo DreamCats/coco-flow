@@ -46,8 +46,6 @@ def plan_task(task_id: str, settings: Settings | None = None, on_log: LogHandler
     try:
         result = run_plan_engine(task_dir, task_meta, cfg, logger)
         (task_dir / "plan.md").write_text(result.plan_markdown, encoding="utf-8")
-        for name, payload in result.intermediate_artifacts.items():
-            _write_intermediate_artifact(task_dir / name, payload)
         _update_task_status(task_dir, task_meta, result.status)
         return result.status
     except Exception as error:
@@ -93,13 +91,6 @@ def mark_task_failed(task_id: str, settings: Settings | None = None) -> str:
         raise ValueError(f"task metadata missing: {task_id}")
     _update_task_status(task_dir, task_meta, STATUS_FAILED)
     return STATUS_FAILED
-
-
-def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -> None:
-    if isinstance(payload, dict):
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        return
-    path.write_text(payload.rstrip() + "\n", encoding="utf-8")
 
 
 def _ensure_design_allows_plan(task_dir: Path) -> None:

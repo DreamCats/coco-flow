@@ -10,8 +10,6 @@ from coco_flow.config import Settings
 from coco_flow.engines.plan.agent_io import (
     close_plan_agent_session,
     new_plan_agent_session,
-    run_plan_agent_json,
-    run_plan_agent_json_with_new_session,
     run_plan_agent_markdown_with_new_session,
 )
 from coco_flow.engines.plan.models import PlanPreparedInput
@@ -19,69 +17,6 @@ from coco_flow.engines.shared.models import RefinedSections
 
 
 class PlanAgentIOTest(unittest.TestCase):
-    def test_direct_json_helper_uses_fresh_run_agent(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            prepared = self._prepared(root)
-            settings = self._settings(root)
-
-            def prompt_builder(path: str) -> str:
-                Path(path).write_text('{"source": "direct"}\n', encoding="utf-8")
-                return "direct prompt"
-
-            with patch("coco_flow.engines.plan.agent_io.CocoACPClient", _FakeCocoACPClient):
-                _FakeCocoACPClient.instances.clear()
-                payload = run_plan_agent_json(
-                    prepared,
-                    settings,
-                    "{}\n",
-                    prompt_builder,
-                    ".plan-direct-",
-                )
-
-            self.assertEqual(payload, {"source": "direct"})
-            client = _FakeCocoACPClient.instances[0]
-            self.assertEqual(client.run_prompts, ["direct prompt"])
-            self.assertEqual(client.run_cwds, [str(prepared.task_dir)])
-
-    def test_json_with_new_session_inlines_bootstrap_and_closes(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            prepared = self._prepared(root)
-            settings = self._settings(root)
-            logs: list[str] = []
-
-            def prompt_builder(path: str) -> str:
-                Path(path).write_text('{"ok": true, "value": "done"}\n', encoding="utf-8")
-                return f"task prompt writes {path}"
-
-            with patch("coco_flow.engines.plan.agent_io.CocoACPClient", _FakeCocoACPClient):
-                _FakeCocoACPClient.instances.clear()
-                payload = run_plan_agent_json_with_new_session(
-                    prepared,
-                    settings,
-                    '{"ok": "__FILL__"}\n',
-                    prompt_builder,
-                    ".plan-agent-",
-                    role="plan_planner",
-                    stage="draft",
-                    on_log=logs.append,
-                )
-
-            self.assertEqual(payload, {"ok": True, "value": "done"})
-            self.assertEqual(len(_FakeCocoACPClient.instances), 1)
-            client = _FakeCocoACPClient.instances[0]
-            self.assertEqual(client.roles, ["plan_planner"])
-            self.assertEqual(client.closed_roles, ["plan_planner"])
-            self.assertEqual(len(client.prompts), 1)
-            self.assertIn("这是内联 bootstrap", client.prompts[0])
-            self.assertIn("Plan Skills Brief", client.prompts[0])
-            self.assertIn("task prompt writes", client.prompts[0])
-            self.assertIn("session_role: plan_planner", logs)
-            self.assertIn("bootstrap_prompt: inline role=plan_planner", logs)
-            self.assertIn("agent_prompt_start: role=plan_planner stage=draft", logs)
-            self.assertIn("agent_prompt_done: role=plan_planner stage=draft", logs)
-
     def test_standalone_bootstrap_prompts_existing_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -159,9 +94,6 @@ class PlanAgentIOTest(unittest.TestCase):
             refined_markdown="# PRD",
             input_meta={},
             task_meta={},
-            design_repo_binding_payload={"repo_bindings": []},
-            design_sections_payload={},
-            design_result_payload={},
             repos_meta={},
             repo_scopes=[],
             repo_ids=set(),
