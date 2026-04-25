@@ -73,9 +73,6 @@ def run_refine_engine(
     return RefineEngineResult(
         status="refined",
         refined_markdown=refined_markdown,
-        skills_used=settings.refine_executor.strip().lower() == "native",
-        selected_skill_ids=["agent_refine"] if settings.refine_executor.strip().lower() == "native" else [],
-        intermediate_artifacts={},
     )
 
 

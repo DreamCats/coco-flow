@@ -45,7 +45,3 @@ def extract_source_sections(markdown: str) -> tuple[str, str]:
     source, supplement = split_source_and_manual_extract(content)
     return source.strip(), supplement.strip()
 
-
-def extract_source_content(markdown: str) -> str:
-    source, _ = extract_source_sections(markdown)
-    return source

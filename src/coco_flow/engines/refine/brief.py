@@ -73,19 +73,6 @@ def build_source_excerpt(prepared: RefinePreparedInput, brief: RefineBrief) -> s
     return f"# Refine Source Excerpt\n\n{body}\n"
 
 
-def build_compat_intent_payload(prepared: RefinePreparedInput, brief: RefineBrief) -> dict[str, object]:
-    return {
-        "goal": brief.goal,
-        "change_points": brief.in_scope,
-        "acceptance_criteria": brief.acceptance_criteria,
-        "terms": _extract_terms([prepared.title, *brief.in_scope, *brief.out_of_scope, *brief.gating_conditions]),
-        "risks_seed": brief.edge_cases,
-        "discussion_seed": brief.open_questions,
-        "boundary_seed": brief.out_of_scope,
-        "mode": "manual_first",
-    }
-
-
 def merge_brief_with_refined_markdown(brief: RefineBrief, refined_markdown: str) -> RefineBrief:
     refined_in_scope = _strip_scope_meta_items(_extract_bullet_section(refined_markdown, "具体变更点"))
     refined_acceptance = _extract_bullet_section(refined_markdown, "验收标准")
