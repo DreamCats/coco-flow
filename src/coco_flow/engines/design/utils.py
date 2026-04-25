@@ -1,3 +1,8 @@
+"""Design 引擎通用小工具。
+
+集中放置字符串列表归一化、dict 列表过滤、去重等无业务含义的纯函数。
+"""
+
 from __future__ import annotations
 
 from typing import Iterable
@@ -34,33 +39,3 @@ def dedupe(values: Iterable[str]) -> list[str]:
         seen.add(text.lower())
         result.append(text)
     return result
-
-
-def normalize_issue(item: dict[str, object]) -> dict[str, object]:
-    severity = str(item.get("severity") or "warning").strip()
-    if severity not in {"blocking", "warning", "info"}:
-        severity = "warning"
-    return {
-        "severity": severity,
-        "failure_type": str(item.get("failure_type") or "semantic_risk"),
-        "target": str(item.get("target") or ""),
-        "expected": str(item.get("expected") or ""),
-        "actual": str(item.get("actual") or ""),
-        "suggested_action": str(item.get("suggested_action") or ""),
-    }
-
-
-def issue(severity: str, failure_type: str, target: str, expected: str, actual: str, suggested_action: str) -> dict[str, object]:
-    return {
-        "severity": severity,
-        "failure_type": failure_type,
-        "target": target,
-        "expected": expected,
-        "actual": actual,
-        "suggested_action": suggested_action,
-    }
-
-
-def issues(payload: dict[str, object]) -> list[dict[str, object]]:
-    return [normalize_issue(item) for item in dict_list(payload.get("issues"))]
-

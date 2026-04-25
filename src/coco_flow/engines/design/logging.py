@@ -1,3 +1,8 @@
+"""Design 日志写入工具。
+
+服务层和引擎共用该函数向 task 目录追加 design.log，保持阶段推进过程可追踪。
+"""
+
 from __future__ import annotations
 
 from datetime import datetime

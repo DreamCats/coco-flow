@@ -1,3 +1,9 @@
+"""Design 引擎数据模型。
+
+这里只保留 doc-only Design 需要的输入 bundle 和结果模型；
+旧 schema gate、repo binding、sections 等结构化结果已经移除。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -11,15 +17,6 @@ STATUS_DESIGNED = "designed"
 STATUS_FAILED = "failed"
 
 EXECUTOR_NATIVE = "native"
-EXECUTOR_LOCAL = "local"
-
-GATE_PASSED = "passed"
-GATE_PASSED_WITH_WARNINGS = "passed_with_warnings"
-GATE_NEEDS_HUMAN = "needs_human"
-GATE_DEGRADED = "degraded"
-GATE_FAILED = "failed"
-
-PLAN_ALLOWED_GATE_STATUSES = {GATE_PASSED, GATE_PASSED_WITH_WARNINGS}
 
 LogHandler = Callable[[str], None]
 
@@ -47,8 +44,4 @@ class DesignInputBundle:
 @dataclass
 class DesignEngineResult:
     status: str
-    gate_status: str
     design_markdown: str
-    repo_binding_payload: dict[str, object]
-    sections_payload: dict[str, object]
-    intermediate_artifacts: dict[str, str | dict[str, object]] = field(default_factory=dict)

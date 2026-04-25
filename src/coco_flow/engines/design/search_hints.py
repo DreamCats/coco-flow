@@ -1,3 +1,9 @@
+"""Design 搜索线索生成。
+
+native 模式优先让 agent 从 refined PRD 和 Skills/SOP 中提取搜索词、可能符号和路径模式；
+不可用时回退到本地启发式提取，避免阻塞后续仓库调研。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

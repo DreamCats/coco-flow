@@ -1,3 +1,9 @@
+"""Design 输入准备。
+
+负责把任务目录中的 prd-refined.md、input/refine 兼容信息和 repos.json
+归一成 DesignInputBundle，供后续 skills、research、writer 共用。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -51,4 +57,3 @@ def _selection_ids(payload: dict[str, object]) -> list[str]:
     if not isinstance(values, list):
         return []
     return [str(item).strip() for item in values if str(item).strip()]
-

@@ -1,3 +1,9 @@
+"""Design 仓库调研。
+
+根据 refined PRD、搜索线索和绑定仓库执行本地代码搜索、路径扫描与 git 证据提取，
+输出候选文件、相关文件和证据摘要，供 design.md 使用。
+"""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed

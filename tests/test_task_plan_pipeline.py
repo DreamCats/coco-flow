@@ -10,12 +10,8 @@ from unittest.mock import patch
 from coco_flow.clients import AgentSessionHandle
 from coco_flow.config import Settings
 from coco_flow.engines.design.models import DesignInputBundle
-from coco_flow.engines.design.gate import local_gate_payload
-from coco_flow.engines.design.pipeline import apply_review_issues_to_decision, normalize_decision_for_gate
-from coco_flow.engines.design.adjudication import derive_repo_binding, derive_sections, normalize_adjudication, review_payload_after_revision
 from coco_flow.engines.design.research import build_research_plan, research_single_repo
 from coco_flow.engines.design.skills import build_design_skills_bundle
-from coco_flow.engines.design.writer import build_local_design_markdown
 from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
@@ -40,53 +36,7 @@ def make_settings(root: Path, *, plan_executor: str = "local") -> Settings:
     )
 
 
-class DesignV3PipelineTest(unittest.TestCase):
-    def test_revision_removes_blocked_candidate_file(self) -> None:
-        decision = {
-            "repo_decisions": [
-                {
-                    "repo_id": "demo",
-                    "work_type": "must_change",
-                    "candidate_files": ["src/right.py", "src/wrong.py"],
-                    "candidate_dirs": ["src"],
-                }
-            ]
-        }
-        review = {
-            "issues": [
-                {
-                    "severity": "blocking",
-                    "failure_type": "candidate_file_not_proven",
-                    "target": "src/wrong.py",
-                    "suggested_action": "remove wrong candidate",
-                }
-            ]
-        }
-
-        revised, resolutions = apply_review_issues_to_decision(decision, review)
-
-        repo = revised["repo_decisions"][0]
-        self.assertEqual(repo["candidate_files"], ["src/right.py"])
-        self.assertEqual(resolutions[0]["resolution"], "accepted")
-
-    def test_validate_only_decision_does_not_expose_candidate_files(self) -> None:
-        decision = {
-            "repo_decisions": [
-                {
-                    "repo_id": "demo",
-                    "work_type": "validate_only",
-                    "candidate_files": ["src/noisy.py"],
-                    "candidate_dirs": ["src"],
-                }
-            ]
-        }
-
-        normalized = normalize_decision_for_gate(decision, {"issues": []})
-
-        repo = normalized["repo_decisions"][0]
-        self.assertEqual(repo["candidate_files"], [])
-        self.assertEqual(repo["candidate_dirs"], [])
-
+class DesignPipelineTest(unittest.TestCase):
     def test_repo_research_includes_git_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_dir = Path(tmp) / "repo"
@@ -197,78 +147,6 @@ class DesignV3PipelineTest(unittest.TestCase):
             self.assertIn("live_common + 业务仓", brief)
             self.assertIn("Design 必须说明实验字段来源", brief)
 
-    def test_experiment_design_derives_live_pack_dependency_on_live_common(self) -> None:
-        prepared = self._design_bundle(
-            repo_scopes=[
-                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
-                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
-            ],
-            title="竞拍讲解卡文案爽感实验",
-            refined_markdown="命中实验时，live_common 新增 AB 字段，live_pack 读取字段控制 Starting bid 文案。",
-        )
-        prepared.design_skills_brief_markdown = (
-            "### Dependency Rules\n"
-            "### 规则：竞拍讲解卡实验字段依赖\n"
-            "- 触发信号：实验、AB\n"
-            "- 生效前提：绑定仓库包含 `live_common` 和 `live_pack`\n"
-            "- 上游 producer：`live_common`\n"
-            "- 下游 consumer：`live_pack`\n"
-            "- 依赖类型：producer_consumer\n"
-            "- 依赖原因：live_common 提供 AB 实验字段，live_pack 消费该字段控制竞拍讲解卡表达逻辑。\n"
-            "- 前置关系：live_pack 需要在 live_common 实验字段可用并升级 abtest 依赖后消费该字段。\n"
-        )
-        decision_payload = {
-            "decision_summary": "live_pack 根据 AB 实验字段展示新文案，live_common 提供 AB 实验字段。",
-            "core_change_points": [
-                "live_pack 修改 regular/surprise set converter",
-                "live_common 新增实验字段",
-            ],
-            "repo_decisions": [
-                {
-                    "repo_id": "live_pack",
-                    "work_type": "must_change",
-                    "responsibility": "读取 AB 实验字段并覆盖竞拍讲解卡文案",
-                    "candidate_files": ["entities/converters/auction_converters/regular_auction_converter.go"],
-                    "candidate_dirs": ["entities/converters/auction_converters"],
-                    "boundaries": ["实验值为 0 时保持线上逻辑"],
-                },
-                {
-                    "repo_id": "live_common",
-                    "work_type": "co_change",
-                    "responsibility": "提供 AB 实验字段",
-                    "candidate_files": ["abtest/struct.go"],
-                    "candidate_dirs": [],
-                    "boundaries": ["仅新增实验字段"],
-                },
-            ],
-        }
-
-        no_rule_prepared = self._design_bundle(
-            repo_scopes=[
-                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
-                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
-            ],
-            title="竞拍讲解卡文案爽感实验",
-            refined_markdown="命中实验时，live_common 新增 AB 字段，live_pack 读取字段控制 Starting bid 文案。",
-        )
-        no_rule_binding = derive_repo_binding(no_rule_prepared, decision_payload)
-        no_rule_live_pack = next(item for item in no_rule_binding["repo_bindings"] if item["repo_id"] == "live_pack")
-        self.assertEqual(no_rule_live_pack["depends_on"], [])
-
-        binding = derive_repo_binding(prepared, decision_payload)
-        sections = derive_sections(prepared, decision_payload)
-        markdown = build_local_design_markdown(prepared, {**decision_payload, "repo_dependencies": binding["repo_bindings"][0]["dependency_details"]})
-
-        live_pack = next(item for item in binding["repo_bindings"] if item["repo_id"] == "live_pack")
-        live_common = next(item for item in binding["repo_bindings"] if item["repo_id"] == "live_common")
-        self.assertEqual(live_pack["depends_on"], ["live_common"])
-        self.assertEqual(live_pack["parallelizable_with"], [])
-        self.assertEqual(live_common["parallelizable_with"], [])
-        self.assertEqual(sections["system_dependencies"][0]["upstream_system_id"], "live_common")
-        self.assertEqual(sections["system_dependencies"][0]["downstream_system_id"], "live_pack")
-        self.assertIn("仓库依赖与发布顺序", markdown)
-        self.assertIn("live_common -> live_pack", markdown)
-
     def test_repo_research_uses_file_pattern_hints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_dir = Path(tmp) / "repo"
@@ -314,81 +192,6 @@ class DesignV3PipelineTest(unittest.TestCase):
 
             self.assertEqual(payload["candidate_files"], [])
             self.assertTrue(payload["related_files"])
-
-    def test_revision_can_promote_related_file_to_candidate(self) -> None:
-        prepared = self._design_bundle(repo_scopes=[RepoScope(repo_id="demo", repo_path="/tmp/repo")])
-        payload = {
-            "decision_summary": "demo",
-            "core_change_points": ["update regular auction"],
-            "repo_decisions": [
-                {
-                    "repo_id": "demo",
-                    "work_type": "must_change",
-                    "candidate_files": ["core.go", "related.go"],
-                    "responsibility": "demo",
-                }
-            ],
-        }
-        research_summary = {
-            "repos": [
-                {
-                    "repo_id": "demo",
-                    "candidate_files": [{"path": "core.go"}],
-                    "related_files": [{"path": "related.go"}],
-                }
-            ]
-        }
-
-        normalized = normalize_adjudication(prepared, payload, research_summary)
-
-        self.assertEqual(normalized["repo_decisions"][0]["candidate_files"], ["core.go", "related.go"])
-
-    def test_accepted_revision_must_be_reflected_in_decision(self) -> None:
-        review = {
-            "issues": [
-                {
-                    "severity": "blocking",
-                    "failure_type": "missing_candidate_file",
-                    "target": "demo candidate_files",
-                    "expected": "应包含 related.go",
-                    "suggested_action": "添加 related.go",
-                }
-            ]
-        }
-        debate = {
-            "revision": {
-                "issue_resolutions": [
-                    {
-                        "failure_type": "missing_candidate_file",
-                        "target": "demo candidate_files",
-                        "resolution": "accepted",
-                        "decision_change": "添加 related.go",
-                    }
-                ]
-            }
-        }
-
-        still_blocked = review_payload_after_revision(review, debate, {"repo_decisions": [{"repo_id": "demo", "candidate_files": []}]})
-        fixed = review_payload_after_revision(review, debate, {"repo_decisions": [{"repo_id": "demo", "candidate_files": ["related.go"]}]})
-
-        self.assertFalse(still_blocked["ok"])
-        self.assertEqual(still_blocked["issues"][0]["severity"], "blocking")
-        self.assertTrue(fixed["ok"])
-        self.assertEqual(fixed["issues"][0]["severity"], "info")
-
-    def test_gate_blocks_markdown_plan_status_conflict(self) -> None:
-        prepared = self._design_bundle(repo_scopes=[RepoScope(repo_id="demo", repo_path="/tmp/repo")])
-
-        payload = local_gate_payload(
-            prepared,
-            {"repo_decisions": [{"repo_id": "demo"}]},
-            "# Demo\n\n当前不能进入 Plan，阻断原因：缺文件。\n",
-            {"issues": []},
-            degraded=False,
-        )
-
-        self.assertFalse(payload["ok"])
-        self.assertEqual(payload["gate_status"], "needs_human")
 
     def test_local_design_doc_only_writes_markdown_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -551,129 +354,10 @@ def make_design_agent_session_handle(*, query_timeout: str, cwd: str, role: str,
 
 def write_native_design_artifacts(handle: AgentSessionHandle, prompt: str, prompt_events: list[tuple[str, str]]) -> str:
     task_dir = Path(handle.cwd)
-    if handle.role == "design_architect" and "收到 bootstrap 后只需简短回复已完成" in prompt:
-        prompt_events.append((handle.role, "bootstrap"))
-        return "done"
-    if handle.role == "design_architect" and list(task_dir.glob(".design-architect-*.json")):
-        prompt_events.append((handle.role, "architect"))
-        next(task_dir.glob(".design-architect-*.json")).write_text(
-            json.dumps(
-                {
-                    "decision_summary": "更新成功态状态提示。",
-                    "core_change_points": ["成功态状态提示需要落到 success_status。"],
-                    "repo_decisions": [
-                        {
-                            "repo_id": "demo",
-                            "work_type": "must_change",
-                            "responsibility": "更新 success_status 对应状态提示。",
-                            "candidate_files": ["status.py"],
-                            "candidate_dirs": ["."],
-                            "boundaries": [],
-                            "risks": [],
-                            "unresolved_questions": [],
-                            "confidence": "high",
-                            "evidence_refs": ["status.py"],
-                        }
-                    ],
-                    "system_boundaries": [],
-                    "risks": [],
-                    "unresolved_questions": [],
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        return "done"
-    if handle.role == "design_skeptic" and list(task_dir.glob(".design-skeptic-*.json")):
-        prompt_events.append((handle.role, "skeptic"))
-        next(task_dir.glob(".design-skeptic-*.json")).write_text(
-            json.dumps(
-                {
-                    "ok": False,
-                    "issues": [
-                        {
-                            "severity": "blocking",
-                            "failure_type": "missing_candidate_file",
-                            "target": "demo candidate_files",
-                            "expected": "candidate_files 包含 status.py",
-                            "actual": "需要 revision 复核。",
-                            "suggested_action": "添加 status.py。",
-                        }
-                    ],
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        return "done"
-    if handle.role == "design_architect" and list(task_dir.glob(".design-revision-*.json")):
-        prompt_events.append((handle.role, "revision"))
-        next(task_dir.glob(".design-revision-*.json")).write_text(
-            json.dumps(
-                {
-                    "issue_resolutions": [
-                        {
-                            "failure_type": "missing_candidate_file",
-                            "target": "demo candidate_files",
-                            "resolution": "accepted",
-                            "reason": "repo research 已命中 status.py。",
-                            "decision_change": "保留 status.py 作为候选文件。",
-                        }
-                    ],
-                    "decision": {
-                        "decision_summary": "更新成功态状态提示。",
-                        "core_change_points": ["成功态状态提示需要落到 success_status。"],
-                        "repo_decisions": [
-                            {
-                                "repo_id": "demo",
-                                "work_type": "must_change",
-                                "responsibility": "更新 success_status 对应状态提示。",
-                                "candidate_files": ["status.py"],
-                                "candidate_dirs": ["."],
-                                "boundaries": [],
-                                "risks": [],
-                                "unresolved_questions": [],
-                                "confidence": "high",
-                                "evidence_refs": ["status.py"],
-                            }
-                        ],
-                        "system_boundaries": [],
-                        "risks": [],
-                        "unresolved_questions": [],
-                    },
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        return "done"
     if handle.role == "design_writer" and list(task_dir.glob(".design-writer-*.md")):
         prompt_events.append((handle.role, "writer"))
         next(task_dir.glob(".design-writer-*.md")).write_text(
             "# 成功态状态提示 Design\n\n## 结论\n更新 demo 的 status.py。\n",
-            encoding="utf-8",
-        )
-        return "done"
-    if handle.role == "design_gate" and list(task_dir.glob(".design-gate-*.json")):
-        prompt_events.append((handle.role, "gate"))
-        next(task_dir.glob(".design-gate-*.json")).write_text(
-            json.dumps(
-                {
-                    "ok": True,
-                    "gate_status": "passed",
-                    "issues": [],
-                    "reason": "native gate passed",
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
             encoding="utf-8",
         )
         return "done"

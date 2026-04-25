@@ -1,3 +1,9 @@
+"""Design 阶段 agent I/O 封装。
+
+保留两类能力：短任务 JSON 调用用于搜索线索生成，以及 Markdown session 调用用于
+native writer 编辑 design.md 模板。旧 schema 多角色 JSON session 已删除。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -32,76 +38,6 @@ def run_agent_json(
     if not isinstance(payload, dict):
         raise ValueError("design_agent_payload_not_object")
     return payload
-
-
-def run_agent_json_in_session(
-    prepared: DesignInputBundle,
-    template: str,
-    prompt_builder,
-    prefix: str,
-    session: DesignAgentSession,
-    *,
-    stage: str,
-    inline_bootstrap: bool,
-    on_log,
-) -> dict[str, object]:
-    raw = _run_agent_template_in_session(
-        prepared,
-        template,
-        prompt_builder,
-        prefix,
-        ".json",
-        session,
-        stage=stage,
-        inline_bootstrap=inline_bootstrap,
-        on_log=on_log,
-    )
-    if "__FILL__" in raw or not raw.strip():
-        raise ValueError("design_agent_template_unfilled")
-    payload = json.loads(raw)
-    if not isinstance(payload, dict):
-        raise ValueError("design_agent_payload_not_object")
-    return payload
-
-
-def run_agent_json_with_new_session(
-    prepared: DesignInputBundle,
-    settings: Settings,
-    template: str,
-    prompt_builder,
-    prefix: str,
-    *,
-    role: str,
-    stage: str,
-    on_log,
-) -> dict[str, object]:
-    session = new_design_agent_session(prepared, settings, role=role, on_log=on_log, bootstrap=False)
-    try:
-        return run_agent_json_in_session(
-            prepared,
-            template,
-            prompt_builder,
-            prefix,
-            session,
-            stage=stage,
-            inline_bootstrap=True,
-            on_log=on_log,
-        )
-    finally:
-        close_design_agent_session(session, on_log)
-
-
-def run_agent_markdown(
-    prepared: DesignInputBundle,
-    settings: Settings,
-    template: str,
-    prompt_builder,
-    prefix: str,
-) -> str:
-    raw = _run_agent_template(prepared, settings, template, prompt_builder, prefix, ".md")
-    if not raw.strip():
-        raise ValueError("design_agent_markdown_empty")
-    return raw.rstrip() + "\n"
 
 
 def run_agent_markdown_with_new_session(

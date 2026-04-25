@@ -1,10 +1,15 @@
+"""Design 阶段主编排。
+
+当前 Design 第一版只生成 design.md：读取 refined PRD 和绑定仓库，
+补充 Skills/SOP 与代码调研证据，然后交给 writer 形成可人工评审的 Markdown 技术方案。
+"""
+
 from __future__ import annotations
 
 from coco_flow.config import Settings
 
-from .adjudication import apply_review_issues_to_decision, normalize_decision_for_gate
 from .agent_io import DesignAgentSession
-from .models import EXECUTOR_NATIVE, GATE_PASSED, STATUS_DESIGNED, DesignEngineResult
+from .models import EXECUTOR_NATIVE, STATUS_DESIGNED, DesignEngineResult
 from .research import build_research_plan, build_research_summary, run_parallel_repo_research
 from .search_hints import build_search_hints
 from .skills import build_design_skills_bundle
@@ -18,6 +23,7 @@ def run_design_engine(
     settings: Settings,
     on_log,
 ) -> DesignEngineResult:
+    # 1. 读取上游输入。Design 的事实源是 prd-refined.md、input 元数据和已绑定仓库。
     on_log("design_prepare_start: true")
     prepared = prepare_design_input(task_dir, task_meta, settings)
     if not prepared.refined_markdown.strip():
@@ -26,6 +32,7 @@ def run_design_engine(
         raise ValueError("design requires bound repos; please bind repos first")
     on_log(f"design_prepare_ok: repos={len(prepared.repo_scopes)} refined_chars={len(prepared.refined_markdown.strip())}")
 
+    # 2. 选择业务 Skills/SOP。业务定制只进入 knowledge layer，不写进引擎规则。
     on_log("design_skills_start: true")
     brief_markdown, selection_payload, selected_skill_ids = build_design_skills_bundle(prepared, settings)
     prepared.design_skills_selection_payload = selection_payload
@@ -33,6 +40,7 @@ def run_design_engine(
     prepared.design_selected_skill_ids = selected_skill_ids
     on_log(f"design_skills_ok: selected={len(selected_skill_ids)}")
 
+    # 3. 做轻量代码调研。native 只负责给搜索线索，真正证据仍来自本地 repo research。
     native_ok = settings.plan_executor.strip().lower() == EXECUTOR_NATIVE
     on_log("design_research_start: true")
     search_hints_payload = build_search_hints(prepared, settings, native_ok=native_ok, on_log=on_log)
@@ -45,6 +53,7 @@ def run_design_engine(
         f"candidate_files={int(research_summary_payload.get('candidate_file_count') or 0)}"
     )
 
+    # 4. 写 Markdown 方案。最终只返回 design.md，不再派生旧 schema 中间产物。
     on_log("design_writer_start: true")
     design_markdown = write_doc_only_design_markdown(
         prepared,
@@ -57,18 +66,11 @@ def run_design_engine(
     on_log(f"status: {STATUS_DESIGNED}")
     return DesignEngineResult(
         status=STATUS_DESIGNED,
-        gate_status=GATE_PASSED,
         design_markdown=design_markdown,
-        repo_binding_payload={},
-        sections_payload={},
-        intermediate_artifacts={},
     )
 
 
 __all__ = [
     "DesignAgentSession",
-    "apply_review_issues_to_decision",
-    "normalize_decision_for_gate",
     "run_design_engine",
 ]
-

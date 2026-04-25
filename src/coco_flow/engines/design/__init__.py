@@ -1,13 +1,12 @@
+"""Design 引擎对外入口。
+
+这里只暴露服务层需要的状态常量、日志函数、任务目录定位和主编排入口。
+内部已经收敛为 doc-only Design，不再导出旧 schema / gate 相关能力。
+"""
+
 from .logging import append_design_log
 from .models import (
-    EXECUTOR_LOCAL,
     EXECUTOR_NATIVE,
-    GATE_DEGRADED,
-    GATE_FAILED,
-    GATE_NEEDS_HUMAN,
-    GATE_PASSED,
-    GATE_PASSED_WITH_WARNINGS,
-    PLAN_ALLOWED_GATE_STATUSES,
     STATUS_DESIGNED,
     STATUS_DESIGNING,
     STATUS_FAILED,
@@ -17,14 +16,7 @@ from .pipeline import run_design_engine
 from .source import locate_task_dir
 
 __all__ = [
-    "EXECUTOR_LOCAL",
     "EXECUTOR_NATIVE",
-    "GATE_DEGRADED",
-    "GATE_FAILED",
-    "GATE_NEEDS_HUMAN",
-    "GATE_PASSED",
-    "GATE_PASSED_WITH_WARNINGS",
-    "PLAN_ALLOWED_GATE_STATUSES",
     "LogHandler",
     "STATUS_DESIGNED",
     "STATUS_DESIGNING",

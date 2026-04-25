@@ -1,3 +1,9 @@
+"""Design Skills/SOP 选择与摘要。
+
+按 refined PRD、绑定仓库和业务术语筛选相关 Skill，将业务地图、仓库角色、
+多仓联动和 SOP 规则压缩成 Design 阶段可消费的 brief。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
