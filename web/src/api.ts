@@ -37,6 +37,7 @@ export type TaskArtifactName =
   | 'plan-work-items.json'
   | 'plan-execution-graph.json'
   | 'plan-validation.json'
+  | 'plan-sync.json'
   | 'plan-result.json'
   | 'plan.log'
   | 'code-result.json'
@@ -580,6 +581,7 @@ function deriveCodeContract(
   const workItemsPayload = parseJSONArtifact(task.artifacts['plan-work-items.json'])
   const graphPayload = parseJSONArtifact(task.artifacts['plan-execution-graph.json'])
   const validationPayload = parseJSONArtifact(task.artifacts['plan-validation.json'])
+  const planSyncPayload = parseJSONArtifact(task.artifacts['plan-sync.json'])
   const typedProgress = normalizeTypedCodeProgress(raw.codeProgress ?? raw.code_progress)
   const bindings = normalizeBindingEntries(bindingPayload.repo_bindings ?? bindingPayload.bindings)
   const workItems = normalizeWorkItems(workItemsPayload.work_items)
@@ -588,6 +590,8 @@ function deriveCodeContract(
   const executionOrder = buildRepoExecutionOrder(workItems, graphPayload.execution_order)
   const executionIndex = new Map(executionOrder.map((repoId, index) => [repoId, index]))
   const repoNextFallback = task.repoNext.length > 0 ? task.repoNext : executionOrder
+  const planUnsynced = planSyncPayload.synced === false
+  const planUnsyncedBlocker = 'Plan Markdown 未同步，请重新运行 Plan'
 
   const repos = task.repos.map((repo) => {
     const binding = bindings.get(repo.id)
@@ -601,15 +605,16 @@ function deriveCodeContract(
         const dependency = task.repos.find((item) => item.id === dependencyRepo)
         return Boolean(dependency) && dependency?.status !== 'coded' && dependency?.status !== 'archived'
       }) ?? []
+    const effectiveBlockedBy = planUnsynced ? uniqueStrings([...blockedBy, planUnsyncedBlocker]) : blockedBy
 
-    const queueState = resolveRepoQueueState(repo, executionMode, blockedBy, repoNextFallback)
+    const queueState = planUnsynced ? 'blocked' : resolveRepoQueueState(repo, executionMode, effectiveBlockedBy, repoNextFallback)
     return {
       ...repo,
       scopeTier,
       confidence: binding?.confidence || repo.confidence,
       executionMode,
       queueState,
-      blockedBy,
+      blockedBy: effectiveBlockedBy,
       workItems: repoWorkItems,
       verificationChecks: validationEntry?.checks ?? [],
       changeScope: uniqueStrings(repoWorkItems.flatMap((item) => item.changeScope)),

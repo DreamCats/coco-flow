@@ -18,6 +18,7 @@ PLAN_V2_PRIMARY_ARTIFACTS = [
     "plan-work-items.json",
     "plan-execution-graph.json",
     "plan-validation.json",
+    "plan-sync.json",
     "plan-result.json",
 ]
 
@@ -33,9 +34,8 @@ TRACKED_ARTIFACTS = [
     "refine.notes.md",
     "design.notes.md",
     *PLAN_V2_INTERMEDIATE_ARTIFACTS,
-    *PLAN_V2_PRIMARY_ARTIFACTS[:-1],
     "design.md",
-    "plan.md",
+    *PLAN_V2_PRIMARY_ARTIFACTS,
     "refine.log",
     "design.log",
     "plan.log",

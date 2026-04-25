@@ -16,6 +16,7 @@ from coco_flow.engines.shared.models import (
     ResearchFinding,
 )
 from coco_flow.engines.shared.research import build_design_research_signals, parse_refined_sections
+from coco_flow.services.queries.task_detail import read_json_file
 from coco_flow.services.tasks.edit import update_artifact
 from coco_flow.services.tasks.plan import plan_task
 
@@ -131,8 +132,11 @@ class PlanTaskBuilderTest(unittest.TestCase):
             self.assertTrue((task_dir / "plan-work-items.json").exists())
             self.assertTrue((task_dir / "plan-execution-graph.json").exists())
             self.assertTrue((task_dir / "plan-validation.json").exists())
+            self.assertTrue((task_dir / "plan-sync.json").exists())
             self.assertTrue((task_dir / "plan-result.json").exists())
             self.assertTrue((task_dir / "plan-repos" / "live-api.md").exists())
+            sync_payload = read_json_file(task_dir / "plan-sync.json")
+            self.assertTrue(sync_payload.get("synced"))
             repo_plan = (task_dir / "plan-repos" / "live-api.md").read_text(encoding="utf-8")
             self.assertNotIn("done_definition", repo_plan)
             self.assertNotIn("验收映射", repo_plan)
@@ -151,6 +155,9 @@ class PlanTaskBuilderTest(unittest.TestCase):
             self.assertEqual(status, "planned")
             self.assertIn("人工调整", content)
             self.assertIn("人工调整", (task_dir / "plan-repos" / "live-api.md").read_text(encoding="utf-8"))
+            sync_payload = read_json_file(task_dir / "plan-sync.json")
+            self.assertFalse(sync_payload.get("synced"))
+            self.assertEqual(sync_payload.get("repo_id"), "live-api")
 
     def test_build_design_research_signals_extracts_specialized_hints(self) -> None:
         sections = RefinedSections(

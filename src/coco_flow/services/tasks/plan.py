@@ -105,6 +105,15 @@ def _write_plan_outputs(task_dir: Path, result) -> None:
     _write_json(task_dir / "plan-execution-graph.json", result.plan_execution_graph_payload)
     _write_json(task_dir / "plan-validation.json", result.plan_validation_payload)
     _write_json(task_dir / "plan-result.json", result.plan_result_payload)
+    _write_json(
+        task_dir / "plan-sync.json",
+        {
+            "synced": True,
+            "status": "synced",
+            "reason": "Plan structured artifacts were generated from the current Plan inputs.",
+            "updated_at": datetime.now().astimezone().isoformat(),
+        },
+    )
     repo_dir = task_dir / "plan-repos"
     repo_dir.mkdir(parents=True, exist_ok=True)
     for repo_id, content in result.repo_task_markdowns.items():
@@ -147,6 +156,7 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         "plan-work-items.json",
         "plan-execution-graph.json",
         "plan-validation.json",
+        "plan-sync.json",
         "plan-review.json",
         "plan-debate.json",
         "plan-decision.json",

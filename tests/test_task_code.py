@@ -80,6 +80,51 @@ class CodeV2DispatchTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not allow code"):
                 start_coding_task(task_id, settings=settings)
 
+    def test_start_coding_blocks_when_plan_markdown_is_unsynced(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            task_id = "task-unsynced-plan"
+            task_dir = settings.task_root / task_id
+            repo_root = root / "repo"
+            task_dir.mkdir(parents=True)
+            repo_root.mkdir()
+            (task_dir / "task.json").write_text(
+                json.dumps({"task_id": task_id, "title": "unsynced", "status": "planned"}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "input.json").write_text("{}\n", encoding="utf-8")
+            (task_dir / "repos.json").write_text(
+                json.dumps({"repos": [{"id": "demo", "path": str(repo_root), "status": "planned"}]}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-work-items.json").write_text(
+                json.dumps({"work_items": [{"id": "W1", "repo_id": "demo", "title": "demo"}]}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-execution-graph.json").write_text(
+                json.dumps({"nodes": ["W1"], "edges": [], "execution_order": ["W1"]}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-validation.json").write_text(
+                json.dumps({"task_validations": [{"task_id": "W1", "repo_id": "demo", "checks": []}]}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-sync.json").write_text(
+                json.dumps({"synced": False, "changed_artifact": "plan.md", "repo_id": "demo"}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-result.json").write_text(
+                json.dumps({"status": "planned", "gate_status": "passed", "code_allowed": True}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "prd-refined.md").write_text("# refined\n", encoding="utf-8")
+            (task_dir / "design.md").write_text("# design\n", encoding="utf-8")
+            (task_dir / "plan.md").write_text("# plan\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "Re-run Plan before Code"):
+                start_coding_task(task_id, settings=settings)
+
     def test_dispatch_uses_plan_v2_artifacts_and_skips_reference_only_repo(self) -> None:
         prepared = CodePreparedInput(
             task_dir=Path("/tmp/task"),

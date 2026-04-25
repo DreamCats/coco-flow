@@ -37,6 +37,14 @@ type StructuredPlan = {
   gateStatus: string
   codeAllowed: boolean | null
   blockers: string[]
+  sync: {
+    synced: boolean | null
+    status: string
+    reason: string
+    changedArtifact: string
+    repoId: string
+    updatedAt: string
+  }
 }
 
 export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpdated: () => Promise<void> | void }) {
@@ -179,6 +187,7 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
             ) : null}
           </div>
         </div>
+        <PlanSyncNotice plan={plan} />
 
         <div className="mt-4">
           {tab === 'graph' ? <PlanGraphPanel plan={plan} /> : null}
@@ -212,6 +221,21 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
         value={draft}
       />
     </>
+  )
+}
+
+function PlanSyncNotice({ plan }: { plan: StructuredPlan }) {
+  if (plan.sync.synced !== false) {
+    return null
+  }
+  const target = [plan.sync.repoId, plan.sync.changedArtifact || 'plan.md'].filter(Boolean).join(' ')
+  return (
+    <div className="mt-4 rounded-[16px] border border-[#efc08a] bg-[#fff6e8] px-4 py-3 text-sm leading-6 text-[#8a5b18] dark:border-[#6f5330] dark:bg-[#2d2418] dark:text-[#f1c98c]">
+      <div className="font-medium">Plan Markdown 已保存，但执行契约未同步。</div>
+      <div className="mt-1">
+        {target ? `${target} 已被编辑。` : null}Code 阶段仍会使用旧的结构化 Plan，因此当前会被阻断；请重新运行 Plan 后再开始实现。
+      </div>
+    </div>
   )
 }
 
@@ -408,6 +432,7 @@ function buildStructuredPlan(task: TaskRecord): StructuredPlan {
   const workItemsPayload = parseJSON(task.artifacts['plan-work-items.json'])
   const graphPayload = parseJSON(task.artifacts['plan-execution-graph.json'])
   const resultPayload = parseJSON(task.artifacts['plan-result.json'])
+  const syncPayload = parseJSON(task.artifacts['plan-sync.json'])
   return {
     workItems: normalizePlanWorkItems(workItemsPayload.work_items),
     edges: normalizePlanEdges(graphPayload.edges),
@@ -417,6 +442,14 @@ function buildStructuredPlan(task: TaskRecord): StructuredPlan {
     gateStatus: asString(resultPayload.gate_status),
     codeAllowed: typeof resultPayload.code_allowed === 'boolean' ? resultPayload.code_allowed : null,
     blockers: normalizeStringList(resultPayload.blockers),
+    sync: {
+      synced: typeof syncPayload.synced === 'boolean' ? syncPayload.synced : null,
+      status: asString(syncPayload.status),
+      reason: asString(syncPayload.reason),
+      changedArtifact: asString(syncPayload.changed_artifact) || asString(syncPayload.changedArtifact),
+      repoId: asString(syncPayload.repo_id) || asString(syncPayload.repoId),
+      updatedAt: asString(syncPayload.updated_at) || asString(syncPayload.updatedAt),
+    },
   }
 }
 
@@ -539,9 +572,9 @@ function editDescription(editingTab: PlanEditingTab, repoId: string) {
 
 function editHint(editingTab: PlanEditingTab) {
   if (editingTab === 'repo') {
-    return '保存后只覆盖该仓的 plan.md；当前不会自动回写结构化 Plan JSON 或依赖图。'
+    return '保存后只覆盖该仓的 plan.md，并标记执行契约未同步；需要重新运行 Plan 后才能进入 Code。'
   }
-  return '保存后会覆盖 plan.md；当前不会自动回写结构化 Plan artifact。'
+  return '保存后会覆盖 plan.md，并标记执行契约未同步；需要重新运行 Plan 后才能进入 Code。'
 }
 
 function editPlaceholder(editingTab: PlanEditingTab) {

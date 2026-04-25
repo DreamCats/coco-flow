@@ -29,6 +29,7 @@ PLAN_V2_ARTIFACTS = [
     "plan-work-items.json",
     "plan-execution-graph.json",
     "plan-validation.json",
+    "plan-sync.json",
     "plan-review.json",
     "plan-debate.json",
     "plan-decision.json",
@@ -195,6 +196,8 @@ def update_artifact(
             raise ValueError(error)
 
     (task_dir / name).write_text(trimmed + "\n")
+    if name == "plan.md":
+        mark_plan_unsynced(task_dir, changed_artifact=name)
 
     for artifact_name in rule["invalidate"]:
         remove_path(task_dir / artifact_name)
@@ -238,6 +241,7 @@ def update_repo_artifact(task_id: str, repo_id: str, name: str, content: str, cf
     repo_dir.mkdir(parents=True, exist_ok=True)
     target = repo_dir / f"{_sanitize_repo_id(repo_id)}.md"
     target.write_text(trimmed + "\n", encoding="utf-8")
+    mark_plan_unsynced(task_dir, changed_artifact="plan.md", repo_id=repo_id)
     task_meta["updated_at"] = datetime.now().astimezone().isoformat()
     (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n")
     return status, target.read_text(encoding="utf-8")
@@ -256,6 +260,18 @@ def remove_tree(path: Path) -> None:
 def _sanitize_repo_id(repo_id: str) -> str:
     chars = [char if char.isalnum() or char in {"-", "_", "."} else "_" for char in repo_id.strip()]
     return "".join(chars) or "repo"
+
+
+def mark_plan_unsynced(task_dir: Path, *, changed_artifact: str, repo_id: str = "") -> None:
+    payload = {
+        "synced": False,
+        "status": "markdown_changed",
+        "reason": "Plan Markdown was edited after structured Plan artifacts were generated. Re-run Plan before Code.",
+        "changed_artifact": changed_artifact,
+        "repo_id": repo_id,
+        "updated_at": datetime.now().astimezone().isoformat(),
+    }
+    (task_dir / "plan-sync.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def sync_repo_statuses(task_dir: Path, status: str) -> None:
