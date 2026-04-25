@@ -166,10 +166,10 @@ uv run python -m unittest discover -s tests -v
 - `refine.log` 当前会记录：
   - `=== REFINE START === / === REFINE END ===`
   - `task_id / task_dir / executor`
-  - `refine_mode / manual_scope_count / manual_change_points_count`
-  - `brief_target_surface / brief_goal / brief_in_scope / brief_out_of_scope`
-  - `verify_ok`
-  - `repair_attempts`
+  - `generation_path / session_role / agent_prompt_start / agent_prompt_done`
+  - `refine_strategy / scope_count / change_point_count`
+  - `target_surface / goal / confirmed_changes / out_of_scope`
+  - `refine_check / local_repair_count`
   - `source_type / source_path / source_url / source_doc_token`
   - `source_length`
   - pending 信息

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# 本文件负责把“人工提炼范围”转换成稳定的需求要点：本次范围、改动点、
+# 非目标、前置条件和待确认项。它只做需求收敛，不做技术设计判断。
+
 import re
 
 from coco_flow.engines.shared.manual_extract import parse_manual_extract_sections

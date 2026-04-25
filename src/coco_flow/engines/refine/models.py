@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# 本文件定义 Refine 阶段内部使用的数据模型和状态常量。模型用于内存编排
+# 和函数传参，不代表阶段目录中需要持久化的 schema artifact。
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable

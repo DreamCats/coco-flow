@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# 本文件负责生成和校验 `prd-refined.md`：local 路径用规则渲染，native 路径
+# 让 agent 在模板内润色，并用本地校验/修复保证不偏离人工提炼范围。
+
 from dataclasses import dataclass
 import json
 import re
@@ -46,7 +49,8 @@ def generate_refined_markdown(
     settings: Settings,
     on_log,
 ) -> tuple[str, RefineVerifyResult]:
-    # local/native 共用同一份 brief；区别只在于最终 markdown 是规则渲染还是 agent 润色。
+    # local/native 共用同一份需求要点，区别只在最终 Markdown 的生成方式。
+    # local 强调稳定可控；native 只做表达润色，不能扩大人工提炼范围。
     if settings.refine_executor.strip().lower() == EXECUTOR_NATIVE:
         try:
             return _generate_native_refined_markdown(
@@ -62,7 +66,7 @@ def generate_refined_markdown(
             on_log(f"native_refine_fallback: {error}")
     refined_markdown = render_refined_markdown(brief)
     refined_markdown, verify = _verify_with_local_repair(brief, refined_markdown, on_log)
-    on_log("generate_mode: local")
+    on_log("generation_path: local_renderer")
     return refined_markdown, verify
 
 
@@ -150,7 +154,8 @@ def _generate_native_refined_markdown(
     settings: Settings,
     on_log,
 ) -> tuple[str, RefineVerifyResult]:
-    # native 路径不再让模型从零总结，而是让 agent 基于 controller 产出的文件做受控润色。
+    # native 路径不让模型从零总结，而是先写好模板，再让 agent 在模板内润色。
+    # 这样可以保留 LLM 的表达能力，同时把范围控制权留在人工提炼和本地规则里。
     client = CocoACPClient(
         settings.coco_bin,
         idle_timeout_seconds=settings.acp_idle_timeout_seconds,
@@ -160,7 +165,7 @@ def _generate_native_refined_markdown(
     generated_path: Path | None = None
     generate_session: AgentSessionHandle | None = None
     try:
-        on_log("generate_mode: agent_session")
+        on_log("generation_path: native_agent")
         on_log("session_role: refine_generate")
         generate_session = client.new_agent_session(
             query_timeout=settings.native_query_timeout,
@@ -189,6 +194,7 @@ def _generate_native_refined_markdown(
         )
         raw = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
         refined_markdown = _extract_refined_markdown(raw)
+        # verify agent 需要读生成稿；用隐藏临时稿承接，结束后立即删除。
         generated_path = prepared.task_dir / ".refine-generated.md"
         generated_path.write_text(refined_markdown, encoding="utf-8")
         repaired_markdown, local_verify = _verify_with_local_repair(brief, refined_markdown, on_log)
@@ -206,7 +212,7 @@ def _generate_native_refined_markdown(
             on_log(f"native_verify_unavailable: {error}")
         if local_verify.ok:
             if local_verify.repair_attempts:
-                on_log(f"native_refine_local_repair_ok: attempts={local_verify.repair_attempts}")
+                on_log(f"local_repair_applied: attempts={local_verify.repair_attempts}")
             return repaired_markdown, local_verify
         _write_native_refine_failure_artifacts(prepared.task_dir, refined_markdown, local_verify)
         if native_verify is not None and not native_verify.ok:
