@@ -188,7 +188,13 @@ uv run python -m unittest discover -s tests -v
 
 - `plan` 支持 `native` 和 `local`
 - `native` / `local` 都基于 `prd-refined.md`、`design.md`、绑定仓库和 Skills/SOP 生成 `plan.md`
-- `plan` 当前目录只保留 `plan.md` 和 `plan.log`，不再持久化 work-items / execution graph / validation / review / decision / verify / diagnosis / result schema。
+- `plan` 会额外生成 Code 可消费的结构化 sidecar：
+  - `plan-work-items.json`
+  - `plan-execution-graph.json`
+  - `plan-validation.json`
+  - `plan-result.json`
+- `plan` 会按绑定仓库生成 `plan-repos/<repo_id>.md`，供 UI 分仓库展示任务。
+- `plan-result.json` 会记录 gate 结果；若存在进入 Code 前必须确认的 blocker，`code_allowed=false`，Code 阶段应阻止继续执行。
 - 当前 `plan` 已支持多 repo research：
   - 对 task 绑定的每个 repo 分别读取 `.livecoding/context`
   - 分别提取 glossary 命中、未命中术语、candidate files / dirs
@@ -239,7 +245,7 @@ uv run python -m unittest discover -s tests -v
   - `prd-refined.md`
   - `design.md`
   - `plan.md`
-- 当前 Refine / Design / Plan 不再额外写阶段 schema artifact。
+- 当前 Refine / Design 不再额外写阶段 schema artifact；Plan 会写结构化 sidecar 供 Code 调度使用。
 - Code 阶段仍会写执行结果类 artifact：
   - `code-dispatch.json`
   - `code-progress.json`

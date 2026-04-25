@@ -16,6 +16,8 @@ from coco_flow.engines.shared.models import (
     ResearchFinding,
 )
 from coco_flow.engines.shared.research import build_design_research_signals, parse_refined_sections
+from coco_flow.services.tasks.edit import update_artifact
+from coco_flow.services.tasks.plan import plan_task
 
 
 class PlanTaskBuilderTest(unittest.TestCase):
@@ -31,7 +33,9 @@ class PlanTaskBuilderTest(unittest.TestCase):
             self.assertIn("# Plan", result.plan_markdown)
             self.assertIn("## 任务清单", result.plan_markdown)
             self.assertIn("## 执行顺序", result.plan_markdown)
-            self.assertFalse(hasattr(result, "intermediate_artifacts"))
+            self.assertIn("depends_on", result.plan_markdown)
+            self.assertTrue(result.plan_work_items_payload.get("work_items"))
+            self.assertTrue(result.plan_validation_payload.get("task_validations"))
 
     def test_native_plan_falls_back_to_local_doc_only_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -48,6 +52,8 @@ class PlanTaskBuilderTest(unittest.TestCase):
             self.assertEqual(result.status, "planned")
             self.assertIn("# Plan", result.plan_markdown)
             self.assertIn("## 验证策略", result.plan_markdown)
+            self.assertIn("depends_on", result.plan_markdown)
+            self.assertTrue(result.plan_work_items_payload.get("work_items"))
 
     def test_native_plan_uses_single_writer_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -91,6 +97,60 @@ class PlanTaskBuilderTest(unittest.TestCase):
             self.assertIn("这是内联 bootstrap", prompts[0])
             self.assertIn("session_role: plan_writer", logs)
             self.assertIn("bootstrap_prompt: inline role=plan_writer", logs)
+
+    def test_plan_engine_builds_cross_repo_dependency_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            task_dir = self._create_cross_repo_plan_ready_task(settings.task_root, root)
+
+            result = run_plan_engine(task_dir, {"title": "竞拍讲解卡文案"}, settings, lambda _line: None)
+
+            edges = result.plan_execution_graph_payload.get("edges")
+            self.assertIsInstance(edges, list)
+            self.assertEqual(len(edges), 1)
+            edge = edges[0]
+            self.assertEqual(edge["type"], "hard_dependency")
+            self.assertIn("W1", result.plan_markdown)
+            self.assertIn("W2", result.plan_markdown)
+            self.assertIn("code_allowed: false", result.plan_markdown)
+            self.assertFalse(result.plan_result_payload.get("code_allowed"))
+            self.assertTrue(result.repo_task_markdowns.get("live_common"))
+            self.assertTrue(result.repo_task_markdowns.get("live_pack"))
+
+    def test_plan_task_persists_structured_sidecars_and_repo_markdowns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            self._write_json(task_dir / "task.json", {"task_id": "task-plan", "title": "直播列表国家筛选", "status": "designed"})
+
+            status = plan_task("task-plan", settings=settings, on_log=lambda _line: None)
+
+            self.assertEqual(status, "planned")
+            self.assertTrue((task_dir / "plan-work-items.json").exists())
+            self.assertTrue((task_dir / "plan-execution-graph.json").exists())
+            self.assertTrue((task_dir / "plan-validation.json").exists())
+            self.assertTrue((task_dir / "plan-result.json").exists())
+            self.assertTrue((task_dir / "plan-repos" / "live-api.md").exists())
+            repo_plan = (task_dir / "plan-repos" / "live-api.md").read_text(encoding="utf-8")
+            self.assertNotIn("done_definition", repo_plan)
+            self.assertNotIn("验收映射", repo_plan)
+            self.assertNotIn("## 验证", repo_plan)
+
+    def test_repo_plan_markdown_can_be_edited_after_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            self._write_json(task_dir / "task.json", {"task_id": "task-plan", "title": "直播列表国家筛选", "status": "designed"})
+
+            plan_task("task-plan", settings=settings, on_log=lambda _line: None)
+            status, content = update_artifact("task-plan", "plan.md", "# live-api Plan\n\n- 人工调整。\n", settings=settings, repo_id="live-api")
+
+            self.assertEqual(status, "planned")
+            self.assertIn("人工调整", content)
+            self.assertIn("人工调整", (task_dir / "plan-repos" / "live-api.md").read_text(encoding="utf-8"))
 
     def test_build_design_research_signals_extracts_specialized_hints(self) -> None:
         sections = RefinedSections(
@@ -188,6 +248,46 @@ class PlanTaskBuilderTest(unittest.TestCase):
             "- 支持直播列表按国家筛选。\n\n"
             "## 验收标准\n\n"
             "- 国家筛选结果正确。\n",
+            encoding="utf-8",
+        )
+        return task_dir
+
+    def _create_cross_repo_plan_ready_task(self, task_root: Path, root: Path) -> Path:
+        task_dir = task_root / "task-plan"
+        task_dir.mkdir(parents=True)
+        live_common = root / "live_common"
+        live_pack = root / "live_pack"
+        live_common.mkdir(parents=True)
+        live_pack.mkdir(parents=True)
+        self._write_json(task_dir / "input.json", {"title": "竞拍讲解卡文案"})
+        self._write_json(
+            task_dir / "repos.json",
+            {
+                "repos": [
+                    {"id": "live_common", "path": str(live_common), "status": "designed"},
+                    {"id": "live_pack", "path": str(live_pack), "status": "designed"},
+                ]
+            },
+        )
+        (task_dir / "design.md").write_text(
+            "# Design\n\n"
+            "## 分仓库方案\n\n"
+            "### live_common\n"
+            "- 文件修改：abtest/struct.go\n"
+            "- 新增 AB 实验字段：`UseAuctionCardTextOptimization`。\n\n"
+            "### live_pack\n"
+            "- 文件修改：regular_auction_converter.go\n"
+            "- 读取新增 AB 字段并更新文案逻辑。\n\n"
+            "## 风险与待确认\n"
+            "- 确认新增的 AB 字段名称与实验配置保持一致\n",
+            encoding="utf-8",
+        )
+        (task_dir / "prd-refined.md").write_text(
+            "# PRD Refined\n\n"
+            "## 具体变更点\n\n"
+            "- 只改竞拍讲解卡文案。\n\n"
+            "## 验收标准\n\n"
+            "- 命中第一个实验时展示 Starting bid。\n",
             encoding="utf-8",
         )
         return task_dir

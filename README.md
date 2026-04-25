@@ -179,8 +179,9 @@ Notes:
 - Design now follows a doc-only MVP flow: refined PRD, repo research, and Skills/SOP are collapsed directly into `design.md`.
 - Design no longer persists adjudication, review, debate, decision, repo-binding, sections, verify, diagnosis, or result JSON.
 - `plan` supports `native` and `local`.
-- Plan now follows the same doc-only MVP flow: `prd-refined.md`, `design.md`, bound repos, and Skills/SOP are collapsed directly into `plan.md`.
-- Plan no longer persists work-items, execution graph, validation, review, decision, verify, diagnosis, or result JSON.
+- Plan writes a human-readable `plan.md` plus Code-consumable sidecars: `plan-work-items.json`, `plan-execution-graph.json`, `plan-validation.json`, and `plan-result.json`.
+- Plan also writes per-repo task files under `plan-repos/<repo_id>.md` for multi-repo review.
+- If Plan detects unresolved blockers, `plan-result.json` sets `code_allowed=false` so Code cannot proceed until the blocker is resolved.
 
 ### Code
 

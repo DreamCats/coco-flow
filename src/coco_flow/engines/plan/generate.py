@@ -95,4 +95,7 @@ def _normalize_native_plan_markdown(raw: str) -> str:
     content = raw.strip()
     if not content or "待补充" in content or not content.startswith("# Plan"):
         raise ValueError("plan_template_unfilled")
+    for required in ("depends_on", "hard_dependencies", "coordination_points", "acceptance_mapping", "blockers"):
+        if required not in content:
+            raise ValueError(f"plan_contract_missing:{required}")
     return content.rstrip() + "\n"

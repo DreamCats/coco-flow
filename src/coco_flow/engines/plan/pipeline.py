@@ -1,8 +1,4 @@
-"""Plan 阶段主编排。
-
-当前第一版采用 Markdown 文档流：准备上游输入，选择 Plan Skills/SOP，
-再生成可执行的 plan.md。旧 work-items / graph / validation / review schema 已移除。
-"""
+"""Plan 阶段主编排。"""
 
 from __future__ import annotations
 
@@ -12,6 +8,11 @@ from .generate import generate_doc_only_plan_markdown
 from .models import STATUS_PLANNED, PlanEngineResult
 from .skills import build_plan_skills_bundle
 from .source import prepare_plan_input
+from .structure import (
+    build_structured_plan_artifacts,
+    render_plan_markdown,
+    validate_plan_artifacts,
+)
 
 
 def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, on_log) -> PlanEngineResult:
@@ -28,12 +29,69 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     prepared.selected_skill_ids = selected_skill_ids
     on_log(f"plan_skills_ok: selected={len(selected_skill_ids)}")
 
-    # 3. 写 plan.md。native 失败时回退到本地 Markdown 草稿，不再生成结构化中间产物。
+    # 3. 先构建 Code 阶段可消费的结构化 Plan sidecar。
+    on_log("plan_structure_start: true")
+    (
+        plan_work_items_payload,
+        plan_execution_graph_payload,
+        plan_validation_payload,
+        plan_result_payload,
+        repo_task_markdowns,
+    ) = build_structured_plan_artifacts(prepared)
+    issues = validate_plan_artifacts(
+        prepared,
+        plan_work_items_payload,
+        plan_execution_graph_payload,
+        plan_validation_payload,
+        repo_task_markdowns,
+    )
+    if issues:
+        plan_result_payload["status"] = "failed"
+        plan_result_payload["gate_status"] = "failed"
+        plan_result_payload["code_allowed"] = False
+        plan_result_payload["issues"] = issues
+        on_log(f"plan_gate_failed: {len(issues)}")
+        raise ValueError("plan gate failed: " + "; ".join(issues[:5]))
+    on_log(
+        "plan_structure_ok: "
+        f"work_items={len(plan_work_items_payload.get('work_items') or [])} "
+        f"edges={len(plan_execution_graph_payload.get('edges') or [])} "
+        f"code_allowed={bool(plan_result_payload.get('code_allowed'))}"
+    )
+
+    # 4. 写 plan.md。native 只负责表达；不合格时使用结构化 sidecar 渲染的 Markdown。
     on_log("plan_writer_start: true")
     plan_markdown, mode = generate_doc_only_plan_markdown(prepared, settings, on_log)
+    structured_markdown = render_plan_markdown(
+        prepared,
+        plan_work_items_payload,
+        plan_execution_graph_payload,
+        plan_validation_payload,
+        plan_result_payload,
+    )
+    if mode != "native" or not _plan_markdown_matches_contract(plan_markdown):
+        if mode == "native":
+            on_log("plan_writer_replaced: contract_mismatch")
+        plan_markdown = structured_markdown
     on_log(f"plan_writer_ok: mode={mode}")
     on_log(f"status: {STATUS_PLANNED}")
     return PlanEngineResult(
         status=STATUS_PLANNED,
         plan_markdown=plan_markdown,
+        plan_work_items_payload=plan_work_items_payload,
+        plan_execution_graph_payload=plan_execution_graph_payload,
+        plan_validation_payload=plan_validation_payload,
+        plan_result_payload=plan_result_payload,
+        repo_task_markdowns=repo_task_markdowns,
     )
+
+
+def _plan_markdown_matches_contract(markdown: str) -> bool:
+    required = (
+        "depends_on",
+        "hard_dependencies",
+        "coordination_points",
+        "acceptance_mapping",
+        "blockers",
+    )
+    return all(item in markdown for item in required)

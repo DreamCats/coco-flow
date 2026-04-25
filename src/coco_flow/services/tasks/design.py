@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import json
 from pathlib import Path
+import shutil
 
 from coco_flow.config import Settings, load_settings
 from coco_flow.engines.design import (
@@ -183,6 +184,9 @@ def _reset_plan_outputs(task_dir: Path) -> None:
     ):
         for path in task_dir.glob(pattern):
             path.unlink()
+    repo_dir = task_dir / "plan-repos"
+    if repo_dir.exists():
+        shutil.rmtree(repo_dir)
 
 
 def _sync_repo_status(task_dir: Path, status: str) -> None:

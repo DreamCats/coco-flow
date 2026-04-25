@@ -1,8 +1,4 @@
-"""Plan 引擎数据模型。
-
-这里只保留 doc-only Plan 需要的输入 bundle 和结果模型；
-旧 work item、执行图、验证矩阵和 gate 相关模型已经移除。
-"""
+"""Plan 引擎数据模型。"""
 
 from __future__ import annotations
 
@@ -42,3 +38,8 @@ class PlanPreparedInput:
 class PlanEngineResult:
     status: str
     plan_markdown: str
+    plan_work_items_payload: dict[str, object] = field(default_factory=dict)
+    plan_execution_graph_payload: dict[str, object] = field(default_factory=dict)
+    plan_validation_payload: dict[str, object] = field(default_factory=dict)
+    plan_result_payload: dict[str, object] = field(default_factory=dict)
+    repo_task_markdowns: dict[str, str] = field(default_factory=dict)

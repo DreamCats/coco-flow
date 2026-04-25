@@ -159,7 +159,7 @@ def _invalidate_downstream_outputs(task_dir: Path) -> None:
     ):
         for path in task_dir.glob(pattern):
             path.unlink()
-    for directory in ("code-results", "code-logs", "code-verify", "diffs"):
+    for directory in ("plan-repos", "code-results", "code-logs", "code-verify", "diffs"):
         path = task_dir / directory
         if path.exists():
             shutil.rmtree(path)

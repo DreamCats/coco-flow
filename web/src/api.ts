@@ -34,6 +34,10 @@ export type TaskArtifactName =
   | 'design.log'
   | 'design.md'
   | 'plan.md'
+  | 'plan-work-items.json'
+  | 'plan-execution-graph.json'
+  | 'plan-validation.json'
+  | 'plan-result.json'
   | 'plan.log'
   | 'code-result.json'
   | 'code.log'
@@ -454,8 +458,11 @@ export async function getTaskArtifact(taskId: string, name: TaskArtifactName, re
   return fetchJSON<ArtifactResponse>(`/api/tasks/${taskId}/artifact?${params.toString()}`)
 }
 
-export async function updateTaskArtifact(taskId: string, name: TaskArtifactName, content: string) {
+export async function updateTaskArtifact(taskId: string, name: TaskArtifactName, content: string, repoId?: string) {
   const params = new URLSearchParams({ name })
+  if (repoId) {
+    params.set('repo', repoId)
+  }
   const response = await fetch(`/api/tasks/${taskId}/artifact?${params.toString()}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -789,8 +796,10 @@ function normalizeTaskValidations(raw: unknown) {
       ? current.checks
           .map((entry) => {
             const check = asRecord(entry)
-            const label = asString(check.label) || asString(check.name) || asString(check.type)
-            const expectation = asString(check.expectation) || asString(check.detail) || asString(check.rule)
+            const label = asString(check.label) || asString(check.name) || asString(check.type) || asString(check.kind)
+            const target = asString(check.target)
+            const reason = asString(check.reason)
+            const expectation = asString(check.expectation) || asString(check.detail) || asString(check.rule) || [target, reason].filter(Boolean).join(' - ')
             if (!label && !expectation) {
               return null
             }

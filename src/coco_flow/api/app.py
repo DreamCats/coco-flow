@@ -307,7 +307,7 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
 
     @app.put("/api/tasks/{task_id}/artifact", response_model=UpdateArtifactResponse)
     def update_task_artifact(
-        task_id: str, name: str, payload: UpdateArtifactRequest
+        task_id: str, name: str, payload: UpdateArtifactRequest, repo: str = ""
     ) -> UpdateArtifactResponse:
         try:
             status, content = update_artifact(
@@ -315,6 +315,7 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
                 name=name,
                 content=payload.content,
                 settings=store.settings,
+                repo_id=repo or None,
             )
             return UpdateArtifactResponse(
                 task_id=task_id,

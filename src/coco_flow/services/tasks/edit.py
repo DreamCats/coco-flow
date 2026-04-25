@@ -163,9 +163,11 @@ EDIT_RULES = {
 
 
 def update_artifact(
-    task_id: str, name: str, content: str, settings: Settings | None = None
+    task_id: str, name: str, content: str, settings: Settings | None = None, repo_id: str | None = None
 ) -> tuple[str, str]:
     cfg = settings or load_settings()
+    if repo_id:
+        return update_repo_artifact(task_id, repo_id, name, content, cfg)
     rule = EDIT_RULES.get(name)
     if rule is None:
         raise ValueError(f"artifact {name} 不支持编辑")
@@ -217,6 +219,30 @@ def update_artifact(
     return next_status, read_artifact_content(task_dir, name)
 
 
+def update_repo_artifact(task_id: str, repo_id: str, name: str, content: str, cfg: Settings) -> tuple[str, str]:
+    if name not in {"plan.md", "repo-plan.md"}:
+        raise ValueError(f"repo 级 artifact 暂不支持编辑 {name}")
+    task_dir = locate_task_dir(task_id, cfg)
+    if task_dir is None:
+        raise ValueError(f"task not found: {task_id}")
+    task_meta = read_json_file(task_dir / "task.json")
+    if not task_meta:
+        raise ValueError(f"task metadata missing: {task_id}")
+    status = str(task_meta.get("status") or "")
+    if status != STATUS_PLANNED:
+        raise ValueError(f"当前状态为 {status}，不能编辑 repo plan")
+    trimmed = content.strip()
+    if not trimmed:
+        raise ValueError("repo plan 不能为空")
+    repo_dir = task_dir / "plan-repos"
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    target = repo_dir / f"{_sanitize_repo_id(repo_id)}.md"
+    target.write_text(trimmed + "\n", encoding="utf-8")
+    task_meta["updated_at"] = datetime.now().astimezone().isoformat()
+    (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n")
+    return status, target.read_text(encoding="utf-8")
+
+
 def remove_path(path: Path) -> None:
     if path.exists() and path.is_file():
         path.unlink()
@@ -225,6 +251,11 @@ def remove_path(path: Path) -> None:
 def remove_tree(path: Path) -> None:
     if path.exists():
         shutil.rmtree(path)
+
+
+def _sanitize_repo_id(repo_id: str) -> str:
+    chars = [char if char.isalnum() or char in {"-", "_", "."} else "_" for char in repo_id.strip()]
+    return "".join(chars) or "repo"
 
 
 def sync_repo_statuses(task_dir: Path, status: str) -> None:

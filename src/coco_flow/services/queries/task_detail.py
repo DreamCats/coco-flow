@@ -15,6 +15,10 @@ from coco_flow.services.runtime.repo_state import (
 
 PLAN_V2_PRIMARY_ARTIFACTS = [
     "plan.md",
+    "plan-work-items.json",
+    "plan-execution-graph.json",
+    "plan-validation.json",
+    "plan-result.json",
 ]
 
 PLAN_V2_INTERMEDIATE_ARTIFACTS = []

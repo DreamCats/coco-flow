@@ -186,7 +186,7 @@ def _reset_refine_outputs(task_dir: Path) -> None:
         path = task_dir / name
         if path.exists():
             path.unlink()
-    for directory in ("design-research", "code-results", "code-logs", "code-verify", "diffs"):
+    for directory in ("design-research", "plan-repos", "code-results", "code-logs", "code-verify", "diffs"):
         path = task_dir / directory
         if path.exists():
             shutil.rmtree(path)
