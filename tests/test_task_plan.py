@@ -484,6 +484,53 @@ class PlanTaskBuilderTest(unittest.TestCase):
         self.assertEqual(tasks[0].change_scope[0], "live-api/internal/handler/list.go")
         self.assertIn("Design 责任保持一致", tasks[0].done_definition[-1])
 
+    def test_normalize_keeps_distinct_implementation_items_in_same_repo(self) -> None:
+        prepared = self._prepared_input_for_plan_review()
+        outline_payload = {
+            "task_units": [
+                {
+                    "id": "W10",
+                    "title": "[live-api] 更新普通竞拍文案",
+                    "repo_id": "live-api",
+                    "task_type": "implementation",
+                    "serves_change_points": [1],
+                    "goal": "更新普通竞拍讲解卡文案。",
+                    "specific_steps": ["在 regular_auction_converter.go 中更新普通竞拍文案。"],
+                    "change_scope": ["regular_auction_converter.go"],
+                    "inputs": ["design-repo-binding.json"],
+                    "outputs": ["普通竞拍文案逻辑"],
+                    "done_definition": ["普通竞拍文案正确。"],
+                    "validation_focus": ["覆盖普通竞拍文案。"],
+                    "risk_notes": ["不改价格逻辑。"],
+                    "depends_on": [],
+                },
+                {
+                    "id": "W20",
+                    "title": "[live-api] 更新 Surprise set 文案",
+                    "repo_id": "live-api",
+                    "task_type": "implementation",
+                    "serves_change_points": [2],
+                    "goal": "更新 Surprise set 讲解卡文案。",
+                    "specific_steps": ["在 surprise_set_auction_converter.go 中更新 Surprise set 文案。"],
+                    "change_scope": ["surprise_set_auction_converter.go"],
+                    "inputs": ["design-repo-binding.json"],
+                    "outputs": ["Surprise set 文案逻辑"],
+                    "done_definition": ["Surprise set 文案正确。"],
+                    "validation_focus": ["覆盖 Surprise set 文案。"],
+                    "risk_notes": ["不改转换状态流转。"],
+                    "depends_on": ["W10"],
+                },
+            ]
+        }
+
+        tasks = normalize_plan_work_items(outline_payload, prepared)
+
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual([task.id for task in tasks], ["W1", "W2"])
+        self.assertEqual(tasks[0].change_scope, ["regular_auction_converter.go"])
+        self.assertEqual(tasks[1].change_scope, ["surprise_set_auction_converter.go"])
+        self.assertEqual(tasks[1].depends_on, ["W1"])
+
     def _settings(self, root: Path, *, plan_executor: str = "local") -> Settings:
         config_root = root / "config"
         task_root = config_root / "tasks"

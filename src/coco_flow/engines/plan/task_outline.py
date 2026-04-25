@@ -173,11 +173,11 @@ def _payload_task_units(payload: dict[str, object]) -> list[dict[str, object]]:
 
 
 def _dedupe_and_reindex_work_items(items: list[PlanWorkItem], prepared: PlanPreparedInput) -> list[PlanWorkItem]:
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, ...]] = set()
     result: list[PlanWorkItem] = []
     for item in items:
-        key = (item.repo_id, item.task_type)
-        if key in seen and item.task_type != "coordination":
+        key = _work_item_fingerprint(item)
+        if key in seen:
             continue
         seen.add(key)
         result.append(item)
@@ -206,9 +206,27 @@ def _dedupe_and_reindex_work_items(items: list[PlanWorkItem], prepared: PlanPrep
                 handoff_notes=["后续 Code 需以该任务为主入口。"],
             )
         )
+    id_map: dict[str, str] = {}
     for index, item in enumerate(result, start=1):
+        old_id = item.id
         item.id = f"W{index}"
+        if old_id:
+            id_map[old_id] = item.id
+    for item in result:
+        item.depends_on = [id_map.get(task_id, task_id) for task_id in item.depends_on]
+        item.parallelizable_with = [id_map.get(task_id, task_id) for task_id in item.parallelizable_with]
     return result
+
+
+def _work_item_fingerprint(item: PlanWorkItem) -> tuple[str, ...]:
+    return (
+        item.repo_id,
+        item.task_type,
+        item.title.strip().lower(),
+        item.goal.strip().lower(),
+        "|".join(entry.strip().lower() for entry in item.change_scope),
+        "|".join(entry.strip().lower() for entry in item.specific_steps),
+    )
 
 
 def _in_scope_binding_items(prepared: PlanPreparedInput) -> list[dict[str, object]]:
