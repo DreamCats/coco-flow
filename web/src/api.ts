@@ -399,6 +399,17 @@ export async function startPlan(taskId: string) {
   return response.json() as Promise<{ task_id: string; status: string }>
 }
 
+export async function syncPlan(taskId: string) {
+  const response = await fetch(`/api/tasks/${taskId}/plan/sync`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null
+    throw new Error(body?.detail || body?.error || '同步 Plan 失败')
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
+}
+
 export async function startCode(taskId: string, repoId?: string) {
   const response = await fetch(buildTaskActionPath(taskId, 'code', repoId), {
     method: 'POST',
@@ -591,7 +602,7 @@ function deriveCodeContract(
   const executionIndex = new Map(executionOrder.map((repoId, index) => [repoId, index]))
   const repoNextFallback = task.repoNext.length > 0 ? task.repoNext : executionOrder
   const planUnsynced = planSyncPayload.synced === false
-  const planUnsyncedBlocker = 'Plan Markdown 未同步，请重新运行 Plan'
+  const planUnsyncedBlocker = 'Plan Markdown 未同步，请先同步执行契约'
 
   const repos = task.repos.map((repo) => {
     const binding = bindings.get(repo.id)

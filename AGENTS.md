@@ -195,7 +195,7 @@ uv run python -m unittest discover -s tests -v
   - `plan-sync.json`
   - `plan-result.json`
 - `plan` 会按绑定仓库生成 `plan-repos/<repo_id>.md`，供 UI 分仓库展示任务。
-- 编辑 `plan.md` 或 `plan-repos/<repo_id>.md` 后会把 `plan-sync.json` 标记为未同步；需要重新运行 Plan 后才能进入 Code，避免 Code 消费旧结构化产物。
+- 编辑 `plan.md` 或 `plan-repos/<repo_id>.md` 后会把 `plan-sync.json` 标记为未同步；需要执行 Sync Plan 后才能进入 Code，避免 Code 消费旧结构化产物，且不会覆盖用户编辑后的 Markdown。
 - `plan-result.json` 会记录 gate 结果；若存在进入 Code 前必须确认的 blocker，`code_allowed=false`，Code 阶段应阻止继续执行。
 - 当前 `plan` 已支持多 repo research：
   - 对 task 绑定的每个 repo 分别读取 `.livecoding/context`

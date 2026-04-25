@@ -84,4 +84,4 @@ def _ensure_plan_synced(plan_sync_payload: dict[str, object]) -> None:
     changed = str(plan_sync_payload.get("changed_artifact") or "plan.md").strip()
     repo_id = str(plan_sync_payload.get("repo_id") or "").strip()
     target = f"{repo_id} {changed}".strip()
-    raise ValueError(f"plan markdown changed after structured artifacts were generated: {target}. Re-run Plan before Code.")
+    raise ValueError(f"plan markdown changed after structured artifacts were generated: {target}. Sync Plan before Code.")

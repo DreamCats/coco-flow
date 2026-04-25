@@ -19,6 +19,7 @@ from coco_flow.engines.shared.research import build_design_research_signals, par
 from coco_flow.services.queries.task_detail import read_json_file
 from coco_flow.services.tasks.edit import update_artifact
 from coco_flow.services.tasks.plan import plan_task
+from coco_flow.services.tasks.plan_sync import sync_plan_task
 
 
 class PlanTaskBuilderTest(unittest.TestCase):
@@ -158,6 +159,39 @@ class PlanTaskBuilderTest(unittest.TestCase):
             sync_payload = read_json_file(task_dir / "plan-sync.json")
             self.assertFalse(sync_payload.get("synced"))
             self.assertEqual(sync_payload.get("repo_id"), "live-api")
+
+    def test_sync_plan_rebuilds_structured_artifacts_from_repo_markdown_without_overwriting_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            self._write_json(task_dir / "task.json", {"task_id": "task-plan", "title": "直播列表国家筛选", "status": "designed"})
+
+            plan_task("task-plan", settings=settings, on_log=lambda _line: None)
+            edited_markdown = (
+                "# live-api Plan\n\n"
+                "## W1 手动调整国家筛选实现\n\n"
+                "- repo: `live-api`\n"
+                "- goal: 按用户确认后的方案收敛实现。\n"
+                "- change_scope:\n"
+                "  - service/live_filter.py\n"
+                "- tasks:\n"
+                "  - [ ] 补齐手动确认后的国家筛选逻辑\n"
+                "- depends_on: none\n"
+                "- blocks: none\n"
+            )
+            update_artifact("task-plan", "plan.md", edited_markdown, settings=settings, repo_id="live-api")
+
+            status = sync_plan_task("task-plan", settings=settings)
+
+            self.assertEqual(status, "planned")
+            self.assertEqual((task_dir / "plan-repos" / "live-api.md").read_text(encoding="utf-8"), edited_markdown)
+            sync_payload = read_json_file(task_dir / "plan-sync.json")
+            self.assertTrue(sync_payload.get("synced"))
+            work_items = read_json_file(task_dir / "plan-work-items.json").get("work_items")
+            self.assertIsInstance(work_items, list)
+            self.assertEqual(work_items[0]["title"], "手动调整国家筛选实现")
+            self.assertIn("补齐手动确认后的国家筛选逻辑", work_items[0]["specific_steps"])
 
     def test_build_design_research_signals_extracts_specialized_hints(self) -> None:
         sections = RefinedSections(

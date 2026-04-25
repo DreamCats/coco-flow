@@ -36,6 +36,7 @@ from coco_flow.services.tasks.lifecycle import archive_task, reset_task
 from coco_flow.services.tasks.code import start_coding_task
 from coco_flow.services.tasks.design import start_designing_task
 from coco_flow.services.tasks.plan import start_planning_task
+from coco_flow.services.tasks.plan_sync import sync_plan_task
 from coco_flow.services.queries.repos import list_recent_repos, validate_repo_path
 from coco_flow.services.tasks.repos import update_task_repos
 from coco_flow.services.tasks.refine import start_refining_task
@@ -245,6 +246,17 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         try:
             status = start_planning_task(task_id, settings=store.settings)
             start_background_plan(task_id, store.settings)
+            return TaskActionResponse(task_id=task_id, status=status)
+        except ValueError as error:
+            message = str(error)
+            if "not found" in message:
+                raise HTTPException(status_code=404, detail=message) from error
+            raise HTTPException(status_code=409, detail=message) from error
+
+    @app.post("/api/tasks/{task_id}/plan/sync", response_model=TaskActionResponse)
+    def sync_plan_task_handler(task_id: str) -> TaskActionResponse:
+        try:
+            status = sync_plan_task(task_id, settings=store.settings)
             return TaskActionResponse(task_id=task_id, status=status)
         except ValueError as error:
             message = str(error)

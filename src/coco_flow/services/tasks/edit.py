@@ -266,7 +266,7 @@ def mark_plan_unsynced(task_dir: Path, *, changed_artifact: str, repo_id: str = 
     payload = {
         "synced": False,
         "status": "markdown_changed",
-        "reason": "Plan Markdown was edited after structured Plan artifacts were generated. Re-run Plan before Code.",
+        "reason": "Plan Markdown was edited after structured Plan artifacts were generated. Sync Plan before Code.",
         "changed_artifact": changed_artifact,
         "repo_id": repo_id,
         "updated_at": datetime.now().astimezone().isoformat(),

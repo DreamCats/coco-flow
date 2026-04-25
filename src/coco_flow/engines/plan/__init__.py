@@ -60,7 +60,8 @@ Plan 的核心问题不是能否生成一篇长文，而是能否稳定回答三
 - 多仓依赖容易丢：LLM 写了“先改 A 再改 B”，但 Code 阶段未必能稳定解析出来。
 - fallback 质量不稳定：native 失败后如果只渲染空泛模板，会得到“planned”但不能指导执行。
 - 人工编辑和机器执行混在一起：用户改 Markdown 后，不应让 Code 阶段误以为结构化契约也同步变化。
-  ``plan-sync.json`` 会在编辑后标记未同步，Code 阶段必须等待重新运行 Plan。
+  ``plan-sync.json`` 会在编辑后标记未同步，Code 阶段必须等待 Sync Plan。
+  Sync Plan 会保留用户编辑后的 Markdown，只刷新结构化 JSON 契约。
 
 当前边界：
 

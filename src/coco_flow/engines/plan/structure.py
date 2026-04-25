@@ -74,6 +74,60 @@ def build_structured_plan_artifacts(prepared: PlanPreparedInput) -> tuple[dict[s
     return work_items_payload, graph_payload, validation_payload, plan_result_payload, repo_markdowns
 
 
+def build_structured_plan_artifacts_from_repo_markdowns(
+    prepared: PlanPreparedInput,
+    repo_markdowns: dict[str, str],
+    previous_work_items_payload: dict[str, object] | None = None,
+) -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
+    previous_items = {
+        str(item.get("repo_id") or ""): item
+        for item in _dict_list((previous_work_items_payload or {}).get("work_items"))
+        if item.get("repo_id")
+    }
+    work_items: list[dict[str, object]] = []
+    for index, scope in enumerate(prepared.repo_scopes, start=1):
+        previous = previous_items.get(scope.repo_id, {})
+        item = _parse_repo_task_markdown(repo_markdowns.get(scope.repo_id, ""), scope.repo_id, index, previous, prepared)
+        work_items.append(item)
+
+    edges = _edges_from_work_items(work_items)
+    depends_by_task = _depends_by_task(edges)
+    blocks_by_task = _blocks_by_task(edges)
+    for item in work_items:
+        task_id = str(item.get("id") or "")
+        item["depends_on"] = depends_by_task.get(task_id, [])
+        item["blocks"] = blocks_by_task.get(task_id, [])
+
+    execution_order = _topological_order([str(item["id"]) for item in work_items], edges)
+    graph_payload = {
+        "nodes": [
+            {"task_id": item["id"], "repo_id": item["repo_id"], "title": item["title"]}
+            for item in work_items
+        ],
+        "edges": edges,
+        "execution_order": execution_order,
+        "parallel_groups": _parallel_groups(execution_order, edges),
+        "critical_path": _critical_path(execution_order, edges),
+        "coordination_points": [],
+    }
+    validation_payload = _build_validation_payload(work_items, prepared)
+    blockers = _dedupe(_extract_blockers(prepared) + _extract_repo_markdown_blockers(repo_markdowns))
+    plan_result_payload = {
+        "status": "planned",
+        "gate_status": "blocked_by_open_questions" if blockers else "passed",
+        "code_allowed": not blockers,
+        "blockers": blockers,
+        "issues": [],
+        "artifact_summary": {
+            "work_item_count": len(work_items),
+            "edge_count": len(edges),
+            "repo_count": len(prepared.repo_scopes),
+            "sync_source": "repo_markdown",
+        },
+    }
+    return {"work_items": work_items}, graph_payload, validation_payload, plan_result_payload
+
+
 def render_plan_markdown(
     prepared: PlanPreparedInput,
     work_items_payload: dict[str, object],
@@ -241,6 +295,115 @@ def _extract_steps(section: str) -> list[str]:
         if text and not text.startswith(("仓库路径", "证据")):
             steps.append(text)
     return _dedupe(steps)
+
+
+def _parse_repo_task_markdown(
+    markdown: str,
+    repo_id: str,
+    index: int,
+    previous: dict[str, object],
+    prepared: PlanPreparedInput,
+) -> dict[str, object]:
+    task_id = str(previous.get("id") or f"W{index}")
+    title = str(previous.get("title") or f"执行 {prepared.title}")
+    header = re.search(r"^##\s+(W\d+)\s+(.+?)\s*$", markdown, flags=re.MULTILINE)
+    if header:
+        task_id = header.group(1).strip()
+        title = header.group(2).strip()
+    goal = _extract_field_line(markdown, "goal") or str(previous.get("goal") or f"在 {repo_id} 中完成「{prepared.title}」相关改动。")
+    change_scope = _extract_named_list(markdown, "change_scope") or _string_list(previous.get("change_scope"))
+    specific_steps = _extract_named_list(markdown, "tasks") or _string_list(previous.get("specific_steps")) or prepared.refined_sections.change_scope or [prepared.title]
+    depends_on = _parse_dependency_line(_extract_field_line(markdown, "depends_on")) or _string_list(previous.get("depends_on"))
+    blocks = _parse_dependency_line(_extract_field_line(markdown, "blocks")) or _string_list(previous.get("blocks"))
+    return {
+        "id": task_id,
+        "repo_id": repo_id,
+        "title": title,
+        "goal": goal,
+        "change_scope": change_scope,
+        "specific_steps": specific_steps,
+        "done_definition": _done_definition(repo_id, prepared.refined_sections.acceptance_criteria),
+        "verification_steps": _verification_steps(repo_id, prepared.refined_sections.acceptance_criteria),
+        "depends_on": depends_on,
+        "blocks": blocks,
+    }
+
+
+def _extract_field_line(markdown: str, field: str) -> str:
+    match = re.search(rf"^-\s+{re.escape(field)}:\s*(.+?)\s*$", markdown, flags=re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
+
+def _extract_named_list(markdown: str, field: str) -> list[str]:
+    lines = markdown.splitlines()
+    result: list[str] = []
+    capture = False
+    for raw in lines:
+        line = raw.rstrip()
+        stripped = line.strip()
+        if stripped == f"- {field}:":
+            capture = True
+            continue
+        if capture and re.match(r"^-\s+\w[\w_-]*:", stripped):
+            break
+        if capture and stripped.startswith(("-", "*")):
+            text = stripped.lstrip("-* ").strip()
+            text = re.sub(r"^\[[ xX]\]\s*", "", text).strip()
+            if text:
+                result.append(text)
+    return _dedupe(result)
+
+
+def _parse_dependency_line(value: str) -> list[str]:
+    if not value or value.lower() == "none":
+        return []
+    return _dedupe([item.strip() for item in re.split(r"[,，]\s*", value) if item.strip()])
+
+
+def _edges_from_work_items(work_items: list[dict[str, object]]) -> list[dict[str, object]]:
+    edges: list[dict[str, object]] = []
+    item_ids = {str(item.get("id") or "") for item in work_items}
+    item_repo_by_id = {str(item.get("id") or ""): str(item.get("repo_id") or "") for item in work_items}
+    for item in work_items:
+        task_id = str(item.get("id") or "")
+        repo_id = str(item.get("repo_id") or "")
+        for dependency in _string_list(item.get("depends_on")):
+            if dependency in item_ids:
+                edges.append(
+                    {
+                        "from": dependency,
+                        "to": task_id,
+                        "type": "hard_dependency",
+                        "reason": f"{repo_id} depends on {item_repo_by_id.get(dependency, dependency)}.",
+                    }
+                )
+        for blocked in _string_list(item.get("blocks")):
+            if blocked in item_ids:
+                edges.append(
+                    {
+                        "from": task_id,
+                        "to": blocked,
+                        "type": "hard_dependency",
+                        "reason": f"{item_repo_by_id.get(blocked, blocked)} depends on {repo_id}.",
+                    }
+                )
+    return _dedupe_edges(edges)
+
+
+def _extract_repo_markdown_blockers(repo_markdowns: dict[str, str]) -> list[str]:
+    blockers: list[str] = []
+    for markdown in repo_markdowns.values():
+        capture = False
+        for raw in markdown.splitlines():
+            stripped = raw.strip()
+            if stripped.startswith("## "):
+                capture = any(token in stripped for token in ("待确认", "阻塞", "Open Questions"))
+                continue
+            if capture and stripped.startswith(("-", "*")):
+                text = stripped.lstrip("-* ").strip()
+                if text and not _is_noop_question(text):
+                    blockers.append(text)
+    return _dedupe(blockers)
 
 
 def _infer_task_title(repo_id: str, section: str, title: str) -> str:

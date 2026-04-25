@@ -1,5 +1,5 @@
 import type { TaskRecord } from '../../../api'
-import { getTaskArtifact, updateTaskArtifact } from '../../../api'
+import { getTaskArtifact, syncPlan, updateTaskArtifact } from '../../../api'
 import { useEffect, useMemo, useState } from 'react'
 import { hasArtifact } from '../model'
 import { TaskStageEditorModal } from '../task-stage-editor-modal'
@@ -53,7 +53,9 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
   const [editingRepoId, setEditingRepoId] = useState('')
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [syncError, setSyncError] = useState('')
   const [repoPlans, setRepoPlans] = useState<Record<string, string>>({})
   const [repoPlanLoading, setRepoPlanLoading] = useState(false)
   const steps = useMemo(() => buildPlanProgress(task), [task])
@@ -152,6 +154,19 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
     }
   }
 
+  async function handleSync() {
+    try {
+      setSyncing(true)
+      setSyncError('')
+      await syncPlan(task.id)
+      await onTaskUpdated()
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : '同步失败')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <>
       <SectionCard title="阶段详情">
@@ -187,7 +202,7 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
             ) : null}
           </div>
         </div>
-        <PlanSyncNotice plan={plan} />
+        <PlanSyncNotice busy={syncing} error={syncError} onSync={() => void handleSync()} plan={plan} />
 
         <div className="mt-4">
           {tab === 'graph' ? <PlanGraphPanel plan={plan} /> : null}
@@ -224,16 +239,34 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
   )
 }
 
-function PlanSyncNotice({ plan }: { plan: StructuredPlan }) {
+function PlanSyncNotice({
+  busy,
+  error,
+  onSync,
+  plan,
+}: {
+  busy: boolean
+  error: string
+  onSync: () => void
+  plan: StructuredPlan
+}) {
   if (plan.sync.synced !== false) {
     return null
   }
   const target = [plan.sync.repoId, plan.sync.changedArtifact || 'plan.md'].filter(Boolean).join(' ')
   return (
     <div className="mt-4 rounded-[16px] border border-[#efc08a] bg-[#fff6e8] px-4 py-3 text-sm leading-6 text-[#8a5b18] dark:border-[#6f5330] dark:bg-[#2d2418] dark:text-[#f1c98c]">
-      <div className="font-medium">Plan Markdown 已保存，但执行契约未同步。</div>
-      <div className="mt-1">
-        {target ? `${target} 已被编辑。` : null}Code 阶段仍会使用旧的结构化 Plan，因此当前会被阻断；请重新运行 Plan 后再开始实现。
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-medium">Plan Markdown 已保存，但执行契约未同步。</div>
+          <div className="mt-1">
+            {target ? `${target} 已被编辑。` : null}Code 阶段当前会被阻断；请先同步执行契约，系统会保留你编辑后的 Markdown，只刷新结构化 JSON。
+          </div>
+          {error ? <div className="mt-2 text-xs text-[#b53333] dark:text-[#ffb4a8]">{error}</div> : null}
+        </div>
+        <ActionButton disabled={busy} onClick={onSync} tone="secondary">
+          {busy ? '同步中...' : '同步执行契约'}
+        </ActionButton>
       </div>
     </div>
   )
@@ -572,9 +605,9 @@ function editDescription(editingTab: PlanEditingTab, repoId: string) {
 
 function editHint(editingTab: PlanEditingTab) {
   if (editingTab === 'repo') {
-    return '保存后只覆盖该仓的 plan.md，并标记执行契约未同步；需要重新运行 Plan 后才能进入 Code。'
+    return '保存后只覆盖该仓的 plan.md，并标记执行契约未同步；需要点击“同步执行契约”后才能进入 Code。'
   }
-  return '保存后会覆盖 plan.md，并标记执行契约未同步；需要重新运行 Plan 后才能进入 Code。'
+  return '保存后会覆盖 plan.md，并标记执行契约未同步；需要点击“同步执行契约”后才能进入 Code。'
 }
 
 function editPlaceholder(editingTab: PlanEditingTab) {

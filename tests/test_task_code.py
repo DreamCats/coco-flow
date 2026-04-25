@@ -122,7 +122,7 @@ class CodeV2DispatchTest(unittest.TestCase):
             (task_dir / "design.md").write_text("# design\n", encoding="utf-8")
             (task_dir / "plan.md").write_text("# plan\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "Re-run Plan before Code"):
+            with self.assertRaisesRegex(ValueError, "Sync Plan before Code"):
                 start_coding_task(task_id, settings=settings)
 
     def test_dispatch_uses_plan_v2_artifacts_and_skips_reference_only_repo(self) -> None:

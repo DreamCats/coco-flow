@@ -181,7 +181,7 @@ Notes:
 - `plan` supports `native` and `local`.
 - Plan writes a human-readable `plan.md` plus Code-consumable sidecars: `plan-work-items.json`, `plan-execution-graph.json`, `plan-validation.json`, `plan-sync.json`, and `plan-result.json`.
 - Plan also writes per-repo task files under `plan-repos/<repo_id>.md` for multi-repo review.
-- Editing `plan.md` or `plan-repos/<repo_id>.md` marks `plan-sync.json` as unsynced; re-run Plan before Code so structured artifacts match the reviewed Markdown.
+- Editing `plan.md` or `plan-repos/<repo_id>.md` marks `plan-sync.json` as unsynced; use Sync Plan before Code so structured artifacts match the reviewed Markdown without overwriting the Markdown.
 - If Plan detects unresolved blockers, `plan-result.json` sets `code_allowed=false` so Code cannot proceed until the blocker is resolved.
 
 ### Code
