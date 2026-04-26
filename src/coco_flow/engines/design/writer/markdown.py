@@ -9,9 +9,9 @@ from __future__ import annotations
 from coco_flow.config import Settings
 from coco_flow.prompts.design import build_doc_only_design_prompt
 
-from .agent_io import run_agent_markdown_with_new_session
-from .models import DesignInputBundle
-from .utils import as_str_list
+from coco_flow.engines.design.runtime import run_agent_markdown_with_new_session
+from coco_flow.engines.design.support import as_str_list
+from coco_flow.engines.design.types import DesignInputBundle
 
 
 def write_doc_only_design_markdown(

@@ -11,8 +11,8 @@ from pathlib import Path
 import re
 import subprocess
 
-from .models import DesignInputBundle
-from .utils import as_str_list, dedupe, dict_list, first_non_empty
+from coco_flow.engines.design.support import as_str_list, dedupe, dict_list, first_non_empty
+from coco_flow.engines.design.types import DesignInputBundle
 
 _SEARCH_GLOBS = ("*.go", "*.py", "*.ts", "*.tsx", "*.js", "*.jsx", "*.proto", "*.thrift", "*.sql")
 _EXCLUDED_DIRS = {".git", ".livecoding", ".coco-flow", "node_modules", "dist", "build", "__pycache__"}

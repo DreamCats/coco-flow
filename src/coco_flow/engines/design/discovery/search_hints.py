@@ -12,9 +12,9 @@ import re
 from coco_flow.config import Settings
 from coco_flow.prompts.design import build_search_hints_prompt, build_search_hints_template_json
 
-from .agent_io import run_agent_json
-from .models import DesignInputBundle
-from .utils import as_str_list, dedupe
+from coco_flow.engines.design.runtime import run_agent_json
+from coco_flow.engines.design.support import as_str_list, dedupe
+from coco_flow.engines.design.types import DesignInputBundle
 
 _MAX_SEARCH_TERMS = 12
 _MAX_SYMBOLS = 12

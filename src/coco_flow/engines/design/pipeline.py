@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from coco_flow.config import Settings
 
-from .agent_io import DesignAgentSession
-from .models import EXECUTOR_NATIVE, STATUS_DESIGNED, DesignEngineResult
-from .research import build_research_plan, build_research_summary, run_parallel_repo_research
-from .search_hints import build_search_hints
-from .skills import build_design_skills_bundle
-from .source import prepare_design_input
+from .discovery import build_search_hints
+from .evidence import build_research_plan, build_research_summary, run_parallel_repo_research
+from .input import prepare_design_input
+from .knowledge import build_design_skills_bundle
+from .runtime import DesignAgentSession
+from .types import EXECUTOR_NATIVE, STATUS_DESIGNED, DesignEngineResult
 from .writer import write_doc_only_design_markdown
 
 

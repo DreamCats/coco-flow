@@ -12,8 +12,8 @@ import re
 from coco_flow.config import Settings
 from coco_flow.services.queries.skills import SkillPackage, SkillStore
 
-from .models import DesignInputBundle
-from .utils import as_str_list, dedupe
+from coco_flow.engines.design.support import as_str_list, dedupe
+from coco_flow.engines.design.types import DesignInputBundle
 
 _MAX_SELECTED_SKILLS = 4
 _MAX_TERMS = 18

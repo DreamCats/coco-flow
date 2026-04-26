@@ -12,7 +12,7 @@ from coco_flow.config import Settings
 from coco_flow.engines.shared.research import parse_refined_sections, parse_repo_scopes, read_text_if_exists
 from coco_flow.services.queries.task_detail import read_json_file
 
-from .models import DesignInputBundle
+from coco_flow.engines.design.types import DesignInputBundle
 
 
 def locate_task_dir(task_id: str, settings: Settings) -> Path | None:

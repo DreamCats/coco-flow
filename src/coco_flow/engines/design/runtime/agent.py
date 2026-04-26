@@ -15,7 +15,7 @@ from coco_flow.clients import AgentSessionHandle, CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.prompts.design import build_design_bootstrap_prompt
 
-from .models import DesignInputBundle
+from coco_flow.engines.design.types import DesignInputBundle
 
 
 @dataclass

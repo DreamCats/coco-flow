@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 from coco_flow.clients import AgentSessionHandle
 from coco_flow.config import Settings
-from coco_flow.engines.design.models import DesignInputBundle
-from coco_flow.engines.design.research import build_research_plan, research_single_repo
-from coco_flow.engines.design.skills import build_design_skills_bundle
+from coco_flow.engines.design.evidence import build_research_plan, research_single_repo
+from coco_flow.engines.design.knowledge import build_design_skills_bundle
+from coco_flow.engines.design.types import DesignInputBundle
 from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
@@ -219,11 +219,11 @@ class DesignPipelineTest(unittest.TestCase):
 
             with (
                 patch(
-                    "coco_flow.engines.design.agent_io.CocoACPClient.run_agent",
+                    "coco_flow.engines.design.runtime.agent.CocoACPClient.run_agent",
                     side_effect=ValueError("search hints native unavailable"),
                 ),
                 patch(
-                    "coco_flow.engines.design.agent_io.CocoACPClient.new_agent_session",
+                    "coco_flow.engines.design.runtime.agent.CocoACPClient.new_agent_session",
                     side_effect=lambda *, query_timeout, cwd, role: make_design_agent_session_handle(
                         query_timeout=query_timeout,
                         cwd=cwd,
@@ -232,11 +232,11 @@ class DesignPipelineTest(unittest.TestCase):
                     ),
                 ),
                 patch(
-                    "coco_flow.engines.design.agent_io.CocoACPClient.prompt_agent_session",
+                    "coco_flow.engines.design.runtime.agent.CocoACPClient.prompt_agent_session",
                     side_effect=lambda handle, prompt: write_native_design_artifacts(handle, prompt, prompt_events),
                 ),
                 patch(
-                    "coco_flow.engines.design.agent_io.CocoACPClient.close_agent_session",
+                    "coco_flow.engines.design.runtime.agent.CocoACPClient.close_agent_session",
                     side_effect=lambda handle: closed_roles.append(handle.role),
                 ),
             ):
