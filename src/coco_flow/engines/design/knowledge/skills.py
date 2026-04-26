@@ -1,12 +1,14 @@
-"""Design Skills/SOP 选择与摘要。
+"""Design Skills/SOP 选择与渐进式加载索引。
 
 按 refined PRD、绑定仓库和业务术语筛选相关 Skill，将业务地图、仓库角色、
-多仓联动和 SOP 规则压缩成 Design 阶段可消费的 brief。
+多仓联动和 SOP 规则整理成 native agent 可读取完整文件的索引。
+brief 只保留给 local fallback 使用。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import re
 
 from coco_flow.config import Settings
@@ -57,13 +59,13 @@ _NEGATIVE_STOPWORDS = {
 class _SkillDocument:
     package: SkillPackage
     body: str
-    references: list[tuple[str, str]]
+    references: list[tuple[str, Path, str]]
 
 
 def build_design_skills_bundle(
     prepared: DesignInputBundle,
     settings: Settings,
-) -> tuple[str, dict[str, object], list[str]]:
+) -> tuple[str, str, dict[str, object], list[str]]:
     documents = [_package_to_document(package) for package in SkillStore(settings).list_packages()]
     scored: list[tuple[int, dict[str, object], _SkillDocument]] = []
     unmatched: list[dict[str, object]] = []
@@ -76,15 +78,18 @@ def build_design_skills_bundle(
             unmatched.append(payload)
     scored.sort(key=lambda item: (-item[0], item[2].package.name))
     selected = scored[:_MAX_SELECTED_SKILLS]
+    selected_documents = [item[2] for item in selected]
     selection_payload = {
         "selected_skill_ids": [item[2].package.id for item in selected],
         "selected_skill_titles": [item[2].package.name for item in selected],
+        "selected_skill_sources": [_skill_source_payload(item[2], item[1]) for item in selected],
         "candidates": [item[1] for item in scored] + unmatched,
     }
     if not selected:
-        return "", selection_payload, []
-    brief = render_design_skills_brief([item[2] for item in selected], prepared)
-    return brief, selection_payload, [item[2].package.id for item in selected]
+        return "", "", selection_payload, []
+    index = render_design_skills_index(selected_documents, selection_payload["selected_skill_sources"])
+    brief = render_design_skills_brief(selected_documents, prepared)
+    return index, brief, selection_payload, [item[2].package.id for item in selected]
 
 
 def score_design_skill_document(document: _SkillDocument, prepared: DesignInputBundle) -> dict[str, object]:
@@ -171,14 +176,45 @@ def render_design_skills_brief(documents: list[_SkillDocument], prepared: Design
     return "\n".join(lines).rstrip() + "\n"
 
 
+def render_design_skills_index(documents: list[_SkillDocument], sources: list[dict[str, object]]) -> str:
+    lines = [
+        "# Design Skills Index",
+        "",
+        "- 用途：给 native agent 做渐进式加载导航；这里不是事实摘要。",
+        "- 规则：选中 skill 后，agent 必须读取下列完整文件，再把 Skills/SOP 作为稳定背景使用。",
+        "",
+    ]
+    by_id = {document.package.id: document for document in documents}
+    for source in sources:
+        skill_id = str(source.get("id") or "")
+        document = by_id.get(skill_id)
+        if document is None:
+            continue
+        lines.extend(
+            [
+                f"## {document.package.name}",
+                "",
+                f"- id: {document.package.id}",
+                f"- domain: {document.package.domain or 'unknown'}",
+                f"- description: {document.package.description or '无'}",
+                f"- match_reason: {_render_match_reason(source)}",
+                "- files:",
+            ]
+        )
+        for file_path in _skill_file_paths(document):
+            lines.append(f"  - `{file_path}`")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def _package_to_document(package: SkillPackage) -> _SkillDocument:
-    references: list[tuple[str, str]] = []
+    references: list[tuple[str, Path, str]] = []
     for path in package.reference_paths:
         try:
-            references.append((str(path.relative_to(package.root_path)), path.read_text(encoding="utf-8").strip()))
+            references.append((str(path.relative_to(package.root_path)), path, path.read_text(encoding="utf-8").strip()))
         except OSError:
             continue
-    body_parts = [package.body.strip(), *(content for _name, content in references)]
+    body_parts = [package.body.strip(), *(content for _name, _path, content in references)]
     body = "\n\n".join(part for part in body_parts if part)
     return _SkillDocument(package=package, body=body, references=references)
 
@@ -242,10 +278,44 @@ def _repo_hits(document: _SkillDocument, prepared: DesignInputBundle) -> list[st
 
 def _selected_reference_names(document: _SkillDocument, terms: list[str]) -> list[str]:
     selected = ["SKILL.md"] if document.package.body.strip() else []
-    for name, content in document.references:
+    for name, _path, content in document.references:
         if any(term.lower() in content.lower() for term in terms):
             selected.append(name)
     return dedupe(selected)[:6]
+
+
+def _skill_source_payload(document: _SkillDocument, score_payload: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": document.package.id,
+        "title": document.package.name,
+        "domain": document.package.domain,
+        "description": document.package.description,
+        "score": score_payload.get("score"),
+        "keyword_hits": score_payload.get("keyword_hits") or [],
+        "repo_hits": score_payload.get("repo_hits") or [],
+        "workflow_hits": score_payload.get("workflow_hits") or [],
+        "files": _skill_file_paths(document),
+    }
+
+
+def _skill_file_paths(document: _SkillDocument) -> list[str]:
+    files = [str(document.package.skill_path)]
+    files.extend(str(path) for _name, path, _content in document.references)
+    return dedupe(files)
+
+
+def _render_match_reason(source: dict[str, object]) -> str:
+    parts: list[str] = []
+    repo_hits = as_str_list(source.get("repo_hits"))
+    keyword_hits = as_str_list(source.get("keyword_hits"))
+    workflow_hits = as_str_list(source.get("workflow_hits"))
+    if repo_hits:
+        parts.append("repo=" + ", ".join(repo_hits[:4]))
+    if keyword_hits:
+        parts.append("keywords=" + ", ".join(keyword_hits[:6]))
+    if workflow_hits:
+        parts.append("workflow_signals=" + str(len(workflow_hits)))
+    return "; ".join(parts) or "programmatic selection"
 
 
 def _line_hits(body: str, keywords: tuple[str, ...], *, max_lines: int = _MAX_LINES_PER_BLOCK) -> list[str]:

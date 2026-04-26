@@ -29,6 +29,7 @@ def generate_doc_only_plan_markdown(
                     repo_ids=[scope.repo_id for scope in prepared.repo_scopes if scope.repo_id],
                     refined_markdown=prepared.refined_markdown,
                     design_markdown=prepared.design_markdown,
+                    skills_index_markdown=prepared.skills_index_markdown,
                     skills_brief_markdown=prepared.skills_brief_markdown,
                     template_path=template_path,
                 ),

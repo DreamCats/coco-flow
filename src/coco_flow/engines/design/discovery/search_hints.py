@@ -53,6 +53,7 @@ def build_search_hints(
                 lambda template_path: build_search_hints_prompt(
                     title=prepared.title,
                     refined_markdown=prepared.refined_markdown,
+                    design_skills_index_markdown=prepared.design_skills_index_markdown,
                     design_skills_brief_markdown=prepared.design_skills_brief_markdown,
                     repo_context_payload=_repo_context(prepared),
                     template_path=template_path,

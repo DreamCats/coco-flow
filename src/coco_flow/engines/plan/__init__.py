@@ -21,7 +21,7 @@ Plan 阶段的目标是把上游的人类可读产物编译成 Code 阶段可消
 主流程由 ``pipeline.run_plan_engine`` 编排：
 
 1. ``input.prepare_plan_input`` 读取 task 目录、解析 refined/design、加载 repo scope。
-2. ``knowledge.build_plan_skills_bundle`` 基于任务和仓库挑选 Skills/SOP，只作为 prompt 上下文。
+2. ``knowledge.build_plan_skills_bundle`` 基于任务和仓库挑选 Skills/SOP，生成完整文件路径索引。
 3. ``writer.generate_doc_only_plan_markdown`` 尝试让 native writer 写 ``plan.md``；
    native 不可用或输出不可用时回退到 local 渲染。
 4. ``compiler.build_structured_plan_artifacts`` 从 refined/design/repo scope 编译结构化
@@ -34,7 +34,7 @@ Plan 阶段的目标是把上游的人类可读产物编译成 Code 阶段可消
 - ``pipeline.py``：唯一主编排入口，按 input -> knowledge -> compiler -> writer 串联。
 - ``types.py``：Plan 阶段的数据模型、状态常量和 executor 常量。
 - ``input/``：只负责读取和整理输入材料，不做计划决策。
-- ``knowledge/``：只负责选择并压缩可用知识，不写 artifact。
+- ``knowledge/``：只负责选择可用知识，生成渐进式加载索引和 local fallback brief，不写 artifact。
 - ``writer/``：只负责生成任务级 ``plan.md`` 文本。
 - ``compiler/``：只负责结构化 artifact、repo plan markdown 和 Sync Plan 的构建/校验。
 - ``runtime/``：封装 native ACP session 与 ``plan.log``，避免核心逻辑依赖 client 细节。
@@ -70,7 +70,7 @@ Plan 的核心问题不是能否生成一篇长文，而是能否稳定回答三
   - LLM 只被用来整理语义、生成自然语言计划，不直接作为 Code gate 的唯一来源。
 - 使用程序规则的部分：
   - ``input`` 读取文件、解析 refined/design、聚合 repo scope。
-  - ``knowledge`` 选择 Skills/SOP 并压缩上下文。
+  - ``knowledge`` 选择 Skills/SOP，并提供完整文件路径索引；不把完整上下文提前压缩给 native LLM。
   - ``compiler`` 从已知输入构建 work items、依赖边、repo markdown 和 gate result。
   - ``compiler.validate_plan_artifacts`` 校验任务覆盖、repo 覆盖、依赖引用、validation 覆盖。
   - ``services.tasks.plan`` 负责 artifact 落盘、状态更新和 repo 状态同步。

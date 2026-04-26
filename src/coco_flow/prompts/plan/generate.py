@@ -54,14 +54,18 @@ def build_doc_only_plan_prompt(
     design_markdown: str,
     skills_brief_markdown: str,
     template_path: str,
+    skills_index_markdown: str = "",
 ) -> str:
-    skills = skills_brief_markdown.strip() or "当前没有额外 Skills/SOP 摘要。"
+    skills_index = skills_index_markdown.strip() or "当前没有额外 Skills/SOP 索引。"
+    skills_fallback = skills_brief_markdown.strip() or "当前没有 local fallback 摘要。"
     repos_text = ", ".join(repo_id for repo_id in repo_ids if repo_id) or "未绑定"
     return (
         "你在做 coco-flow Plan 阶段。当前第一版采用文档流，不使用结构化 Plan schema。\n\n"
         f"请直接编辑模板文件：{template_path}\n"
         "保留模板的一级标题与章节顺序，输出可交给研发执行的 plan.md。\n"
-        "只允许依据 prd-refined.md、design.md、绑定仓库与 Skills/SOP；不要发明新仓库、新需求或新业务规则。\n\n"
+        "只允许依据 prd-refined.md、design.md、绑定仓库与 Skills/SOP；不要发明新仓库、新需求或新业务规则。\n"
+        "如果 Skills/SOP 索引列出了文件路径，必须先读取这些完整文件，再引用其中的稳定执行规则、验证边界和 SOP。\n"
+        "Skills local fallback 摘要只能在文件不可读时辅助判断，不得替代完整 skill 文件。\n\n"
         "硬性要求：\n"
         "1. 任务清单必须拆成可执行 work items，每个任务都要有稳定 id（W1、W2...）、repo、goal、change_scope、specific_steps、done_definition、depends_on、blocks、verify。\n"
         "2. depends_on 只能引用已有任务 id；没有依赖时写 none，不要省略字段。\n"
@@ -74,7 +78,8 @@ def build_doc_only_plan_prompt(
         f"## 绑定仓库\n{repos_text}\n\n"
         f"## prd-refined.md\n{refined_markdown.strip()}\n\n"
         f"## design.md\n{design_markdown.strip()}\n\n"
-        f"## Skills/SOP 摘要\n{skills}\n\n"
+        f"## Skills/SOP 索引\n{skills_index}\n\n"
+        f"## Skills local fallback 摘要\n{skills_fallback}\n\n"
         "完成后只需简短回复已完成。"
     )
 
@@ -85,6 +90,7 @@ def build_plan_generate_agent_prompt(
     design_markdown: str,
     refined_markdown: str,
     skills_brief_markdown: str,
+    skills_index_markdown: str = "",
     work_items_payload: dict[str, object],
     execution_graph_payload: dict[str, object],
     validation_payload: dict[str, object],
@@ -125,6 +131,7 @@ def build_plan_generate_agent_prompt(
                 title=title,
                 design_markdown=design_markdown,
                 refined_markdown=refined_markdown,
+                skills_index_markdown=skills_index_markdown,
                 skills_brief_markdown=skills_brief_markdown,
             ),
             build_plan_work_items_section(work_items_payload),

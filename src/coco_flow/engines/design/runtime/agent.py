@@ -197,10 +197,10 @@ def _skills_index_markdown(prepared: DesignInputBundle) -> str:
     if prepared.design_selected_skill_ids:
         lines.append("Selected Design skills:")
         lines.extend(f"- {skill_id}" for skill_id in prepared.design_selected_skill_ids)
-    brief = prepared.design_skills_brief_markdown.strip()
-    if brief:
+    index = prepared.design_skills_index_markdown.strip()
+    if index:
         if lines:
             lines.append("")
-        lines.append("Design Skills Brief:")
-        lines.append(brief[:6000])
+        lines.append("Design Skills Index:")
+        lines.append(index)
     return "\n".join(lines)

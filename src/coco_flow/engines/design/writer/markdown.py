@@ -34,6 +34,7 @@ def write_doc_only_design_markdown(
                     refined_markdown=prepared.refined_markdown,
                     repo_scope_markdown=_repo_scope_text(prepared),
                     research_summary_payload=research_summary_payload,
+                    skills_index_markdown=prepared.design_skills_index_markdown,
                     skills_brief_markdown=prepared.design_skills_brief_markdown,
                     template_path=template_path,
                 ),

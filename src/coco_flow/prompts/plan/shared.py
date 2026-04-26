@@ -21,6 +21,7 @@ def build_plan_input_section(
     design_markdown: str,
     refined_markdown: str,
     skills_brief_markdown: str,
+    skills_index_markdown: str = "",
 ) -> PromptSection:
     return PromptSection(
         title="Plan 输入",
@@ -29,7 +30,8 @@ def build_plan_input_section(
                 f"- 标题：{title}",
                 "### Design Markdown\n\n" + design_markdown.strip(),
                 "### PRD Refined\n\n" + (refined_markdown.strip() or "- 当前没有 refined markdown。"),
-                "### Plan Skills Brief\n\n" + (skills_brief_markdown.strip() or "- 当前没有 skills brief。"),
+                "### Plan Skills Index\n\n" + (skills_index_markdown.strip() or "- 当前没有 skills index。"),
+                "### Plan Skills Local Fallback\n\n" + (skills_brief_markdown.strip() or "- 当前没有 skills fallback。"),
             ]
         ),
     )

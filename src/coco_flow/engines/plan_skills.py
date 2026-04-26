@@ -34,7 +34,7 @@ def build_plan_skills_brief(
     title: str,
     sections: RefinedSections,
     repo_scopes: list[RepoScope],
-) -> tuple[str, dict[str, object], list[str]]:
+) -> tuple[str, str, dict[str, object], list[str]]:
     candidates = list_plan_skill_candidates(settings)
     scored: list[tuple[int, dict[str, object], SkillSourceDocument]] = []
     unmatched_payloads: list[dict[str, object]] = []
@@ -50,12 +50,14 @@ def build_plan_skills_brief(
     skills_selection_payload = {
         "selected_skill_ids": [item.id for item in selected],
         "selected_skill_titles": [item.title for item in selected],
+        "selected_skill_sources": [_plan_skill_source_payload(item[2], item[1]) for item in scored[:4]],
         "candidates": [item[1] for item in scored] + unmatched_payloads,
     }
     if not selected:
-        return "", skills_selection_payload, []
+        return "", "", skills_selection_payload, []
 
     terms = infer_plan_skill_terms(title, sections)
+    index_markdown = render_plan_skills_index(selected, skills_selection_payload["selected_skill_sources"])
     lines = [
         "# Plan Skills Brief",
         "",
@@ -85,7 +87,7 @@ def build_plan_skills_brief(
                 "",
             ]
         )
-    return "\n".join(lines).rstrip() + "\n", skills_selection_payload, [item.id for item in selected]
+    return index_markdown, "\n".join(lines).rstrip() + "\n", skills_selection_payload, [item.id for item in selected]
 
 
 def list_plan_skill_candidates(settings: Settings) -> list[SkillSourceDocument]:
@@ -176,6 +178,7 @@ def _skill_package_to_document(skill: SkillPackage) -> SkillSourceDocument:
         engines=["refine", "plan"],
         repos=[],
         body=_skill_combined_body(skill),
+        source_files=[str(skill.skill_path), *(str(path) for path in skill.reference_paths)],
     )
 
 
@@ -188,6 +191,58 @@ def _skill_combined_body(skill: SkillPackage) -> str:
         if content:
             parts.append(content)
     return "\n\n".join(parts)
+
+
+def render_plan_skills_index(documents: list[SkillSourceDocument], sources: list[dict[str, object]]) -> str:
+    lines = [
+        "# Plan Skills Index",
+        "",
+        "- 用途：给 native agent 做渐进式加载导航；这里不是事实摘要。",
+        "- 规则：选中 skill 后，agent 必须读取下列完整文件，再把 Skills/SOP 作为稳定执行规则使用。",
+        "",
+    ]
+    source_by_id = {str(source.get("id") or ""): source for source in sources}
+    for document in documents:
+        source = source_by_id.get(document.id, {})
+        lines.extend(
+            [
+                f"## {document.title} [{document.kind}]",
+                "",
+                f"- id: {document.id}",
+                f"- domain: {document.domain_name or document.domain_id or 'unknown'}",
+                f"- description: {document.desc or '无'}",
+                f"- match_reason: {_render_plan_match_reason(source)}",
+                "- files:",
+            ]
+        )
+        for file_path in document.source_files:
+            lines.append(f"  - `{file_path}`")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _plan_skill_source_payload(document: SkillSourceDocument, score_payload: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": document.id,
+        "title": document.title,
+        "kind": document.kind,
+        "domain": document.domain_name or document.domain_id,
+        "description": document.desc,
+        "score": score_payload.get("score"),
+        "repo_match": score_payload.get("repo_match"),
+        "keyword_hits": score_payload.get("keyword_hits") or [],
+        "files": document.source_files,
+    }
+
+
+def _render_plan_match_reason(source: dict[str, object]) -> str:
+    parts: list[str] = []
+    if source.get("repo_match"):
+        parts.append("repo_match=true")
+    keyword_hits = [str(item) for item in source.get("keyword_hits") or [] if str(item).strip()]
+    if keyword_hits:
+        parts.append("keywords=" + ", ".join(keyword_hits[:6]))
+    return "; ".join(parts) or "programmatic selection"
 
 
 def _render_decision_block(lines: list[str]) -> str:

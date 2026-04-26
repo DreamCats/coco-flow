@@ -249,3 +249,4 @@ class SkillSourceDocument:
     engines: list[str]
     repos: list[str]
     body: str
+    source_files: list[str] = field(default_factory=list)

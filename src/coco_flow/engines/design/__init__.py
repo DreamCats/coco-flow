@@ -3,7 +3,7 @@
 Design 阶段按架构层拆分：
 
 - ``input/``：读取 task 输入，生成 ``DesignInputBundle``。
-- ``knowledge/``：选择并压缩 Skills/SOP。
+- ``knowledge/``：选择 Skills/SOP，生成完整文件路径索引和 local fallback brief。
 - ``discovery/``：生成 repo research 的搜索线索。
 - ``evidence/``：在本地仓库收集代码证据、候选文件和 git evidence。
 - ``writer/``：生成最终 ``design.md``。

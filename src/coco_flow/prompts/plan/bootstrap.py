@@ -98,7 +98,9 @@ def _build_skill_policy_section(skills_index_markdown: str) -> PromptSection:
         title="Skills 使用策略",
         body=(
             "skills 是稳定执行规则、验证边界和领域 SOP 背景的索引，不是新需求来源。\n"
-            "如果后续任务 prompt 给出具体 skill 文件路径，可以按需读取；否则只使用本索引中的短说明。\n\n"
+            "本索引只用于渐进式加载导航，不是完整上下文摘要。\n"
+            "如果索引中列出具体 skill 文件路径，写 plan 前必须读取完整文件内容。\n"
+            "读取后只采信其中的稳定执行规则、验证边界、Main Flow、Change Flows 和 SOP，不得扩写 Design 结论。\n\n"
             f"{skill_index}"
         ),
     )
@@ -109,7 +111,7 @@ def _build_file_io_section() -> PromptSection:
         title="文件读写规则",
         body="\n".join(
             [
-                "1. 只读取任务 prompt 明确列出的 Markdown 文档或 skill 文件。",
+                "1. 只读取任务 prompt 或 Skills 索引明确列出的 Markdown 文档或 skill 文件。",
                 "2. 只编辑任务 prompt 明确指定的模板或目标文件。",
                 "3. 不新增未要求的文件、章节或 side-effect。",
                 "4. 输出完成后只需简短回复，不要把完整文档内容粘贴到聊天回复。",

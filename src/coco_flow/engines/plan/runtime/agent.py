@@ -180,10 +180,10 @@ def _skills_index_markdown(prepared: PlanPreparedInput) -> str:
     if prepared.selected_skill_ids:
         lines.append("Selected Plan skills:")
         lines.extend(f"- {skill_id}" for skill_id in prepared.selected_skill_ids)
-    brief = prepared.skills_brief_markdown.strip()
-    if brief:
+    index = prepared.skills_index_markdown.strip()
+    if index:
         if lines:
             lines.append("")
-        lines.append("Plan Skills Brief:")
-        lines.append(brief[:6000])
+        lines.append("Plan Skills Index:")
+        lines.append(index)
     return "\n".join(lines)

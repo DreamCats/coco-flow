@@ -19,7 +19,7 @@ plan/
   types.py           Plan 数据模型、状态常量、executor 常量
 
   input/             读取 task 目录，解析 refined/design/repos
-  knowledge/         选择 Skills/SOP 上下文，只给 prompt 使用
+  knowledge/         选择 Skills/SOP，生成完整文件路径索引和 local fallback brief
   writer/            生成任务级 plan.md，native 失败时走 local fallback
   compiler/          程序规则生成结构化 JSON、repo plan、Sync Plan
   runtime/           ACP session 和 plan.log 这类运行时适配
@@ -33,7 +33,8 @@ plan/
    读取 `prd-refined.md`、`design.md`、`input.json`、`repos.json`，生成 `PlanPreparedInput`。
 
 2. `knowledge.build_plan_skills_bundle()`
-   挑选本次 Plan 相关的 Skills/SOP，压缩成 writer 可读的上下文。
+   挑选本次 Plan 相关的 Skills/SOP，生成 writer 可渐进式加载的完整文件路径索引。
+   native writer 读取完整 skill 文件；brief 只作为 local fallback。
 
 3. `compiler.build_structured_plan_artifacts()`
    用程序规则生成结构化契约：
