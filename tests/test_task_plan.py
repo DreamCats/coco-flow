@@ -46,7 +46,7 @@ class PlanTaskBuilderTest(unittest.TestCase):
             task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
 
             with patch(
-                "coco_flow.engines.plan.agent_io.CocoACPClient.new_agent_session",
+                "coco_flow.engines.plan.runtime.agent.CocoACPClient.new_agent_session",
                 side_effect=ValueError("plan native unavailable"),
             ):
                 result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, lambda _line: None)
@@ -86,9 +86,9 @@ class PlanTaskBuilderTest(unittest.TestCase):
                 closed_roles.append(handle.role)
 
             with (
-                patch("coco_flow.engines.plan.agent_io.CocoACPClient.new_agent_session", side_effect=fake_new_session),
-                patch("coco_flow.engines.plan.agent_io.CocoACPClient.prompt_agent_session", side_effect=fake_prompt_session),
-                patch("coco_flow.engines.plan.agent_io.CocoACPClient.close_agent_session", side_effect=fake_close_session),
+                patch("coco_flow.engines.plan.runtime.agent.CocoACPClient.new_agent_session", side_effect=fake_new_session),
+                patch("coco_flow.engines.plan.runtime.agent.CocoACPClient.prompt_agent_session", side_effect=fake_prompt_session),
+                patch("coco_flow.engines.plan.runtime.agent.CocoACPClient.close_agent_session", side_effect=fake_close_session),
             ):
                 result = run_plan_engine(task_dir, {"title": "直播列表国家筛选"}, settings, logs.append)
 

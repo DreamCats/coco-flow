@@ -14,7 +14,7 @@ from coco_flow.clients import AgentSessionHandle, CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.prompts.plan import build_plan_bootstrap_prompt
 
-from .models import PlanPreparedInput
+from coco_flow.engines.plan.types import PlanPreparedInput
 
 
 @dataclass

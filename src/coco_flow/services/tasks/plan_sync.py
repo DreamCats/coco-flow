@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 
 from coco_flow.config import Settings, load_settings
-from coco_flow.engines.plan.source import locate_task_dir, prepare_plan_input
-from coco_flow.engines.plan.structure import build_structured_plan_artifacts_from_repo_markdowns, validate_plan_artifacts
+from coco_flow.engines.plan.compiler import build_structured_plan_artifacts_from_repo_markdowns, validate_plan_artifacts
+from coco_flow.engines.plan.input import locate_task_dir, prepare_plan_input
 from coco_flow.services.queries.task_detail import read_json_file
 
 

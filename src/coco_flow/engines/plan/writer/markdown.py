@@ -9,8 +9,8 @@ from __future__ import annotations
 from coco_flow.config import Settings
 from coco_flow.prompts.plan import build_doc_only_plan_prompt, build_plan_template_markdown
 
-from .agent_io import run_plan_agent_markdown_with_new_session
-from .models import EXECUTOR_NATIVE, PlanPreparedInput
+from coco_flow.engines.plan.runtime import run_plan_agent_markdown_with_new_session
+from coco_flow.engines.plan.types import EXECUTOR_NATIVE, PlanPreparedInput
 
 
 def generate_doc_only_plan_markdown(

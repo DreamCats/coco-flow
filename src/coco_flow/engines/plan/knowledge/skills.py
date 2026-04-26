@@ -9,7 +9,7 @@ from __future__ import annotations
 from coco_flow.config import Settings
 from coco_flow.engines.plan_skills import build_plan_skills_brief as build_legacy_plan_skills_brief
 
-from .models import PlanPreparedInput
+from coco_flow.engines.plan.types import PlanPreparedInput
 
 
 def build_plan_skills_bundle(

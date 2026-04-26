@@ -7,12 +7,12 @@ from unittest.mock import patch
 
 from coco_flow.clients import AgentSessionHandle
 from coco_flow.config import Settings
-from coco_flow.engines.plan.agent_io import (
+from coco_flow.engines.plan.runtime import (
     close_plan_agent_session,
     new_plan_agent_session,
     run_plan_agent_markdown_with_new_session,
 )
-from coco_flow.engines.plan.models import PlanPreparedInput
+from coco_flow.engines.plan.types import PlanPreparedInput
 from coco_flow.engines.shared.models import RefinedSections
 
 
@@ -24,7 +24,7 @@ class PlanAgentIOTest(unittest.TestCase):
             settings = self._settings(root)
             logs: list[str] = []
 
-            with patch("coco_flow.engines.plan.agent_io.CocoACPClient", _FakeCocoACPClient):
+            with patch("coco_flow.engines.plan.runtime.agent.CocoACPClient", _FakeCocoACPClient):
                 _FakeCocoACPClient.instances.clear()
                 session = new_plan_agent_session(
                     prepared,
@@ -53,7 +53,7 @@ class PlanAgentIOTest(unittest.TestCase):
                 Path(path).write_text("# Plan\n", encoding="utf-8")
                 return "write markdown"
 
-            with patch("coco_flow.engines.plan.agent_io.CocoACPClient", _FakeCocoACPClient):
+            with patch("coco_flow.engines.plan.runtime.agent.CocoACPClient", _FakeCocoACPClient):
                 _FakeCocoACPClient.instances.clear()
                 markdown = run_plan_agent_markdown_with_new_session(
                     prepared,

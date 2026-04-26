@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 
-from .models import PlanPreparedInput
+from coco_flow.engines.plan.types import PlanPreparedInput
 
 _FILE_RE = re.compile(r"[\w./-]+\.(?:go|py|ts|tsx|js|jsx|proto|thrift|sql)")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")

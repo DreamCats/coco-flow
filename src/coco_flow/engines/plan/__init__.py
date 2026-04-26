@@ -20,24 +20,24 @@ Plan 阶段的目标是把上游的人类可读产物编译成 Code 阶段可消
 
 主流程由 ``pipeline.run_plan_engine`` 编排：
 
-1. ``source.prepare_plan_input`` 读取 task 目录、解析 refined/design、加载 repo scope。
-2. ``skills.select_plan_skills`` 基于任务和仓库挑选 Skills/SOP，只作为 prompt 上下文。
-3. ``generate.generate_plan_markdown`` 尝试让 native writer 写 ``plan.md``；
+1. ``input.prepare_plan_input`` 读取 task 目录、解析 refined/design、加载 repo scope。
+2. ``knowledge.build_plan_skills_bundle`` 基于任务和仓库挑选 Skills/SOP，只作为 prompt 上下文。
+3. ``writer.generate_doc_only_plan_markdown`` 尝试让 native writer 写 ``plan.md``；
    native 不可用或输出不可用时回退到 local 渲染。
-4. ``structure.build_structured_plan_artifacts`` 从 refined/design/repo scope 编译结构化
+4. ``compiler.build_structured_plan_artifacts`` 从 refined/design/repo scope 编译结构化
    work items、execution graph、validation、gate result 和 repo plan markdown。
-5. ``structure.validate_plan_artifacts`` 做最低限度的结构校验，避免缺 repo、缺任务、
+5. ``compiler.validate_plan_artifacts`` 做最低限度的结构校验，避免缺 repo、缺任务、
    依赖引用错误这类会阻断 Code 的问题。
 
-各模块职责边界：
+目录职责边界：
 
-- ``models``：Plan 阶段的数据模型、状态常量和 executor 常量。
-- ``source``：只负责读取和整理输入材料，不做计划决策。
-- ``skills``：只负责选择并压缩可用知识，不写 artifact。
-- ``generate``：只负责生成任务级 ``plan.md`` 文本。
-- ``structure``：只负责结构化 artifact 与 repo plan markdown 的构建/校验。
-- ``agent_io``：封装 native ACP session，避免 pipeline 直接依赖 client 细节。
-- ``logging``：统一追加 ``plan.log``。
+- ``pipeline.py``：唯一主编排入口，按 input -> knowledge -> compiler -> writer 串联。
+- ``types.py``：Plan 阶段的数据模型、状态常量和 executor 常量。
+- ``input/``：只负责读取和整理输入材料，不做计划决策。
+- ``knowledge/``：只负责选择并压缩可用知识，不写 artifact。
+- ``writer/``：只负责生成任务级 ``plan.md`` 文本。
+- ``compiler/``：只负责结构化 artifact、repo plan markdown 和 Sync Plan 的构建/校验。
+- ``runtime/``：封装 native ACP session 与 ``plan.log``，避免核心逻辑依赖 client 细节。
 
 ``services.tasks.plan`` 是 workflow 壳：负责状态流转、落盘、写日志和 repo status 同步；
 本包只承担 Plan 引擎本身的输入准备、生成和结构化编译。
@@ -66,13 +66,13 @@ Plan 的核心问题不是能否生成一篇长文，而是能否稳定回答三
 当前边界：
 
 - 使用 LLM 的部分：
-  - ``generate`` 在 native executor 下调用 ACP writer 生成任务级 ``plan.md``。
+  - ``writer`` 在 native executor 下调用 ACP writer 生成任务级 ``plan.md``。
   - LLM 只被用来整理语义、生成自然语言计划，不直接作为 Code gate 的唯一来源。
 - 使用程序规则的部分：
-  - ``source`` 读取文件、解析 refined/design、聚合 repo scope。
-  - ``skills`` 选择 Skills/SOP 并压缩上下文。
-  - ``structure`` 从已知输入构建 work items、依赖边、repo markdown 和 gate result。
-  - ``validate_plan_artifacts`` 校验任务覆盖、repo 覆盖、依赖引用、validation 覆盖。
+  - ``input`` 读取文件、解析 refined/design、聚合 repo scope。
+  - ``knowledge`` 选择 Skills/SOP 并压缩上下文。
+  - ``compiler`` 从已知输入构建 work items、依赖边、repo markdown 和 gate result。
+  - ``compiler.validate_plan_artifacts`` 校验任务覆盖、repo 覆盖、依赖引用、validation 覆盖。
   - ``services.tasks.plan`` 负责 artifact 落盘、状态更新和 repo 状态同步。
 
 程序规则不是为了替代 LLM，而是给 LLM 输出加“可执行骨架”：即使 native writer
@@ -80,10 +80,10 @@ Plan 的核心问题不是能否生成一篇长文，而是能否稳定回答三
 LLM 擅长解释意图和写作；程序规则擅长保证结构完整、引用一致、Code 阶段可消费。
 """
 
-from .logging import append_plan_log
-from .models import EXECUTOR_NATIVE, LogHandler, STATUS_FAILED, STATUS_PLANNED, STATUS_PLANNING
+from .input import locate_task_dir
 from .pipeline import run_plan_engine
-from .source import locate_task_dir
+from .runtime import append_plan_log
+from .types import EXECUTOR_NATIVE, LogHandler, STATUS_FAILED, STATUS_PLANNED, STATUS_PLANNING
 
 __all__ = [
     "EXECUTOR_NATIVE",

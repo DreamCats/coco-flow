@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from coco_flow.config import Settings
 
-from .generate import generate_doc_only_plan_markdown
-from .models import STATUS_PLANNED, PlanEngineResult
-from .skills import build_plan_skills_bundle
-from .source import prepare_plan_input
-from .structure import (
+from .compiler import (
     build_structured_plan_artifacts,
     render_plan_markdown,
     validate_plan_artifacts,
 )
+from .input import prepare_plan_input
+from .knowledge import build_plan_skills_bundle
+from .types import STATUS_PLANNED, PlanEngineResult
+from .writer import generate_doc_only_plan_markdown
 
 
 def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, on_log) -> PlanEngineResult:
