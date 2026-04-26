@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import os
 import re
 
 from coco_flow.config import Settings
+from coco_flow.engines.shared.models import RefinedSections, RepoScope, SkillSourceDocument
 from coco_flow.services.queries.skills import SkillPackage, SkillStore
-
-from .shared.models import RefinedSections, RepoScope, SkillSourceDocument
 
 SKILL_KIND_PRIORITY = {"skill": 0}
 _PLAN_ASCII_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")

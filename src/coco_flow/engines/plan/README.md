@@ -102,6 +102,9 @@ LLM 只用于 `writer/`：
 - `input/source.py`
   调整 Plan 输入材料或前置校验时改这里。
 
+- `knowledge/selection.py`
+  调整 Skill/SOP 选择、打分、文件索引、local fallback brief 时改这里。
+
 ## 尽量少改文件
 
 - `runtime/agent.py`

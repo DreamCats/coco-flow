@@ -12,7 +12,7 @@ from coco_flow.config import Settings
 from coco_flow.engines.design.evidence import build_research_plan, research_single_repo
 from coco_flow.engines.design.knowledge import build_design_skills_bundle
 from coco_flow.engines.design.types import DesignInputBundle
-from coco_flow.engines.plan_skills import build_plan_skills_brief
+from coco_flow.engines.plan.knowledge.selection import build_plan_skills_brief
 from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
