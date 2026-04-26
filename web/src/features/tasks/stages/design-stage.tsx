@@ -13,6 +13,9 @@ type DesignProgressStep = {
   current: boolean
 }
 
+const DESIGN_PROGRESS_LABELS = ['准备输入', '选择 Skills', '仓库调研', '生成设计', '完成设计'] as const
+type DesignProgressLabel = (typeof DESIGN_PROGRESS_LABELS)[number]
+
 export function DesignStage({
   task,
   onTaskUpdated,
@@ -201,67 +204,59 @@ function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
   const designInputArtifact = task.artifacts['design-input.json'] || ''
   const refineSkillsReadArtifact = task.artifacts['refine-skills-read.md'] || ''
   const hasStarted = task.status === 'designing' || task.status === 'designed' || log.includes('=== DESIGN START ===')
-  const hasKnowledge =
+  const hasPrepared =
+    hasArtifact(designInputArtifact) ||
+    log.includes('design_prepare_ok:') ||
+    log.includes('design_v3_prepare_ok:')
+  const hasSkills =
     hasArtifact(designInputArtifact) ||
     hasArtifact(refineSkillsReadArtifact) ||
+    log.includes('design_skills_ok:') ||
     log.includes('design_v3_prepare_ok:')
   const hasResearch =
     hasArtifact(task.artifacts['design-research-summary.json']) ||
     hasArtifact(task.artifacts['design-research-plan.json']) ||
+    log.includes('design_research_ok:') ||
     log.includes('design_v3_repo_research_ok:')
-  const hasBinding =
-    hasArtifact(task.artifacts['design-decision.json']) ||
-    hasArtifact(task.artifacts['design-repo-binding.json']) ||
-    log.includes('design_v3_architect_ok:')
   const hasDraft =
     hasArtifact(task.artifacts['design.md']) ||
     hasArtifact(task.artifacts['design-sections.json']) ||
+    log.includes('design_writer_ok:') ||
     log.includes('design_v3_writer_ok:')
-  const hasVerified =
+  const hasFinished =
     hasArtifact(task.artifacts['design-verify.json']) ||
     task.status === 'designed' ||
+    log.includes('status: designed') ||
     log.includes('design_v3_gate_ok:')
 
   if (task.status === 'designed') {
-    return [
-      { label: '继承 Skills', done: true, current: false },
-      { label: '仓库探索', done: true, current: false },
-      { label: '架构裁决', done: true, current: false },
-      { label: '生成成稿', done: true, current: false },
-      { label: '完成校验', done: true, current: false },
-    ]
+    return DESIGN_PROGRESS_LABELS.map((label) => ({ label, done: true, current: false }))
   }
 
   if (task.status !== 'designing') {
-    return [
-      { label: '继承 Skills', done: false, current: false },
-      { label: '仓库探索', done: false, current: false },
-      { label: '架构裁决', done: false, current: false },
-      { label: '生成成稿', done: false, current: false },
-      { label: '完成校验', done: false, current: false },
-    ]
+    return DESIGN_PROGRESS_LABELS.map((label) => ({ label, done: false, current: false }))
   }
 
-  const currentStep = !hasStarted
-    ? '继承 Skills'
-    : !hasKnowledge
-      ? '继承 Skills'
+  const currentStep: DesignProgressLabel = !hasStarted
+    ? '准备输入'
+    : !hasPrepared
+      ? '准备输入'
+      : !hasSkills
+        ? '选择 Skills'
       : !hasResearch
-        ? '仓库探索'
-        : !hasBinding
-          ? '架构裁决'
-          : !hasDraft
-            ? '生成成稿'
-            : !hasVerified
-              ? '完成校验'
-              : '完成校验'
+        ? '仓库调研'
+        : !hasDraft
+          ? '生成设计'
+          : !hasFinished
+            ? '完成设计'
+            : '完成设计'
 
   return [
-    { label: '继承 Skills', done: hasKnowledge, current: currentStep === '继承 Skills' },
-    { label: '仓库探索', done: hasResearch, current: currentStep === '仓库探索' },
-    { label: '架构裁决', done: hasBinding, current: currentStep === '架构裁决' },
-    { label: '生成成稿', done: hasDraft, current: currentStep === '生成成稿' },
-    { label: '完成校验', done: hasVerified, current: currentStep === '完成校验' },
+    { label: '准备输入', done: hasPrepared, current: currentStep === '准备输入' },
+    { label: '选择 Skills', done: hasSkills, current: currentStep === '选择 Skills' },
+    { label: '仓库调研', done: hasResearch, current: currentStep === '仓库调研' },
+    { label: '生成设计', done: hasDraft, current: currentStep === '生成设计' },
+    { label: '完成设计', done: hasFinished, current: currentStep === '完成设计' },
   ]
 }
 
