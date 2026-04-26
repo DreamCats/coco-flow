@@ -261,7 +261,7 @@ class PromptSystemTest(unittest.TestCase):
             title="更新竞拍讲解卡",
             refined_markdown="# PRD",
             repo_scope_markdown="- live_pack: /repo",
-            research_summary_payload={"repos": [{"repo_id": "live_pack"}]},
+            research_summary_markdown="### live_pack\n- 候选文件：`a.go`",
             skills_fallback_markdown="- auction-design",
             template_path="/tmp/design.md",
         )
@@ -270,6 +270,7 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("prd-refined.md", rendered)
         self.assertIn("live_pack", rendered)
         self.assertIn("Repo research summary", rendered)
+        self.assertIn("不要复制 Python dict", rendered)
 
     def test_design_role_prompts_are_task_prompts(self) -> None:
         prompts = [

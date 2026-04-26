@@ -12,6 +12,7 @@ from coco_flow.config import Settings
 from coco_flow.engines.design.evidence import build_research_plan, research_single_repo
 from coco_flow.engines.design.knowledge import build_design_skills_bundle
 from coco_flow.engines.design.types import DesignInputBundle
+from coco_flow.engines.design.writer.markdown import render_research_summary_markdown
 from coco_flow.engines.plan.knowledge.selection import build_plan_skills_context
 from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
@@ -38,6 +39,35 @@ def make_settings(root: Path, *, plan_executor: str = "local") -> Settings:
 
 
 class DesignPipelineTest(unittest.TestCase):
+    def test_design_research_summary_markdown_hides_internal_payload_shape(self) -> None:
+        rendered = render_research_summary_markdown(
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "work_hypothesis": "requires_code_change",
+                        "candidate_files": [
+                            {
+                                "path": "entities/converters/auction_converters/regular_auction_converter.go",
+                                "kind": "core_change",
+                                "confidence": "high",
+                                "matched_behavior": "预热态、竞拍中",
+                                "core_evidence": True,
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        self.assertIn("### live_pack", rendered)
+        self.assertIn("需要代码改造", rendered)
+        self.assertIn("regular_auction_converter.go", rendered)
+        self.assertIn("命中 预热态、竞拍中 相关代码证据", rendered)
+        self.assertNotIn("requires_code_change", rendered)
+        self.assertNotIn("{'path'", rendered)
+        self.assertNotIn("core_evidence", rendered)
+
     def test_repo_research_includes_git_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_dir = Path(tmp) / "repo"

@@ -15,7 +15,7 @@ def build_doc_only_design_prompt(
     title: str,
     refined_markdown: str,
     repo_scope_markdown: str,
-    research_summary_payload: dict[str, object],
+    research_summary_markdown: str,
     skills_fallback_markdown: str,
     template_path: str,
     skills_index_markdown: str = "",
@@ -32,9 +32,10 @@ def build_doc_only_design_prompt(
         f"## 任务标题\n{title}\n\n"
         f"## prd-refined.md\n{refined_markdown.strip()}\n\n"
         f"## 绑定仓库\n{repo_scope_markdown.strip() or '- 未绑定仓库'}\n\n"
-        f"## Repo research summary\n{research_summary_payload}\n\n"
+        f"## Repo research summary\n{research_summary_markdown.strip() or '- 暂无代码调研摘要。'}\n\n"
         f"## Skills/SOP 索引\n{skills_index}\n\n"
         f"## Skills local fallback 摘要\n{skills_fallback}\n\n"
+        "写入 design.md 时只保留对研发有用的自然语言信息；不要复制 Python dict、JSON payload、confidence/kind/core_evidence 等内部字段。\n"
         "完成后只需简短回复已完成。"
     )
 
