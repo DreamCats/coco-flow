@@ -35,6 +35,8 @@ TRACKED_ARTIFACTS = [
     "design.notes.md",
     *PLAN_V2_INTERMEDIATE_ARTIFACTS,
     "design.md",
+    "design-skills.json",
+    "plan-skills.json",
     *PLAN_V2_PRIMARY_ARTIFACTS,
     "refine.log",
     "design.log",

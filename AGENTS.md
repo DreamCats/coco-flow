@@ -181,7 +181,8 @@ uv run python -m unittest discover -s tests -v
   - select Skills/SOP
   - repo research
   - writer 直接生成 `design.md`
-- `design` 阶段目录只保留 `design.md` 和 `design.log`，不再持久化 adjudication / review / debate / decision / repo-binding / sections / verify / diagnosis / result schema。
+- `design` 阶段目录主要保留 `design.md` 和 `design.log`，不再持久化 adjudication / review / debate / decision / repo-binding / sections / verify / diagnosis / result schema。
+- `design` 会额外写 `design-skills.json`，只记录本次 Design 选中的业务 Skills/SOP，供 Plan 继承；不作为旧 schema gate。
 - Plan 是否可执行由 `design.md` 是否存在和任务状态判断，不再依赖 `design-result.json` gate。
 
 ### plan
@@ -202,12 +203,13 @@ uv run python -m unittest discover -s tests -v
   - 分别提取 glossary 命中、未命中术语、candidate files / dirs
   - 在 `design.md`、`plan.md`、prompt 和 `plan.log` 中按 repo 聚合
 - `plan` 当前已接入 skills 的规则筛选：
-  - 优先消费 `skills_root` 下的 `SKILL.md + references/*`
-  - selection 与 brief 只在内存中给 prompt 使用，不再落阶段 schema
+  - 优先继承 `design-skills.json` 里 Design 已选中的业务 Skills/SOP
+  - Plan 不再从全量业务 Skill 里重新判断业务范围；后续如有 planning / verification 类 Skill，再作为 Plan 专属补充
+  - 会写 `plan-skills.json` 记录继承来源，writer 仍通过完整文件路径索引渐进式读取 `SKILL.md + references/*`
 - `plan.log` 当前会记录：
   - `repo_count`
   - 每个 repo 的 `repo_research`
-  - `plan_skills_ok / selected_skill_ids / skills_brief`
+  - `plan_skills_ok`，包含 `source`、`selected` 和 `ids`
   - `scope_start / scope_ok / scope_error`
   - `verify_start / verify_ok / verify_passed` 或 `verify_failed / verify_error`
   - glossary hits / unmatched terms / candidate files / complexity

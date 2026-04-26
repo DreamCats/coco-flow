@@ -47,6 +47,7 @@ def design_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
     try:
         result = run_design_engine(task_dir, task_meta, cfg, logger)
         (task_dir / "design.md").write_text(result.design_markdown, encoding="utf-8")
+        _write_json(task_dir / "design-skills.json", result.design_skills_payload)
         task_meta["status"] = result.status
         task_meta["updated_at"] = datetime.now().astimezone().isoformat()
         (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -112,6 +113,7 @@ def _reset_design_outputs(task_dir: Path) -> None:
         "design-research.json",
         "design-repo-responsibility-matrix.json",
         "design-skills-selection.json",
+        "design-skills.json",
         "design-skills-brief.md",
         "design-search-hints.json",
         "design-repo-binding.json",
@@ -151,6 +153,7 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         "plan.md",
         "plan.log",
         "plan-skills-selection.json",
+        "plan-skills.json",
         "plan-skills-brief.md",
         "plan-draft-work-items.json",
         "plan-draft-execution-graph.json",
@@ -203,3 +206,7 @@ def _sync_repo_status(task_dir: Path, status: str) -> None:
         changed = True
     if changed:
         repos_path.write_text(json.dumps(repos_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -19,7 +19,7 @@ def build_structured_plan_artifacts(prepared: PlanPreparedInput) -> tuple[dict[s
 
     for index, scope in enumerate(prepared.repo_scopes, start=1):
         section = repo_sections.get(scope.repo_id, "")
-        files = _extract_files(section)
+        files = _extract_files(section, scope.repo_id)
         steps = _extract_steps(section) or prepared.refined_sections.change_scope or [prepared.title]
         item = {
             "id": f"W{index}",
@@ -257,7 +257,6 @@ def _extract_repo_sections(markdown: str, repo_ids: list[str]) -> dict[str, str]
     lines = markdown.splitlines()
     headings: list[tuple[int, int, str]] = []
     starts: list[tuple[int, int, str]] = []
-    repo_set = set(repo_ids)
     for index, line in enumerate(lines):
         match = _HEADING_RE.match(line.strip())
         if not match:
@@ -265,8 +264,9 @@ def _extract_repo_sections(markdown: str, repo_ids: list[str]) -> dict[str, str]
         title = match.group(2).strip().strip("`")
         level = len(match.group(1))
         headings.append((index, level, title))
-        if title in repo_set:
-            starts.append((index, level, title))
+        repo_id = _match_repo_heading(title, repo_ids)
+        if repo_id:
+            starts.append((index, level, repo_id))
     sections: dict[str, str] = {}
     for start, level, repo_id in starts:
         end = len(lines)
@@ -278,23 +278,83 @@ def _extract_repo_sections(markdown: str, repo_ids: list[str]) -> dict[str, str]
     return sections
 
 
-def _extract_files(section: str) -> list[str]:
-    return _dedupe(_FILE_RE.findall(section))[:12]
+def _match_repo_heading(title: str, repo_ids: list[str]) -> str:
+    normalized = title.strip().strip("`")
+    for repo_id in repo_ids:
+        if normalized == repo_id:
+            return repo_id
+        if normalized.startswith(f"{repo_id} ") or normalized.startswith(f"{repo_id}-") or normalized.startswith(f"{repo_id} -"):
+            return repo_id
+        if normalized.startswith(f"{repo_id}：") or normalized.startswith(f"{repo_id}:"):
+            return repo_id
+    return ""
+
+
+def _extract_files(section: str, repo_id: str = "") -> list[str]:
+    files = []
+    for path in _FILE_RE.findall(section):
+        normalized = path
+        if repo_id and normalized.startswith(f"{repo_id}/"):
+            normalized = normalized[len(repo_id) + 1 :]
+        files.append(normalized)
+    return _dedupe(files)[:12]
 
 
 def _extract_steps(section: str) -> list[str]:
     steps: list[str] = []
+    skip_nested_block = False
     for raw in section.splitlines():
+        indent = len(raw) - len(raw.lstrip())
         line = raw.strip()
+        if _should_skip_step_line(line):
+            continue
         if not line.startswith(("-", "*", "1.", "2.", "3.", "4.", "5.")):
             continue
         text = line.lstrip("-* ").strip()
         text = re.sub(r"^\d+\.\s*", "", text).strip()
-        if _is_empty_label(text):
+        text = _clean_markdown_inline(text)
+        if indent == 0:
+            skip_nested_block = _is_non_task_label(text)
+        elif skip_nested_block:
             continue
-        if text and not text.startswith(("仓库路径", "证据")):
+        if _should_skip_step_text(text):
+            continue
+        if text:
             steps.append(text)
     return _dedupe(steps)
+
+
+def _should_skip_step_line(line: str) -> bool:
+    return (
+        not line
+        or line.startswith("#")
+        or line.startswith("|")
+        or line.startswith("```")
+    )
+
+
+def _should_skip_step_text(text: str) -> bool:
+    if not text or _is_empty_label(text):
+        return True
+    return text.startswith(
+        (
+            "仓库路径",
+            "待修改文件",
+            "关键证据",
+            "证据",
+            "主要风险",
+            "参考依据",
+            "Skills 文件",
+            "需求确认书",
+            "代码证据",
+        )
+    )
+
+
+def _is_non_task_label(text: str) -> bool:
+    if not _is_empty_label(text):
+        return False
+    return text.rstrip("：:").strip() in {"关键证据", "主要风险", "参考依据", "风险", "证据"}
 
 
 def _parse_repo_task_markdown(
@@ -411,7 +471,7 @@ def _infer_task_title(repo_id: str, section: str, title: str) -> str:
         if _looks_like_shared_repo(repo_id):
             return "新增或更新实验字段契约"
         return "接入实验字段并更新业务逻辑"
-    files = _extract_files(section)
+    files = _extract_files(section, repo_id)
     if files:
         return f"修改 {files[0]} 相关逻辑"
     return f"执行 {title}"
@@ -442,17 +502,18 @@ def _infer_edges_and_coordination(
     prepared: PlanPreparedInput,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     edges: list[dict[str, object]] = []
+    design_text = prepared.design_markdown
     for producer in work_items:
         producer_repo = str(producer.get("repo_id") or "")
         producer_text = repo_sections.get(producer_repo, "")
-        if not _is_producer_section(producer_repo, producer_text):
+        if not _is_producer_section(producer_repo, producer_text, design_text):
             continue
         for consumer in work_items:
             consumer_repo = str(consumer.get("repo_id") or "")
             if consumer_repo == producer_repo:
                 continue
             consumer_text = repo_sections.get(consumer_repo, "")
-            if _is_consumer_section(consumer_text) or _shared_dependency_signal(producer_text, consumer_text):
+            if _is_consumer_section(consumer_text, design_text) or _shared_dependency_signal(producer_text, consumer_text):
                 edges.append(
                     {
                         "from": producer.get("id"),
@@ -477,7 +538,7 @@ def _infer_edges_and_coordination(
 
 def _extract_blockers(prepared: PlanPreparedInput) -> list[str]:
     candidates: list[str] = []
-    candidates.extend(item for item in prepared.refined_sections.open_questions if not _is_noop_question(item))
+    candidates.extend(_clean_markdown_inline(item) for item in prepared.refined_sections.open_questions if not _is_noop_question(item))
     capture = False
     for line in prepared.design_markdown.splitlines():
         stripped = line.strip()
@@ -486,26 +547,41 @@ def _extract_blockers(prepared: PlanPreparedInput) -> list[str]:
             continue
         if not capture or not stripped.startswith(("-", "*")):
             continue
-        text = stripped.lstrip("-* ").strip()
+        text = _clean_markdown_inline(stripped.lstrip("-* ").strip())
         if text and not _is_noop_question(text) and ("确认" in text or "待确认" in text or "是否" in text):
             candidates.append(text)
     return _dedupe(candidates)[:8]
 
 
-def _is_producer_section(repo_id: str, text: str) -> bool:
+def _is_producer_section(repo_id: str, text: str, design_text: str = "") -> bool:
     if _looks_like_shared_repo(repo_id):
         return True
-    if _is_consumer_section(text):
+    if _repo_has_role(repo_id, design_text, "Producer"):
+        return True
+    if _is_consumer_section(text, design_text):
         return False
     return any(token in text for token in ("新增", "定义", "产出", "提供")) and any(
         token in text for token in ("字段", "接口", "模型", "配置", "key", "契约", "AB")
     )
 
 
-def _is_consumer_section(text: str) -> bool:
+def _is_consumer_section(text: str, design_text: str = "") -> bool:
+    if any(role in design_text for role in ("Consumer 仓库", "consumer")) and any(token in text for token in ("消费", "接入", "读取")):
+        return True
     return any(token in text for token in ("读取", "消费", "依赖", "接入", "使用")) and any(
         token in text for token in ("字段", "接口", "模型", "配置", "key", "契约", "AB")
     )
+
+
+def _repo_has_role(repo_id: str, design_text: str, role: str) -> bool:
+    if not design_text:
+        return False
+    role_patterns = [
+        rf"{re.escape(role)}\s*仓库\*\*[:：]\s*{re.escape(repo_id)}",
+        rf"{re.escape(role)}\s*仓库[:：]\s*{re.escape(repo_id)}",
+        rf"{re.escape(repo_id)}[^\n]*{re.escape(role)}",
+    ]
+    return any(re.search(pattern, design_text, flags=re.IGNORECASE) for pattern in role_patterns)
 
 
 def _shared_dependency_signal(producer_text: str, consumer_text: str) -> bool:
@@ -524,6 +600,15 @@ def _is_empty_label(text: str) -> bool:
 
 def _is_noop_question(text: str) -> bool:
     return any(token in text for token in ("当前无", "无额外", "暂无", "没有额外"))
+
+
+def _clean_markdown_inline(text: str) -> str:
+    value = text.strip()
+    value = re.sub(r"\*\*(.+?)\*\*", r"\1", value)
+    value = value.replace("**", "")
+    value = re.sub(r"`(.+?)`", r"\1", value)
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
 
 
 def _depends_by_task(edges: list[dict[str, object]]) -> dict[str, list[str]]:

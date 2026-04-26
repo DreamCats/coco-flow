@@ -30,10 +30,11 @@ plan/
 `pipeline.run_plan_engine()` 是主入口：
 
 1. `input.prepare_plan_input()`
-   读取 `prd-refined.md`、`design.md`、`input.json`、`repos.json`，生成 `PlanPreparedInput`。
+   读取 `prd-refined.md`、`design.md`、`input.json`、`repos.json`、`design-skills.json`，生成 `PlanPreparedInput`。
 
 2. `knowledge.build_plan_skills_bundle()`
-   挑选本次 Plan 相关的 Skills/SOP，生成 writer 可渐进式加载的完整文件路径索引。
+   继承 Design 已选中的业务 Skills/SOP，生成 writer 可渐进式加载的完整文件路径索引。
+   Plan 不从全量业务 Skill 里重新判断业务范围；后续 planning / verification 类 Skill 可作为专属补充。
    native writer 读取完整 skill 文件；fallback excerpt 只作为 local fallback。
 
 3. `compiler.build_structured_plan_artifacts()`
@@ -103,7 +104,7 @@ LLM 只用于 `writer/`：
   调整 Plan 输入材料或前置校验时改这里。
 
 - `knowledge/selection.py`
-  调整 Skill/SOP 选择、打分、文件索引、local fallback excerpt 时改这里。
+  调整 Design Skill 继承、文件索引、local fallback excerpt 时改这里。
 
 ## 尽量少改文件
 

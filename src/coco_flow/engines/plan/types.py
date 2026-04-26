@@ -29,6 +29,7 @@ class PlanPreparedInput:
     repo_scopes: list[RepoScope]
     repo_ids: set[str]
     refined_sections: RefinedSections
+    inherited_design_skills_payload: dict[str, object] = field(default_factory=dict)
     skills_index_markdown: str = ""
     skills_fallback_markdown: str = ""
     skills_selection_payload: dict[str, object] = field(default_factory=dict)
@@ -39,6 +40,7 @@ class PlanPreparedInput:
 class PlanEngineResult:
     status: str
     plan_markdown: str
+    plan_skills_payload: dict[str, object] = field(default_factory=dict)
     plan_work_items_payload: dict[str, object] = field(default_factory=dict)
     plan_execution_graph_payload: dict[str, object] = field(default_factory=dict)
     plan_validation_payload: dict[str, object] = field(default_factory=dict)

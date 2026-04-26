@@ -42,6 +42,7 @@ PLAN_V2_ARTIFACTS = [
 
 PLAN_ARTIFACTS = [
     "plan-skills-selection.json",
+    "plan-skills.json",
     "plan-skills-brief.md",
     *PLAN_V2_ARTIFACTS,
     "plan-scope.json",
@@ -92,6 +93,7 @@ EDIT_RULES = {
             "design-research.json",
             "design-repo-responsibility-matrix.json",
             "design-skills-selection.json",
+            "design-skills.json",
             "design-skills-brief.md",
             "design-search-hints.json",
             "design-repo-binding.json",
@@ -124,6 +126,7 @@ EDIT_RULES = {
             "design-research.json",
             "design-repo-responsibility-matrix.json",
             "design-skills-selection.json",
+            "design-skills.json",
             "design-skills-brief.md",
             "design-search-hints.json",
             "design-repo-binding.json",

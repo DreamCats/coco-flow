@@ -88,9 +88,90 @@ def build_plan_skills_context(
     return index_markdown, "\n".join(lines).rstrip() + "\n", skills_selection_payload, [item.id for item in selected]
 
 
+def build_plan_skills_context_from_design(
+    settings: Settings,
+    *,
+    title: str,
+    sections: RefinedSections,
+    design_skills_payload: dict[str, object],
+) -> tuple[str, str, dict[str, object], list[str]]:
+    selected_ids = _str_list(design_skills_payload.get("selected_skill_ids"))
+    if not selected_ids:
+        return _empty_inherited_selection(design_skills_payload)
+
+    skill_store = SkillStore(settings)
+    documents: list[SkillSourceDocument] = []
+    missing_ids: list[str] = []
+    for skill_id in selected_ids:
+        package = skill_store.get_package(skill_id)
+        if package is None:
+            missing_ids.append(skill_id)
+            continue
+        documents.append(_skill_package_to_document(package))
+
+    inherited_sources = [
+        _inherited_plan_skill_source_payload(document, design_skills_payload)
+        for document in documents
+    ]
+    selection_payload = {
+        "source": "design",
+        "selected_skill_ids": [item.id for item in documents],
+        "selected_skill_titles": [item.title for item in documents],
+        "selected_skill_sources": inherited_sources,
+        "inherited_from": "design-skills.json",
+        "missing_skill_ids": missing_ids,
+        "design_selector": design_skills_payload.get("selector") or {},
+    }
+    if not documents:
+        return "", "", selection_payload, []
+
+    index_markdown = render_plan_skills_index(documents, inherited_sources)
+    fallback_markdown = render_plan_skills_fallback(documents, title=title, sections=sections)
+    return index_markdown, fallback_markdown, selection_payload, [item.id for item in documents]
+
+
 def list_plan_skill_candidates(settings: Settings) -> list[SkillSourceDocument]:
     skill_store = SkillStore(settings)
     return [_skill_package_to_document(skill) for skill in skill_store.list_packages()]
+
+
+def render_plan_skills_fallback(
+    documents: list[SkillSourceDocument],
+    *,
+    title: str,
+    sections: RefinedSections,
+) -> str:
+    terms = infer_plan_skill_terms(title, sections)
+    lines = [
+        "# Plan Skills Local Fallback",
+        "",
+        "- 用途：仅用于 Plan 阶段拆任务、排依赖和补验证规则。",
+        "- 边界：继承自 Design 的业务 Skills 不能扩大 design.md 的 repo、需求或文件范围。",
+        "",
+    ]
+    for document in documents:
+        boundaries = extract_plan_skill_lines(document.body, ("边界", "范围", "非", "仅", "不展示", "兼容"))
+        rules = extract_plan_skill_lines(document.body, ("规则", "默认", "必须", "保持", "状态", "主链路", "顺序", "依赖"))
+        validations = extract_plan_skill_lines(document.body, ("验证", "校验", "检查", "兼容", "风险"))
+        lines.extend(
+            [
+                f"## {document.title} [{document.kind}]",
+                "",
+                f"- id: {document.id}",
+                f"- domain: {document.domain_name or document.domain_id or 'unknown'}",
+                f"- repos: {', '.join(document.repos) if document.repos else '无'}",
+                "- 关键摘录：",
+                render_plan_skill_excerpt(document.body, terms),
+                "- 任务边界：",
+                _render_decision_block(boundaries),
+                "- 拆解 / 依赖规则：",
+                _render_decision_block(rules),
+                "- 验证要点：",
+                _render_decision_block(validations),
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def score_plan_skill_document(
@@ -233,8 +314,50 @@ def _plan_skill_source_payload(document: SkillSourceDocument, score_payload: dic
     }
 
 
+def _inherited_plan_skill_source_payload(
+    document: SkillSourceDocument,
+    design_skills_payload: dict[str, object],
+) -> dict[str, object]:
+    design_source_by_id = {
+        str(source.get("id") or ""): source
+        for source in design_skills_payload.get("selected_skill_sources") or []
+        if isinstance(source, dict)
+    }
+    design_source = design_source_by_id.get(document.id, {})
+    return {
+        "id": document.id,
+        "title": document.title,
+        "kind": document.kind,
+        "domain": document.domain_name or document.domain_id,
+        "description": document.desc,
+        "score": design_source.get("score"),
+        "repo_match": design_source.get("repo_hits") or design_source.get("repo_match"),
+        "keyword_hits": design_source.get("keyword_hits") or [],
+        "inherited_from_design": True,
+        "files": document.source_files,
+    }
+
+
+def _empty_inherited_selection(design_skills_payload: dict[str, object]) -> tuple[str, str, dict[str, object], list[str]]:
+    return (
+        "",
+        "",
+        {
+            "source": "none",
+            "selected_skill_ids": [],
+            "selected_skill_titles": [],
+            "selected_skill_sources": [],
+            "inherited_from": "design-skills.json" if design_skills_payload else "",
+            "design_selector": design_skills_payload.get("selector") or {},
+        },
+        [],
+    )
+
+
 def _render_plan_match_reason(source: dict[str, object]) -> str:
     parts: list[str] = []
+    if source.get("inherited_from_design"):
+        parts.append("inherited_from_design=true")
     if source.get("repo_match"):
         parts.append("repo_match=true")
     keyword_hits = [str(item) for item in source.get("keyword_hits") or [] if str(item).strip()]
@@ -247,6 +370,12 @@ def _render_decision_block(lines: list[str]) -> str:
     if not lines:
         return "- 无"
     return "\n".join(f"- {line}" for line in lines)
+
+
+def _str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _dedupe_terms(items: list[str]) -> list[str]:

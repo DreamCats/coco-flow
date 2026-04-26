@@ -28,7 +28,12 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     prepared.skills_fallback_markdown = skills_fallback_markdown
     prepared.skills_selection_payload = skills_selection_payload
     prepared.selected_skill_ids = selected_skill_ids
-    on_log(f"plan_skills_ok: selected={len(selected_skill_ids)}")
+    on_log(
+        "plan_skills_ok: "
+        f"source={skills_selection_payload.get('source') or 'none'} "
+        f"selected={len(selected_skill_ids)} "
+        f"ids={','.join(selected_skill_ids) if selected_skill_ids else 'none'}"
+    )
 
     # 3. 先构建 Code 阶段可消费的结构化 Plan sidecar。
     on_log("plan_structure_start: true")
@@ -79,6 +84,7 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
     return PlanEngineResult(
         status=STATUS_PLANNED,
         plan_markdown=plan_markdown,
+        plan_skills_payload=skills_selection_payload,
         plan_work_items_payload=plan_work_items_payload,
         plan_execution_graph_payload=plan_execution_graph_payload,
         plan_validation_payload=plan_validation_payload,

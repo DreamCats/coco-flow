@@ -13,7 +13,10 @@ from coco_flow.engines.design.evidence import build_research_plan, research_sing
 from coco_flow.engines.design.knowledge import build_design_skills_bundle
 from coco_flow.engines.design.types import DesignInputBundle
 from coco_flow.engines.design.writer.markdown import render_research_summary_markdown
+from coco_flow.engines.plan.compiler import build_structured_plan_artifacts
+from coco_flow.engines.plan.knowledge import build_plan_skills_bundle
 from coco_flow.engines.plan.knowledge.selection import build_plan_skills_context
+from coco_flow.engines.plan.types import PlanPreparedInput
 from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
@@ -247,6 +250,108 @@ class DesignPipelineTest(unittest.TestCase):
             self.assertIn("selected_skill_sources", selection)
             self.assertIn("Plan Skills Local Fallback", fallback)
 
+    def test_plan_skills_inherit_design_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            self._write_skill(
+                settings.config_root / "skills" / "auction-pop-card",
+                skill_body="适用于竞拍讲解卡需求。Plan 需要关注 live_pack 消费 live_common 实验字段的顺序。",
+                references={"references/main-flow.md": "## Main Flow\n- live_pack 消费 live_common 实验字段。"},
+            )
+            self._write_skill(
+                settings.config_root / "skills" / "auction-live-bag",
+                skill_body="适用于竞拍购物袋需求。Plan 需要关注购物袋列表刷新。",
+                references={},
+            )
+            prepared = PlanPreparedInput(
+                task_dir=Path("/tmp/task"),
+                task_id="task",
+                title="竞拍购物袋与讲解卡都出现在标题里",
+                design_markdown="# Design\n\n只做竞拍讲解卡。",
+                refined_markdown="# PRD\n\n## 本次范围\n- 竞拍讲解卡文案实验。",
+                input_meta={},
+                task_meta={},
+                repos_meta={},
+                repo_scopes=[RepoScope(repo_id="live_pack", repo_path="/repo/live_pack")],
+                repo_ids={"live_pack"},
+                refined_sections=RefinedSections(
+                    change_scope=["竞拍讲解卡文案实验"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=["命中实验时展示 Starting bid"],
+                    open_questions=[],
+                    raw="",
+                ),
+                inherited_design_skills_payload={
+                    "selected_skill_ids": ["auction-pop-card"],
+                    "selected_skill_sources": [{"id": "auction-pop-card", "keyword_hits": ["竞拍讲解卡"]}],
+                    "selector": {"source": "native"},
+                },
+            )
+
+            index, fallback, selection, selected_ids = build_plan_skills_bundle(prepared, settings)
+
+            self.assertEqual(selected_ids, ["auction-pop-card"])
+            self.assertEqual(selection["source"], "design")
+            self.assertEqual(selection["inherited_from"], "design-skills.json")
+            self.assertNotIn("auction-live-bag", selected_ids)
+            self.assertIn("inherited_from_design=true", index)
+            self.assertIn("不能扩大 design.md", fallback)
+
+    def test_plan_compiler_uses_repo_prefixed_design_sections(self) -> None:
+        prepared = PlanPreparedInput(
+            task_dir=Path("/tmp/task"),
+            task_id="task",
+            title="竞拍讲解卡文案实验",
+            design_markdown=(
+                "# Design\n\n"
+                "## 工作流分类与仓库职责\n"
+                "- **Producer 仓库**：live_common（新增实验字段）\n"
+                "- **Consumer 仓库**：live_pack（消费实验字段）\n\n"
+                "## 分仓库方案\n"
+                "### live_pack - 消费实验字段并修改文案逻辑\n"
+                "- **待修改文件**：\n"
+                "  - `entities/converters/auction_converters/regular_auction_converter.go`：处理普通竞拍文案\n"
+                "  - `entities/converters/auction_converters/surprise_set_auction_converter.go`：处理 Surprise set 文案\n"
+                "- **关键证据**：\n"
+                "  - 普通竞拍文案逻辑在 RegularAuctionConverter.getAuctionText 中\n\n"
+                "### live_common - 新增实验字段\n"
+                "- **待修改文件**：\n"
+                "  - `abtest/struct.go`：新增实验字段\n\n"
+                "## 风险与待确认\n"
+                "- **待确认项 1**：实验字段枚举值\n"
+            ),
+            refined_markdown="# PRD",
+            input_meta={},
+            task_meta={},
+            repos_meta={},
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            repo_ids={"live_pack", "live_common"},
+            refined_sections=RefinedSections(
+                change_scope=["竞拍讲解卡文案实验"],
+                non_goals=[],
+                key_constraints=[],
+                acceptance_criteria=["命中实验时展示 Starting bid"],
+                open_questions=[],
+                raw="",
+            ),
+        )
+
+        work_items_payload, graph_payload, _validation_payload, result_payload, _repo_markdowns = build_structured_plan_artifacts(prepared)
+
+        items = {item["repo_id"]: item for item in work_items_payload["work_items"]}
+        self.assertEqual(items["live_pack"]["depends_on"], ["W2"])
+        self.assertEqual(items["live_common"]["blocks"], ["W1"])
+        self.assertIn("regular_auction_converter.go", items["live_pack"]["change_scope"][0])
+        self.assertNotIn("RegularAuctionConverter.getAuctionText", "\n".join(items["live_pack"]["specific_steps"]))
+        self.assertEqual(graph_payload["execution_order"], ["W2", "W1"])
+        self.assertEqual(graph_payload["parallel_groups"], [])
+        self.assertEqual(result_payload["blockers"], ["待确认项 1：实验字段枚举值"])
+
     def test_repo_research_uses_file_pattern_hints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_dir = Path(tmp) / "repo"
@@ -293,7 +398,7 @@ class DesignPipelineTest(unittest.TestCase):
             self.assertEqual(payload["candidate_files"], [])
             self.assertTrue(payload["related_files"])
 
-    def test_local_design_doc_only_writes_markdown_only(self) -> None:
+    def test_local_design_doc_only_writes_markdown_and_skill_selection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             settings = make_settings(root, plan_executor="local")
@@ -303,6 +408,7 @@ class DesignPipelineTest(unittest.TestCase):
 
             self.assertEqual(status, "designed")
             self.assertTrue((task_dir / "design.md").exists())
+            self.assertTrue((task_dir / "design-skills.json").exists())
             self.assertFalse((task_dir / "design-decision.json").exists())
             self.assertFalse((task_dir / "design-repo-binding.json").exists())
             self.assertFalse((task_dir / "design-sections.json").exists())

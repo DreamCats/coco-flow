@@ -101,6 +101,7 @@ def _ensure_design_allows_plan(task_dir: Path) -> None:
 
 def _write_plan_outputs(task_dir: Path, result) -> None:
     (task_dir / "plan.md").write_text(result.plan_markdown, encoding="utf-8")
+    _write_json(task_dir / "plan-skills.json", result.plan_skills_payload)
     _write_json(task_dir / "plan-work-items.json", result.plan_work_items_payload)
     _write_json(task_dir / "plan-execution-graph.json", result.plan_execution_graph_payload)
     _write_json(task_dir / "plan-validation.json", result.plan_validation_payload)
@@ -148,6 +149,7 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         "plan.md",
         "plan.log",
         "plan-skills-selection.json",
+        "plan-skills.json",
         "plan-skills-brief.md",
         "plan-draft-work-items.json",
         "plan-draft-execution-graph.json",

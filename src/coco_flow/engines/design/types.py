@@ -46,3 +46,4 @@ class DesignInputBundle:
 class DesignEngineResult:
     status: str
     design_markdown: str
+    design_skills_payload: dict[str, object] = field(default_factory=dict)

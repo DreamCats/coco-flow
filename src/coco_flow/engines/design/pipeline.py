@@ -74,6 +74,7 @@ def run_design_engine(
     return DesignEngineResult(
         status=STATUS_DESIGNED,
         design_markdown=design_markdown,
+        design_skills_payload=selection_payload,
     )
 
 

@@ -27,6 +27,7 @@ def prepare_plan_input(task_dir: Path, task_meta: dict[str, object]) -> PlanPrep
     task_id = task_dir.name
     input_meta = read_json_file(task_dir / "input.json")
     repos_meta = read_json_file(task_dir / "repos.json")
+    inherited_design_skills_payload = read_json_file(task_dir / "design-skills.json")
     design_markdown = read_text_if_exists(task_dir / "design.md")
     refined_markdown = read_text_if_exists(task_dir / "prd-refined.md")
     title = str(task_meta.get("title") or input_meta.get("title") or task_id)
@@ -49,6 +50,7 @@ def prepare_plan_input(task_dir: Path, task_meta: dict[str, object]) -> PlanPrep
         repo_scopes=repo_scopes,
         repo_ids={scope.repo_id for scope in repo_scopes},
         refined_sections=refined_sections,
+        inherited_design_skills_payload=inherited_design_skills_payload,
     )
 
 
