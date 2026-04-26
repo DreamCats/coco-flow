@@ -34,7 +34,7 @@ Plan 阶段的目标是把上游的人类可读产物编译成 Code 阶段可消
 - ``pipeline.py``：唯一主编排入口，按 input -> knowledge -> compiler -> writer 串联。
 - ``types.py``：Plan 阶段的数据模型、状态常量和 executor 常量。
 - ``input/``：只负责读取和整理输入材料，不做计划决策。
-- ``knowledge/``：只负责选择可用知识，生成渐进式加载索引和 local fallback brief，不写 artifact。
+- ``knowledge/``：只负责选择可用知识，生成渐进式加载索引和 local fallback excerpt，不写 artifact。
 - ``writer/``：只负责生成任务级 ``plan.md`` 文本。
 - ``compiler/``：只负责结构化 artifact、repo plan markdown 和 Sync Plan 的构建/校验。
 - ``runtime/``：封装 native ACP session 与 ``plan.log``，避免核心逻辑依赖 client 细节。

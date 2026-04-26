@@ -34,10 +34,10 @@ def run_design_engine(
 
     # 2. 选择业务 Skills/SOP。业务定制只进入 knowledge layer，不写进引擎规则。
     on_log("design_skills_start: true")
-    index_markdown, brief_markdown, selection_payload, selected_skill_ids = build_design_skills_bundle(prepared, settings)
+    index_markdown, fallback_markdown, selection_payload, selected_skill_ids = build_design_skills_bundle(prepared, settings)
     prepared.design_skills_selection_payload = selection_payload
     prepared.design_skills_index_markdown = index_markdown
-    prepared.design_skills_brief_markdown = brief_markdown
+    prepared.design_skills_fallback_markdown = fallback_markdown
     prepared.design_selected_skill_ids = selected_skill_ids
     on_log(f"design_skills_ok: selected={len(selected_skill_ids)}")
 

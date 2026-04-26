@@ -23,9 +23,9 @@ def run_plan_engine(task_dir, task_meta: dict[str, object], settings: Settings, 
 
     # 2. 选择 Plan 阶段需要的 Skills/SOP。业务规则放在知识层，不写进引擎。
     on_log("plan_skills_start: true")
-    skills_index_markdown, skills_brief_markdown, skills_selection_payload, selected_skill_ids = build_plan_skills_bundle(prepared, settings)
+    skills_index_markdown, skills_fallback_markdown, skills_selection_payload, selected_skill_ids = build_plan_skills_bundle(prepared, settings)
     prepared.skills_index_markdown = skills_index_markdown
-    prepared.skills_brief_markdown = skills_brief_markdown
+    prepared.skills_fallback_markdown = skills_fallback_markdown
     prepared.skills_selection_payload = skills_selection_payload
     prepared.selected_skill_ids = selected_skill_ids
     on_log(f"plan_skills_ok: selected={len(selected_skill_ids)}")

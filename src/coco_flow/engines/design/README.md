@@ -46,7 +46,7 @@ design/
   types.py                 DesignInputBundle / DesignEngineResult / 状态常量
 
   input/                   输入层：读取 refined PRD、repos、兼容旧 refine 产物
-  knowledge/               知识层：选择 Skills/SOP，生成文件索引和 local fallback brief
+  knowledge/               知识层：选择 Skills/SOP，生成文件索引和 local fallback excerpt
   discovery/               搜索线索层：从需求里提取搜索词、符号、路径模式
   evidence/                证据层：在本地 repo 做 rg、路径扫描、git evidence、候选文件排序
   writer/                  写作层：生成 design.md，native 失败则用本地草稿
@@ -71,11 +71,11 @@ design/
    从 Skills Store 中选中相关业务知识，生成：
    - `design_skills_selection_payload`
    - `design_skills_index_markdown`
-   - `design_skills_brief_markdown`
+   - `design_skills_fallback_markdown`
    - `design_selected_skill_ids`
 
    native agent 主要消费 `design_skills_index_markdown` 中的完整文件路径，并按需读取
-   `SKILL.md` 与 `references/*.md`。`design_skills_brief_markdown` 只作为 local fallback，
+   `SKILL.md` 与 `references/*.md`。`design_skills_fallback_markdown` 只作为 local fallback，
    不作为 native 的完整事实源。
 
 3. `discovery.build_search_hints()`
@@ -121,7 +121,7 @@ design/
   文件读取和输入归一化。
 
 - `knowledge/skills.py`
-  Skills/SOP 的打分、筛选、文件索引渲染，以及 local fallback brief 渲染。
+  Skills/SOP 的打分、筛选、文件索引渲染，以及 local fallback excerpt 渲染。
 
 - `evidence/research.py`
   本地代码搜索、git evidence、候选文件排序、边界和未知项。
@@ -153,7 +153,7 @@ design/
 - 调整 skill 打分规则
 - 调整 selected skill 数量
 - 调整索引里暴露哪些路径和命中原因
-- 调整 local fallback brief
+- 调整 local fallback excerpt
 
 不建议在这里写具体 repo 改动判断。Skills 是背景知识，不是代码证据。
 

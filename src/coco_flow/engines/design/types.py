@@ -38,7 +38,7 @@ class DesignInputBundle:
     selected_skill_ids: list[str] = field(default_factory=list)
     design_skills_selection_payload: dict[str, object] = field(default_factory=dict)
     design_skills_index_markdown: str = ""
-    design_skills_brief_markdown: str = ""
+    design_skills_fallback_markdown: str = ""
     design_selected_skill_ids: list[str] = field(default_factory=list)
 
 

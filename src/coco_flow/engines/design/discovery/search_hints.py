@@ -54,7 +54,7 @@ def build_search_hints(
                     title=prepared.title,
                     refined_markdown=prepared.refined_markdown,
                     design_skills_index_markdown=prepared.design_skills_index_markdown,
-                    design_skills_brief_markdown=prepared.design_skills_brief_markdown,
+                    design_skills_fallback_markdown=prepared.design_skills_fallback_markdown,
                     repo_context_payload=_repo_context(prepared),
                     template_path=template_path,
                 ),
@@ -76,7 +76,7 @@ def build_local_search_hints(prepared: DesignInputBundle) -> dict[str, object]:
             *prepared.sections.key_constraints,
             *prepared.sections.acceptance_criteria,
             prepared.refined_markdown[:4000],
-            prepared.design_skills_brief_markdown[:2500],
+            prepared.design_skills_fallback_markdown[:2500],
         ]
     )
     identifiers = _extract_identifier_terms(source_text)

@@ -30,7 +30,7 @@ def generate_doc_only_plan_markdown(
                     refined_markdown=prepared.refined_markdown,
                     design_markdown=prepared.design_markdown,
                     skills_index_markdown=prepared.skills_index_markdown,
-                    skills_brief_markdown=prepared.skills_brief_markdown,
+                    skills_fallback_markdown=prepared.skills_fallback_markdown,
                     template_path=template_path,
                 ),
                 ".plan-template-",

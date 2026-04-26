@@ -16,12 +16,12 @@ def build_doc_only_design_prompt(
     refined_markdown: str,
     repo_scope_markdown: str,
     research_summary_payload: dict[str, object],
-    skills_brief_markdown: str,
+    skills_fallback_markdown: str,
     template_path: str,
     skills_index_markdown: str = "",
 ) -> str:
     skills_index = skills_index_markdown.strip() or "当前没有额外 Skills/SOP 索引。"
-    skills_fallback = skills_brief_markdown.strip() or "当前没有 local fallback 摘要。"
+    skills_fallback = skills_fallback_markdown.strip() or "当前没有 local fallback 摘要。"
     return (
         "你在做 coco-flow Design 阶段。当前第一版采用文档流，不使用结构化 Design schema。\n\n"
         f"请直接编辑模板文件：{template_path}\n"

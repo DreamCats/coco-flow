@@ -35,7 +35,7 @@ def write_doc_only_design_markdown(
                     repo_scope_markdown=_repo_scope_text(prepared),
                     research_summary_payload=research_summary_payload,
                     skills_index_markdown=prepared.design_skills_index_markdown,
-                    skills_brief_markdown=prepared.design_skills_brief_markdown,
+                    skills_fallback_markdown=prepared.design_skills_fallback_markdown,
                     template_path=template_path,
                 ),
                 ".design-writer-",
@@ -68,8 +68,8 @@ def build_local_doc_only_design_markdown(prepared: DesignInputBundle, research_s
             lines.append("- 代码线索：" + "、".join(files[:8]))
         else:
             lines.append("- 代码线索：以本仓库上下文和 Skills/SOP 继续收敛。")
-    if prepared.design_skills_brief_markdown.strip():
-        lines.extend(["", "## SOP 与业务规则", prepared.design_skills_brief_markdown.strip()])
+    if prepared.design_skills_fallback_markdown.strip():
+        lines.extend(["", "## SOP 与业务规则", prepared.design_skills_fallback_markdown.strip()])
     lines.extend(["", "## 风险与待确认"])
     if prepared.sections.open_questions:
         lines.extend(f"- {item}" for item in prepared.sections.open_questions)

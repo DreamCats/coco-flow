@@ -19,7 +19,7 @@ plan/
   types.py           Plan 数据模型、状态常量、executor 常量
 
   input/             读取 task 目录，解析 refined/design/repos
-  knowledge/         选择 Skills/SOP，生成完整文件路径索引和 local fallback brief
+  knowledge/         选择 Skills/SOP，生成完整文件路径索引和 local fallback excerpt
   writer/            生成任务级 plan.md，native 失败时走 local fallback
   compiler/          程序规则生成结构化 JSON、repo plan、Sync Plan
   runtime/           ACP session 和 plan.log 这类运行时适配
@@ -34,7 +34,7 @@ plan/
 
 2. `knowledge.build_plan_skills_bundle()`
    挑选本次 Plan 相关的 Skills/SOP，生成 writer 可渐进式加载的完整文件路径索引。
-   native writer 读取完整 skill 文件；brief 只作为 local fallback。
+   native writer 读取完整 skill 文件；fallback excerpt 只作为 local fallback。
 
 3. `compiler.build_structured_plan_artifacts()`
    用程序规则生成结构化契约：
@@ -103,7 +103,7 @@ LLM 只用于 `writer/`：
   调整 Plan 输入材料或前置校验时改这里。
 
 - `knowledge/selection.py`
-  调整 Skill/SOP 选择、打分、文件索引、local fallback brief 时改这里。
+  调整 Skill/SOP 选择、打分、文件索引、local fallback excerpt 时改这里。
 
 ## 尽量少改文件
 

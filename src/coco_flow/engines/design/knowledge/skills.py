@@ -2,7 +2,7 @@
 
 按 refined PRD、绑定仓库和业务术语筛选相关 Skill，将业务地图、仓库角色、
 多仓联动和 SOP 规则整理成 native agent 可读取完整文件的索引。
-brief 只保留给 local fallback 使用。
+fallback excerpt 只保留给 local fallback 使用。
 """
 
 from __future__ import annotations
@@ -88,8 +88,8 @@ def build_design_skills_bundle(
     if not selected:
         return "", "", selection_payload, []
     index = render_design_skills_index(selected_documents, selection_payload["selected_skill_sources"])
-    brief = render_design_skills_brief(selected_documents, prepared)
-    return index, brief, selection_payload, [item[2].package.id for item in selected]
+    fallback = render_design_skills_fallback(selected_documents, prepared)
+    return index, fallback, selection_payload, [item[2].package.id for item in selected]
 
 
 def score_design_skill_document(document: _SkillDocument, prepared: DesignInputBundle) -> dict[str, object]:
@@ -133,9 +133,9 @@ def score_design_skill_document(document: _SkillDocument, prepared: DesignInputB
     }
 
 
-def render_design_skills_brief(documents: list[_SkillDocument], prepared: DesignInputBundle) -> str:
+def render_design_skills_fallback(documents: list[_SkillDocument], prepared: DesignInputBundle) -> str:
     lines = [
-        "# Design Skills Brief",
+        "# Design Skills Local Fallback",
         "",
         "- 用途：仅用于 Design 阶段判断业务 workflow、repo 角色、多仓联动、SOP 和风险边界。",
         "- 优先级：refined PRD 与 repo research 证据优先于 skills；skills 不得单独证明某仓必须改代码。",

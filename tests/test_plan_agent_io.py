@@ -105,7 +105,7 @@ class PlanAgentIOTest(unittest.TestCase):
                 open_questions=[],
                 raw="# PRD",
             ),
-            skills_brief_markdown="- plan skill brief",
+            skills_fallback_markdown="- plan skill brief",
             selected_skill_ids=["plan/test"],
         )
 

@@ -10,14 +10,14 @@ from coco_flow.config import Settings
 
 from coco_flow.engines.plan.types import PlanPreparedInput
 
-from .selection import build_plan_skills_brief
+from .selection import build_plan_skills_context
 
 
 def build_plan_skills_bundle(
     prepared: PlanPreparedInput,
     settings: Settings,
 ) -> tuple[str, str, dict[str, object], list[str]]:
-    return build_plan_skills_brief(
+    return build_plan_skills_context(
         settings,
         title=prepared.title,
         sections=prepared.refined_sections,

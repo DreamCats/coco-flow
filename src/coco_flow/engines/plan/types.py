@@ -30,7 +30,7 @@ class PlanPreparedInput:
     repo_ids: set[str]
     refined_sections: RefinedSections
     skills_index_markdown: str = ""
-    skills_brief_markdown: str = ""
+    skills_fallback_markdown: str = ""
     skills_selection_payload: dict[str, object] = field(default_factory=dict)
     selected_skill_ids: list[str] = field(default_factory=list)
 

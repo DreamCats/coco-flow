@@ -52,12 +52,12 @@ def build_doc_only_plan_prompt(
     repo_ids: list[str],
     refined_markdown: str,
     design_markdown: str,
-    skills_brief_markdown: str,
+    skills_fallback_markdown: str,
     template_path: str,
     skills_index_markdown: str = "",
 ) -> str:
     skills_index = skills_index_markdown.strip() or "当前没有额外 Skills/SOP 索引。"
-    skills_fallback = skills_brief_markdown.strip() or "当前没有 local fallback 摘要。"
+    skills_fallback = skills_fallback_markdown.strip() or "当前没有 local fallback 摘要。"
     repos_text = ", ".join(repo_id for repo_id in repo_ids if repo_id) or "未绑定"
     return (
         "你在做 coco-flow Plan 阶段。当前第一版采用文档流，不使用结构化 Plan schema。\n\n"
@@ -89,7 +89,7 @@ def build_plan_generate_agent_prompt(
     title: str,
     design_markdown: str,
     refined_markdown: str,
-    skills_brief_markdown: str,
+    skills_fallback_markdown: str,
     skills_index_markdown: str = "",
     work_items_payload: dict[str, object],
     execution_graph_payload: dict[str, object],
@@ -132,7 +132,7 @@ def build_plan_generate_agent_prompt(
                 design_markdown=design_markdown,
                 refined_markdown=refined_markdown,
                 skills_index_markdown=skills_index_markdown,
-                skills_brief_markdown=skills_brief_markdown,
+                skills_fallback_markdown=skills_fallback_markdown,
             ),
             build_plan_work_items_section(work_items_payload),
             build_plan_execution_graph_section(execution_graph_payload),

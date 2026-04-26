@@ -116,7 +116,7 @@ class PromptSystemTest(unittest.TestCase):
             repo_ids=["live_common", "live_pack"],
             refined_markdown="# PRD\n- 验收标准",
             design_markdown="# Design\n- live_common -> live_pack",
-            skills_brief_markdown="- auction-plan",
+            skills_fallback_markdown="- auction-plan",
             template_path="/tmp/plan.md",
         )
 
@@ -132,7 +132,7 @@ class PromptSystemTest(unittest.TestCase):
             title="直播列表国家筛选",
             design_markdown="# Design",
             refined_markdown="# PRD Refined",
-            skills_brief_markdown="- plan-skill",
+            skills_fallback_markdown="- plan-skill",
             repo_binding_payload={"repo_bindings": []},
             design_sections_payload={"critical_flows": []},
             template_path="/tmp/plan-draft-work-items.json",
@@ -148,7 +148,7 @@ class PromptSystemTest(unittest.TestCase):
             title="直播列表国家筛选",
             design_markdown="# Design",
             refined_markdown="# PRD Refined",
-            skills_brief_markdown="- plan-skill",
+            skills_fallback_markdown="- plan-skill",
             repo_binding_payload={"repo_bindings": []},
             work_items_payload={"work_items": []},
             template_path="/tmp/plan-draft-execution-graph.json",
@@ -163,7 +163,7 @@ class PromptSystemTest(unittest.TestCase):
             title="直播列表国家筛选",
             design_markdown="# Design",
             refined_markdown="# PRD Refined",
-            skills_brief_markdown="- plan-skill",
+            skills_fallback_markdown="- plan-skill",
             work_items_payload={"work_items": []},
             execution_graph_payload={"nodes": []},
             template_path="/tmp/plan-draft-validation.json",
@@ -178,7 +178,7 @@ class PromptSystemTest(unittest.TestCase):
             title="直播列表国家筛选",
             design_markdown="# Design",
             refined_markdown="# PRD Refined",
-            skills_brief_markdown="- plan-skill",
+            skills_fallback_markdown="- plan-skill",
             repo_binding_payload={"repo_bindings": []},
             work_items_payload={"work_items": []},
             execution_graph_payload={"nodes": []},
@@ -262,7 +262,7 @@ class PromptSystemTest(unittest.TestCase):
             refined_markdown="# PRD",
             repo_scope_markdown="- live_pack: /repo",
             research_summary_payload={"repos": [{"repo_id": "live_pack"}]},
-            skills_brief_markdown="- auction-design",
+            skills_fallback_markdown="- auction-design",
             template_path="/tmp/design.md",
         )
 
@@ -276,7 +276,7 @@ class PromptSystemTest(unittest.TestCase):
             build_architect_prompt(
                 title="更新竞拍讲解卡",
                 refined_markdown="只改竞拍讲解卡文案。",
-                skills_brief_markdown="- auction-design",
+                skills_fallback_markdown="- auction-design",
                 research_plan_payload={"repos": ["shop"]},
                 research_summary_payload={"repos": [{"repo_id": "shop", "candidate_files": ["a.ts"]}]},
                 template_path="/tmp/design-adjudication.json",
@@ -325,7 +325,7 @@ class PromptSystemTest(unittest.TestCase):
         rendered = build_search_hints_prompt(
             title="更新成功态",
             refined_markdown="需要更新 BidSuccessToast。",
-            design_skills_brief_markdown="RegularAuctionConverter 是常见搜索线索。",
+            design_skills_fallback_markdown="RegularAuctionConverter 是常见搜索线索。",
             repo_context_payload=[{"repo_id": "demo", "repo_name": "demo-repo"}],
             template_path="/tmp/search-hints.json",
         )

@@ -12,7 +12,7 @@ from coco_flow.config import Settings
 from coco_flow.engines.design.evidence import build_research_plan, research_single_repo
 from coco_flow.engines.design.knowledge import build_design_skills_bundle
 from coco_flow.engines.design.types import DesignInputBundle
-from coco_flow.engines.plan.knowledge.selection import build_plan_skills_brief
+from coco_flow.engines.plan.knowledge.selection import build_plan_skills_context
 from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
@@ -107,7 +107,7 @@ class DesignPipelineTest(unittest.TestCase):
         self.assertEqual(repo_plan["negative_terms"], ["legacy"])
         self.assertEqual(repo_plan["search_hints_source"], "native")
 
-    def test_design_skills_selects_auction_pop_card_and_builds_brief(self) -> None:
+    def test_design_skills_selects_auction_pop_card_and_builds_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             settings = make_settings(root)
@@ -140,16 +140,16 @@ class DesignPipelineTest(unittest.TestCase):
                 refined_markdown="命中实验时，普通竞拍和 surprise set 展示 Starting bid。",
             )
 
-            index, brief, selection, selected_ids = build_design_skills_bundle(prepared, settings)
+            index, fallback, selection, selected_ids = build_design_skills_bundle(prepared, settings)
 
             self.assertEqual(selected_ids, ["auction-pop-card"])
             self.assertEqual(selection["selected_skill_ids"], ["auction-pop-card"])
             self.assertIn("Design Skills Index", index)
             self.assertIn("SKILL.md", index)
             self.assertIn("references/change-workflows.md", index)
-            self.assertIn("Stable Repo Roles", brief)
-            self.assertIn("live_common + 业务仓", brief)
-            self.assertIn("Design 必须说明实验字段来源", brief)
+            self.assertIn("Stable Repo Roles", fallback)
+            self.assertIn("live_common + 业务仓", fallback)
+            self.assertIn("Design 必须说明实验字段来源", fallback)
 
     def test_plan_skills_builds_index_with_full_file_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -161,7 +161,7 @@ class DesignPipelineTest(unittest.TestCase):
                 references={"references/main-flow.md": "## Main Flow\n- live_pack 消费 live_common 实验字段。"},
             )
 
-            index, brief, selection, selected_ids = build_plan_skills_brief(
+            index, fallback, selection, selected_ids = build_plan_skills_context(
                 settings,
                 title="竞拍讲解卡文案实验",
                 sections=RefinedSections(
@@ -180,7 +180,7 @@ class DesignPipelineTest(unittest.TestCase):
             self.assertIn("SKILL.md", index)
             self.assertIn("references/main-flow.md", index)
             self.assertIn("selected_skill_sources", selection)
-            self.assertIn("Plan Skills Brief", brief)
+            self.assertIn("Plan Skills Local Fallback", fallback)
 
     def test_repo_research_uses_file_pattern_hints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -26,7 +26,7 @@ _DEFAULT_STOPWORDS = {
 }
 
 
-def build_plan_skills_brief(
+def build_plan_skills_context(
     settings: Settings,
     *,
     title: str,
@@ -57,7 +57,7 @@ def build_plan_skills_brief(
     terms = infer_plan_skill_terms(title, sections)
     index_markdown = render_plan_skills_index(selected, skills_selection_payload["selected_skill_sources"])
     lines = [
-        "# Plan Skills Brief",
+        "# Plan Skills Local Fallback",
         "",
         "- 用途：用于 plan 阶段判断改动边界、主责任 repo、稳定规则、风险与验证要点。",
         "- 优先级：当前 refined PRD 与本地代码调研优先于 skills 历史材料。",
