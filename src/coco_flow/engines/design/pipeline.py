@@ -32,9 +32,16 @@ def run_design_engine(
         raise ValueError("design requires bound repos; please bind repos first")
     on_log(f"design_prepare_ok: repos={len(prepared.repo_scopes)} refined_chars={len(prepared.refined_markdown.strip())}")
 
-    # 2. 选择业务 Skills/SOP。业务定制只进入 knowledge layer，不写进引擎规则。
+    native_ok = settings.plan_executor.strip().lower() == EXECUTOR_NATIVE
+
+    # 2. 选择业务 Skills/SOP。程序只召回候选；native 可用时由受控 selector 做语义选择。
     on_log("design_skills_start: true")
-    index_markdown, fallback_markdown, selection_payload, selected_skill_ids = build_design_skills_bundle(prepared, settings)
+    index_markdown, fallback_markdown, selection_payload, selected_skill_ids = build_design_skills_bundle(
+        prepared,
+        settings,
+        native_ok=native_ok,
+        on_log=on_log,
+    )
     prepared.design_skills_selection_payload = selection_payload
     prepared.design_skills_index_markdown = index_markdown
     prepared.design_skills_fallback_markdown = fallback_markdown
@@ -42,7 +49,6 @@ def run_design_engine(
     on_log(f"design_skills_ok: selected={len(selected_skill_ids)}")
 
     # 3. 做轻量代码调研。native 只负责给搜索线索，真正证据仍来自本地 repo research。
-    native_ok = settings.plan_executor.strip().lower() == EXECUTOR_NATIVE
     on_log("design_research_start: true")
     search_hints_payload = build_search_hints(prepared, settings, native_ok=native_ok, on_log=on_log)
     research_plan_payload = build_research_plan(prepared, search_hints_payload)

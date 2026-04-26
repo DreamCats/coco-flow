@@ -147,9 +147,44 @@ class DesignPipelineTest(unittest.TestCase):
             self.assertIn("Design Skills Index", index)
             self.assertIn("SKILL.md", index)
             self.assertIn("references/change-workflows.md", index)
-            self.assertIn("Stable Repo Roles", fallback)
+            self.assertIn("Matched Excerpts", fallback)
             self.assertIn("live_common + 业务仓", fallback)
-            self.assertIn("Design 必须说明实验字段来源", fallback)
+            self.assertIn("Reference Files", fallback)
+
+    def test_design_skills_prunes_adjacent_auction_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            self._write_skill(
+                settings.config_root / "skills" / "auction-pop-card",
+                skill_body=(
+                    "适用于竞拍讲解卡 / auction popcard 的需求分析。\n"
+                    "Use this skill when the task changes pop card copy, price expression, or AuctionCardData."
+                ),
+                references={},
+            )
+            self._write_skill(
+                settings.config_root / "skills" / "auction-live-bag",
+                skill_body=(
+                    "适用于竞拍购物袋 / auction live bag 的需求分析。\n"
+                    "Use this skill when the task changes live bag list, shopping bag refresh, or bag item display."
+                ),
+                references={},
+            )
+            prepared = self._design_bundle(
+                repo_scopes=[
+                    RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                    RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+                ],
+                title="竞拍讲解卡文案实验",
+                refined_markdown="命中实验时，普通竞拍和 surprise set 展示 Starting bid。",
+            )
+
+            _index, _fallback, selection, selected_ids = build_design_skills_bundle(prepared, settings)
+
+            self.assertEqual(selected_ids, ["auction-pop-card"])
+            self.assertEqual(selection["selector"]["source"], "program")
+            self.assertIn("auction-live-bag", [item["id"] for item in selection["candidates"]])
 
     def test_plan_skills_builds_index_with_full_file_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -352,11 +387,12 @@ class DesignPipelineTest(unittest.TestCase):
 
     def _write_skill(self, root: Path, *, skill_body: str, references: dict[str, str]) -> None:
         root.mkdir(parents=True, exist_ok=True)
+        name = root.name
         (root / "SKILL.md").write_text(
             "---\n"
-            "name: auction-pop-card\n"
-            "description: 竞拍讲解卡获取数据及打包链路\n"
-            "domain: auction-pop-card\n"
+            f"name: {name}\n"
+            f"description: {name} 业务知识库\n"
+            f"domain: {name}\n"
             "---\n\n"
             f"{skill_body}\n",
             encoding="utf-8",

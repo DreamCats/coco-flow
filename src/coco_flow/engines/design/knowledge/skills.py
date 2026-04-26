@@ -8,18 +8,23 @@ fallback excerpt 只保留给 local fallback 使用。
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import re
+import tempfile
 
+from coco_flow.clients import CocoACPClient
 from coco_flow.config import Settings
 from coco_flow.services.queries.skills import SkillPackage, SkillStore
 
 from coco_flow.engines.design.support import as_str_list, dedupe
 from coco_flow.engines.design.types import DesignInputBundle
 
-_MAX_SELECTED_SKILLS = 4
-_MAX_TERMS = 18
+_MAX_SELECTED_SKILLS = 3
+_MAX_RECALL_CANDIDATES = 5
+_MAX_TERMS = 40
 _MAX_LINES_PER_BLOCK = 8
+_OVERVIEW_MAX_LINES = 80
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
 _STOPWORDS = {
     "and",
@@ -33,38 +38,22 @@ _STOPWORDS = {
     "refined",
     "design",
 }
-_NEGATIVE_STOPWORDS = {
-    "人工",
-    "提炼",
-    "范围",
-    "系统",
-    "改动",
-    "面板",
-    "卡片",
-    "应回",
-    "应回到",
-    "之外",
-    "状态",
-    "链路",
-    "默认",
-    "调整",
-    "阶段",
-    "补充",
-    "不扩",
-    "扩大",
-}
 
 
 @dataclass(frozen=True)
 class _SkillDocument:
     package: SkillPackage
     body: str
+    overview: str
     references: list[tuple[str, Path, str]]
 
 
 def build_design_skills_bundle(
     prepared: DesignInputBundle,
     settings: Settings,
+    *,
+    native_ok: bool = False,
+    on_log=None,
 ) -> tuple[str, str, dict[str, object], list[str]]:
     documents = [_package_to_document(package) for package in SkillStore(settings).list_packages()]
     scored: list[tuple[int, dict[str, object], _SkillDocument]] = []
@@ -77,30 +66,81 @@ def build_design_skills_bundle(
         else:
             unmatched.append(payload)
     scored.sort(key=lambda item: (-item[0], item[2].package.name))
-    selected = scored[:_MAX_SELECTED_SKILLS]
+    recalled = scored[:_MAX_RECALL_CANDIDATES]
+    selected = _program_selected_skills(recalled)
+    selector_payload: dict[str, object] = {"source": "program"}
+    _log_design_skill_candidates(on_log, "design_skills_candidates", recalled)
+    if native_ok and recalled:
+        agent_selection = _select_design_skills_with_agent(prepared, settings, recalled, on_log)
+        if agent_selection is not None:
+            selected_ids = as_str_list(agent_selection.get("selected_skill_ids"))[:_MAX_SELECTED_SKILLS]
+            by_id = {item[2].package.id: item for item in recalled}
+            agent_selected = [by_id[skill_id] for skill_id in selected_ids if skill_id in by_id]
+            if agent_selected:
+                selected = agent_selected
+                selector_payload = {"source": "native", **agent_selection}
     selected_documents = [item[2] for item in selected]
     selection_payload = {
         "selected_skill_ids": [item[2].package.id for item in selected],
         "selected_skill_titles": [item[2].package.name for item in selected],
         "selected_skill_sources": [_skill_source_payload(item[2], item[1]) for item in selected],
+        "selector": selector_payload,
         "candidates": [item[1] for item in scored] + unmatched,
     }
     if not selected:
         return "", "", selection_payload, []
+    _log_selected_design_skills(on_log, selection_payload)
     index = render_design_skills_index(selected_documents, selection_payload["selected_skill_sources"])
     fallback = render_design_skills_fallback(selected_documents, prepared)
     return index, fallback, selection_payload, [item[2].package.id for item in selected]
 
 
+def _program_selected_skills(
+    recalled: list[tuple[int, dict[str, object], _SkillDocument]],
+) -> list[tuple[int, dict[str, object], _SkillDocument]]:
+    if len(recalled) < 2:
+        return recalled[:_MAX_SELECTED_SKILLS]
+    top_score = int(recalled[0][1].get("score") or 0)
+    second_score = int(recalled[1][1].get("score") or 0)
+    if top_score >= second_score * 3 or top_score - second_score >= 6:
+        return recalled[:1]
+    return recalled[:_MAX_SELECTED_SKILLS]
+
+
+def _log_design_skill_candidates(on_log, event: str, items: list[tuple[int, dict[str, object], _SkillDocument]]) -> None:
+    if not on_log:
+        return
+    parts = []
+    for _score, payload, document in items:
+        parts.append(f"{document.package.id}(score={payload.get('score')},keywords={','.join(as_str_list(payload.get('keyword_hits'))[:4])})")
+    on_log(f"{event}: " + ("; ".join(parts) if parts else "none"))
+
+
+def _log_selected_design_skills(on_log, selection_payload: dict[str, object]) -> None:
+    if not on_log:
+        return
+    selector = selection_payload.get("selector") if isinstance(selection_payload.get("selector"), dict) else {}
+    selected = ",".join(as_str_list(selection_payload.get("selected_skill_ids"))) or "none"
+    on_log(f"design_skills_selected: source={selector.get('source') or 'program'} ids={selected}")
+    rejected = ",".join(as_str_list(selector.get("rejected_skill_ids"))) if selector else ""
+    if rejected:
+        on_log(f"design_skills_rejected: ids={rejected}")
+    reasons = selector.get("reasons") if isinstance(selector.get("reasons"), dict) else {}
+    for skill_id, reason in reasons.items():
+        value = str(reason).strip()
+        if value:
+            on_log(f"design_skills_reason: {skill_id}={value[:300]}")
+
+
 def score_design_skill_document(document: _SkillDocument, prepared: DesignInputBundle) -> dict[str, object]:
     terms = _infer_design_skill_terms(prepared)
-    negative_terms = _infer_design_negative_terms(prepared)
     searchable = "\n".join(
         [
             document.package.name,
             document.package.description,
             document.package.domain,
-            document.body,
+            document.overview,
+            *[name for name, _path, _content in document.references],
         ]
     )
     keyword_hits = [
@@ -109,16 +149,10 @@ def score_design_skill_document(document: _SkillDocument, prepared: DesignInputB
         if term.lower() in searchable.lower()
     ]
     repo_hits = _repo_hits(document, prepared)
-    workflow_hits = _line_hits(
-        document.body,
-        ("workflow", "工作流", "主责任", "联动", "数据编排", "状态口径", "实验开关", "公共配置"),
-        max_lines=6,
-    )
-    negative_hits = [term for term in negative_terms if _is_negative_hit(term, searchable)]
-    score = min(len(keyword_hits), 6) + len(repo_hits) * 4 + min(len(workflow_hits), 3) * 2
+    metadata_hits = _metadata_hits(document, terms)
+    score = min(len(keyword_hits), 8) + len(repo_hits) + len(metadata_hits) * 3
     if keyword_hits:
         score += 2
-    score -= min(len(negative_hits), 4) * 4
     score = max(score, 0)
     return {
         "id": document.package.id,
@@ -127,8 +161,7 @@ def score_design_skill_document(document: _SkillDocument, prepared: DesignInputB
         "score": score,
         "keyword_hits": keyword_hits[:10],
         "repo_hits": repo_hits,
-        "workflow_hits": workflow_hits[:4],
-        "negative_hits": negative_hits[:8],
+        "metadata_hits": metadata_hits[:6],
         "selected_references": _selected_reference_names(document, terms),
     }
 
@@ -141,6 +174,7 @@ def render_design_skills_fallback(documents: list[_SkillDocument], prepared: Des
         "- 优先级：refined PRD 与 repo research 证据优先于 skills；skills 不得单独证明某仓必须改代码。",
         "",
     ]
+    terms = _infer_design_skill_terms(prepared)
     for document in documents:
         lines.extend(
             [
@@ -150,26 +184,11 @@ def render_design_skills_fallback(documents: list[_SkillDocument], prepared: Des
                 f"- domain: {document.package.domain or 'unknown'}",
                 f"- description: {document.package.description or '无'}",
                 "",
-                "### Workflow Signals",
-                _render_block(_line_hits(document.body, ("workflow", "工作流", "场景", "主责任", "数据编排", "状态口径", "实验开关", "公共配置"))),
+                "### Matched Excerpts",
+                _render_block(_matched_excerpt_lines(document.body, terms)),
                 "",
-                "### Stable Repo Roles",
-                _render_block(_line_hits(document.body, ("repo:", "role:", "stable repo roles", "role: ", "live_", "content_live"))),
-                "",
-                "### Multi-Repo Patterns",
-                _render_block(_line_hits(document.body, ("联动", "multi-repo", "多仓", "业务仓", "producer", "consumer", "上游", "下游"))),
-                "",
-                "### Preferred Research Areas",
-                _render_block(_research_area_lines(document.body)),
-                "",
-                "### Producer / Consumer Checks",
-                _render_block(_producer_consumer_lines(document.body)),
-                "",
-                "### Dependency Rules",
-                _render_dependency_rules(document.body),
-                "",
-                "### Gate Checks",
-                _render_block(_gate_check_lines(document.body, prepared)),
+                "### Reference Files",
+                _render_block([name for name, _path, _content in document.references]),
                 "",
             ]
         )
@@ -216,7 +235,7 @@ def _package_to_document(package: SkillPackage) -> _SkillDocument:
             continue
     body_parts = [package.body.strip(), *(content for _name, _path, content in references)]
     body = "\n\n".join(part for part in body_parts if part)
-    return _SkillDocument(package=package, body=body, references=references)
+    return _SkillDocument(package=package, body=body, overview=_overview_excerpt(package.body), references=references)
 
 
 def _infer_design_skill_terms(prepared: DesignInputBundle) -> list[str]:
@@ -233,33 +252,15 @@ def _infer_design_skill_terms(prepared: DesignInputBundle) -> list[str]:
             lowered = token.lower()
             if lowered not in _STOPWORDS:
                 terms.append(token)
-        terms.extend(re.findall(r"[\u4e00-\u9fff]{2,12}", value))
-    return dedupe(terms)[:_MAX_TERMS]
-
-
-def _infer_design_negative_terms(prepared: DesignInputBundle) -> list[str]:
-    terms: list[str] = []
-    for value in prepared.sections.non_goals:
-        for token in _WORD_RE.findall(value):
-            lowered = token.lower()
-            if lowered not in _STOPWORDS:
-                terms.append(token)
         for token in re.findall(r"[\u4e00-\u9fff]{2,12}", value):
             terms.append(token)
             terms.extend(_chinese_ngrams(token))
-    return [term for term in dedupe(terms) if term not in _NEGATIVE_STOPWORDS]
-
-
-def _is_negative_hit(term: str, searchable: str) -> bool:
-    normalized = term.strip()
-    if len(normalized) < 3 or normalized in _NEGATIVE_STOPWORDS:
-        return False
-    return normalized.lower() in searchable.lower()
+    return dedupe(terms)[:_MAX_TERMS]
 
 
 def _chinese_ngrams(value: str) -> list[str]:
     grams: list[str] = []
-    for size in (2, 3, 4):
+    for size in (2, 3, 4, 5, 6):
         if len(value) < size:
             continue
         grams.extend(value[index : index + size] for index in range(0, len(value) - size + 1))
@@ -267,7 +268,7 @@ def _chinese_ngrams(value: str) -> list[str]:
 
 
 def _repo_hits(document: _SkillDocument, prepared: DesignInputBundle) -> list[str]:
-    searchable = document.body.lower()
+    searchable = "\n".join([document.package.name, document.package.description, document.package.domain, document.overview]).lower()
     hits: list[str] = []
     for repo in prepared.repo_scopes:
         candidates = dedupe([repo.repo_id, *[part for part in re.split(r"[/\\]", repo.repo_path) if part]])
@@ -284,6 +285,11 @@ def _selected_reference_names(document: _SkillDocument, terms: list[str]) -> lis
     return dedupe(selected)[:6]
 
 
+def _metadata_hits(document: _SkillDocument, terms: list[str]) -> list[str]:
+    searchable = "\n".join([document.package.name, document.package.description, document.package.domain])
+    return [term for term in terms if term.lower() in searchable.lower()]
+
+
 def _skill_source_payload(document: _SkillDocument, score_payload: dict[str, object]) -> dict[str, object]:
     return {
         "id": document.package.id,
@@ -293,7 +299,7 @@ def _skill_source_payload(document: _SkillDocument, score_payload: dict[str, obj
         "score": score_payload.get("score"),
         "keyword_hits": score_payload.get("keyword_hits") or [],
         "repo_hits": score_payload.get("repo_hits") or [],
-        "workflow_hits": score_payload.get("workflow_hits") or [],
+        "metadata_hits": score_payload.get("metadata_hits") or [],
         "files": _skill_file_paths(document),
     }
 
@@ -308,86 +314,24 @@ def _render_match_reason(source: dict[str, object]) -> str:
     parts: list[str] = []
     repo_hits = as_str_list(source.get("repo_hits"))
     keyword_hits = as_str_list(source.get("keyword_hits"))
-    workflow_hits = as_str_list(source.get("workflow_hits"))
+    metadata_hits = as_str_list(source.get("metadata_hits"))
+    if metadata_hits:
+        parts.append("metadata=" + ", ".join(metadata_hits[:4]))
     if repo_hits:
         parts.append("repo=" + ", ".join(repo_hits[:4]))
     if keyword_hits:
         parts.append("keywords=" + ", ".join(keyword_hits[:6]))
-    if workflow_hits:
-        parts.append("workflow_signals=" + str(len(workflow_hits)))
     return "; ".join(parts) or "programmatic selection"
 
 
-def _line_hits(body: str, keywords: tuple[str, ...], *, max_lines: int = _MAX_LINES_PER_BLOCK) -> list[str]:
+def _matched_excerpt_lines(body: str, terms: list[str]) -> list[str]:
     result: list[str] = []
     for line in _meaningful_lines(body):
-        lowered = line.lower()
-        if any(keyword.lower() in lowered for keyword in keywords):
+        if any(term.lower() in line.lower() for term in terms):
             result.append(line)
-    return dedupe(result)[:max_lines]
-
-
-def _research_area_lines(body: str) -> list[str]:
-    lines = _line_hits(body, ("常见模块", "module", "entities/", "abtest/", "handler/", "service/", "converter", "loader"))
-    path_lines = [
-        line
-        for line in _meaningful_lines(body)
-        if re.search(r"[\w./-]+/(?:[\w./*-]+)", line) or re.search(r"\b[A-Za-z0-9_]+(?:Converter|Loader|Provider|Handler)\b", line)
-    ]
-    return dedupe([*lines, *path_lines])[:_MAX_LINES_PER_BLOCK]
-
-
-def _producer_consumer_lines(body: str) -> list[str]:
-    lines = _line_hits(body, ("实验开关", "公共配置", "ab", "tcc", "共享配置", "公共字段", "依赖", "producer", "consumer"))
-    defaults = [
-        "如果 PRD 提到命中实验，Design 必须判断实验字段是否已存在，以及哪个 repo 产出该字段。",
-        "若公共字段或实验开关不存在，应明确 producer repo、consumer repo 和发布顺序；证据不足时写待确认项。",
-    ]
-    return dedupe([*lines, *defaults])[:_MAX_LINES_PER_BLOCK]
-
-
-def _render_dependency_rules(body: str) -> str:
-    cards = _dependency_rule_cards(body)
-    if not cards:
-        return "- 无"
-    return "\n\n".join(cards[:3])
-
-
-def _dependency_rule_cards(body: str) -> list[str]:
-    cards: list[str] = []
-    lines = body.splitlines()
-    index = 0
-    while index < len(lines):
-        line = lines[index].strip()
-        if not re.match(r"^#{2,4}\s*规则[:：]", line):
-            index += 1
-            continue
-        card: list[str] = [line]
-        index += 1
-        while index < len(lines):
-            current = lines[index].rstrip()
-            stripped = current.strip()
-            if stripped.startswith("#") and not re.match(r"^#{2,4}\s*规则[:：]", stripped):
-                break
-            if re.match(r"^#{2,4}\s*规则[:：]", stripped):
-                break
-            if stripped:
-                card.append(stripped)
-            index += 1
-        cards.append("\n".join(card)[:2000])
-    return cards
-
-
-def _gate_check_lines(body: str, prepared: DesignInputBundle) -> list[str]:
-    lines = _line_hits(body, ("必须", "如果", "若", "不能", "默认", "风险", "边界", "不直接替代"))
-    if _mentions_experiment(prepared):
-        lines.append("PRD 出现实验/命中实验语义，Design 必须说明实验字段来源、是否需要新增、以及业务仓如何消费。")
-    return dedupe(lines)[:_MAX_LINES_PER_BLOCK]
-
-
-def _mentions_experiment(prepared: DesignInputBundle) -> bool:
-    text = "\n".join([prepared.title, prepared.refined_markdown, *prepared.sections.acceptance_criteria])
-    return any(token in text.lower() for token in ("实验", "ab", "a/b", "命中"))
+    if result:
+        return dedupe(result)[:_MAX_LINES_PER_BLOCK]
+    return _meaningful_lines(body)[: min(4, _MAX_LINES_PER_BLOCK)]
 
 
 def _meaningful_lines(body: str) -> list[str]:
@@ -400,8 +344,101 @@ def _meaningful_lines(body: str) -> list[str]:
     return lines
 
 
+def _overview_excerpt(body: str) -> str:
+    return "\n".join(_meaningful_lines(body)[:_OVERVIEW_MAX_LINES])
+
+
 def _render_block(lines: list[str]) -> str:
     values = as_str_list(lines)
     if not values:
         return "- 无"
     return "\n".join(f"- {line}" for line in values[:_MAX_LINES_PER_BLOCK])
+
+
+def _select_design_skills_with_agent(
+    prepared: DesignInputBundle,
+    settings: Settings,
+    recalled: list[tuple[int, dict[str, object], _SkillDocument]],
+    on_log,
+) -> dict[str, object] | None:
+    # 这里刻意使用一次性 fresh 调用，而不是复用 design_writer session。
+    # selector 只应该依赖任务文本和候选 SKILL.md overview，避免被 writer/search 历史污染。
+    candidate_payloads = [_selector_candidate_payload(document, score_payload) for _score, score_payload, document in recalled]
+    template = {
+        "selected_skill_ids": ["__FILL__"],
+        "rejected_skill_ids": ["__FILL__"],
+        "reasons": {"__skill_id__": "__FILL__"},
+    }
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=prepared.task_dir, prefix=".design-skill-selector-", suffix=".json", delete=False) as handle:
+        path = Path(handle.name)
+        handle.write(json.dumps(template, ensure_ascii=False, indent=2))
+        handle.flush()
+    prompt = _build_skill_selector_prompt(prepared, candidate_payloads, str(path))
+    client = CocoACPClient(settings.coco_bin, idle_timeout_seconds=settings.acp_idle_timeout_seconds, settings=settings)
+    try:
+        if on_log:
+            on_log(f"design_skills_selector_start: candidates={','.join(str(item['id']) for item in candidate_payloads)}")
+        client.run_agent(prompt, settings.native_query_timeout, cwd=str(prepared.task_dir), fresh_session=True)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("selector payload is not object")
+        candidate_ids = {str(item["id"]) for item in candidate_payloads}
+        selected_ids = [skill_id for skill_id in as_str_list(payload.get("selected_skill_ids")) if skill_id in candidate_ids]
+        if not selected_ids:
+            raise ValueError("selector returned no valid selected_skill_ids")
+        rejected_ids = [skill_id for skill_id in as_str_list(payload.get("rejected_skill_ids")) if skill_id in candidate_ids]
+        reasons = payload.get("reasons") if isinstance(payload.get("reasons"), dict) else {}
+        result = {
+            "selected_skill_ids": selected_ids[:_MAX_SELECTED_SKILLS],
+            "rejected_skill_ids": rejected_ids,
+            "reasons": reasons,
+        }
+        if on_log:
+            on_log(f"design_skills_selector_ok: selected={','.join(result['selected_skill_ids'])}")
+        return result
+    except Exception as error:
+        if on_log:
+            on_log(f"design_skills_selector_fallback: {error}")
+        return None
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def _selector_candidate_payload(document: _SkillDocument, score_payload: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": document.package.id,
+        "name": document.package.name,
+        "description": document.package.description,
+        "domain": document.package.domain,
+        "overview_excerpt": document.overview,
+        "reference_files": [name for name, _path, _content in document.references],
+        "program_score": score_payload.get("score"),
+        "program_hits": {
+            "keyword_hits": score_payload.get("keyword_hits") or [],
+            "repo_hits": score_payload.get("repo_hits") or [],
+            "metadata_hits": score_payload.get("metadata_hits") or [],
+        },
+    }
+
+
+def _build_skill_selector_prompt(prepared: DesignInputBundle, candidates: list[dict[str, object]], template_path: str) -> str:
+    task_payload = {
+        "title": prepared.title,
+        "repo_ids": [scope.repo_id for scope in prepared.repo_scopes if scope.repo_id],
+        "refined_prd_excerpt": prepared.refined_markdown[:4000],
+    }
+    return (
+        "你是 coco-flow Design 阶段的 Skill Selector。你的任务是从候选 skills 中选择本次需求真正需要读取的 skill。\n\n"
+        f"请直接编辑 JSON 模板文件：{template_path}\n"
+        "约束：\n"
+        "- 只能从 Candidate skills 的 id 中选择，不能发明 id。\n"
+        "- 默认选择 1 个；只有需求明确跨多个业务方向时才选择 2-3 个。\n"
+        "- 不要因为泛化 repo 命中或泛化业务词就选择相邻业务 skill。\n"
+        "- 必须填写 rejected_skill_ids 和 reasons，说明为什么拒绝候选。\n"
+        "- 输出必须是合法 JSON，不要在聊天回复里粘贴结果。\n\n"
+        "Task:\n"
+        f"{json.dumps(task_payload, ensure_ascii=False, indent=2)}\n\n"
+        "Candidate skills:\n"
+        f"{json.dumps(candidates, ensure_ascii=False, indent=2)}\n\n"
+        "完成后只需简短回复已完成。"
+    )

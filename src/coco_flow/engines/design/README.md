@@ -121,7 +121,7 @@ design/
   文件读取和输入归一化。
 
 - `knowledge/skills.py`
-  Skills/SOP 的打分、筛选、文件索引渲染，以及 local fallback excerpt 渲染。
+  Skills/SOP 的通用召回、native semantic selector、文件索引渲染，以及 local fallback excerpt 渲染。
 
 - `evidence/research.py`
   本地代码搜索、git evidence、候选文件排序、边界和未知项。
@@ -129,8 +129,8 @@ design/
 - `pipeline.py`
   阶段顺序、fallback、日志事件。
 
-当前设计理念是：程序规则负责“选择哪些 skill 与收集哪些证据”，LLM 负责“读取完整 skill
-内容后的语义理解和文档表达”。程序不提前压缩 native agent 的主要上下文。
+当前设计理念是：程序规则负责“召回候选 skill 与收集代码证据”，LLM 负责“从候选 skill
+中做语义选择、读取完整 skill 内容后的理解和文档表达”。程序不提前压缩 native agent 的主要上下文。
 
 ## 文件职责细分
 
@@ -146,11 +146,13 @@ design/
 
 ### `knowledge/skills.py`
 
-知识层。负责选中业务 skill，并输出给 native agent 的渐进式加载索引。
+知识层。负责先用 `SKILL.md` 入口文本召回候选 skill；native 可用时再用受控 JSON
+selector 从候选中选择真正需要读取的 skill，并输出渐进式加载索引。
 
 常见改动：
 
 - 调整 skill 打分规则
+- 调整 native selector 输入、输出和 fallback 条件
 - 调整 selected skill 数量
 - 调整索引里暴露哪些路径和命中原因
 - 调整 local fallback excerpt
