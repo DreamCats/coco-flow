@@ -365,6 +365,65 @@ class DesignPipelineTest(unittest.TestCase):
         self.assertIn("## 输入契约", repo_markdowns["live_pack"])
         self.assertEqual(result_payload["blockers"], ["待确认项 1：实验字段枚举值"])
 
+    def test_plan_compiler_adds_go_module_upgrade_for_cross_repo_ab_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            live_pack = root / "live_pack"
+            live_pack.mkdir()
+            (live_pack / "go.mod").write_text(
+                "module code.byted.org/ttec/live_pack\n\n"
+                "require code.byted.org/oec/live_common/abtest v0.0.0-20260408082303-984c086f6a89\n",
+                encoding="utf-8",
+            )
+            (live_pack / "go.sum").write_text("", encoding="utf-8")
+            prepared = PlanPreparedInput(
+                task_dir=Path("/tmp/task"),
+                task_id="task",
+                title="竞拍讲解卡文案实验",
+                design_markdown=(
+                    "# Design\n\n"
+                    "## 工作流分类与仓库职责\n"
+                    "- **Producer 仓库**：live_common（新增实验字段）\n"
+                    "- **Consumer 仓库**：live_pack（消费实验字段）\n\n"
+                    "## 分仓库方案\n"
+                    "### live_common（必须改动）\n"
+                    "- `abtest/struct.go`：新增 `AuctionInteractionExpType int64` 字段\n"
+                    "- json tag 为 auction_interaction_exp_type，默认值 0 保持线上逻辑\n\n"
+                    "### live_pack（必须改动）\n"
+                    "- 读取实验字段 `rc.GetAbParam().TTECContent.AuctionInteractionExpType`\n"
+                    "- `entities/converters/auction_converters/regular_auction_converter.go`：消费实验字段\n"
+                ),
+                refined_markdown="# PRD",
+                input_meta={},
+                task_meta={},
+                repos_meta={},
+                repo_scopes=[
+                    RepoScope(repo_id="live_pack", repo_path=str(live_pack)),
+                    RepoScope(repo_id="live_common", repo_path=str(root / "live_common")),
+                ],
+                repo_ids={"live_pack", "live_common"},
+                refined_sections=RefinedSections(
+                    change_scope=["竞拍讲解卡文案实验"],
+                    non_goals=[],
+                    key_constraints=[],
+                    acceptance_criteria=["命中实验时展示 Starting bid"],
+                    open_questions=[],
+                    raw="",
+                ),
+            )
+
+            work_items_payload, _graph_payload, _validation_payload, _result_payload, repo_markdowns = build_structured_plan_artifacts(prepared)
+
+            live_pack_item = next(item for item in work_items_payload["work_items"] if item["repo_id"] == "live_pack")
+            self.assertIn("go.mod", live_pack_item["change_scope"])
+            self.assertIn("go.sum", live_pack_item["change_scope"])
+            self.assertIn(
+                "升级 code.byted.org/oec/live_common/abtest 依赖到包含 AuctionInteractionExpType 的版本",
+                live_pack_item["specific_steps"],
+            )
+            self.assertIn("go.mod", repo_markdowns["live_pack"])
+            self.assertIn("升级 code.byted.org/oec/live_common/abtest", repo_markdowns["live_pack"])
+
     def test_repo_research_uses_file_pattern_hints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_dir = Path(tmp) / "repo"

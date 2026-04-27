@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { hasArtifact } from '../model'
 import { TaskRepoBindingModal } from '../task-repo-binding-modal'
 import { TaskStageEditorModal } from '../task-stage-editor-modal'
-import { ActionButton, ArtifactPanel, NotePanel, SectionCard, TabButton } from '../ui'
+import { ActionButton, ArtifactPanel, NotePanel, SectionCard, TabButton, TipIcon } from '../ui'
 
 type DesignTab = 'artifact' | 'notes' | 'log'
 type DesignProgressStep = {
@@ -158,6 +158,21 @@ export function DesignStage({
               <ActionButton onClick={() => openEditor(tab === 'artifact' ? 'artifact' : 'notes')} tone="secondary">
                 {tab === 'artifact' ? '编辑原文' : '编辑补充'}
               </ActionButton>
+              {tab === 'artifact' ? (
+                <TipIcon label="Design 确认项填写示例">
+                  <div className="font-medium text-[#141413] dark:text-[#faf9f5]">确认后的答案写回 design.md</div>
+                  <div className="mt-2">
+                    字段语义、实验枚举值、文案 key、范围边界要写成明确结论，不要只删除“待确认”。
+                  </div>
+                  <pre className="mt-2 whitespace-pre-wrap rounded-[8px] bg-[#f5f4ed] p-2 font-mono text-[11px] leading-5 dark:bg-[#232220]">
+{`### 文案 key
+- Starting bid: \`ecom_live_auction_pin_card_message_starting_price\`
+
+## 明确不做
+- 不涉及 bag / 购物袋场景。`}
+                  </pre>
+                </TipIcon>
+              ) : null}
             </div>
           ) : null}
         </div>

@@ -3,7 +3,7 @@ import { getTaskArtifact, syncPlan, updateTaskArtifact } from '../../../api'
 import { useEffect, useMemo, useState } from 'react'
 import { hasArtifact } from '../model'
 import { TaskStageEditorModal } from '../task-stage-editor-modal'
-import { ActionButton, ArtifactPanel, SectionCard, TabButton } from '../ui'
+import { ActionButton, ArtifactPanel, SectionCard, TabButton, TipIcon } from '../ui'
 
 type PlanTab = 'graph' | 'raw' | 'log' | `repo:${string}`
 type PlanEditingTab = 'raw' | 'repo' | null
@@ -171,6 +171,7 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
     <>
       <SectionCard title="阶段详情">
         <PlanProgressCard activeLabel={activeLabel} progressPercent={progressPercent} progressTone={progressTone} steps={steps} />
+        <PlanGateNotice plan={plan} />
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex flex-wrap rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] p-1 dark:border-[#30302e] dark:bg-[#232220]">
@@ -236,6 +237,45 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
         value={draft}
       />
     </>
+  )
+}
+
+function PlanGateNotice({ plan }: { plan: StructuredPlan }) {
+  if (plan.codeAllowed !== false || plan.blockers.length === 0) {
+    return null
+  }
+  return (
+    <div className="mt-4 rounded-[16px] border border-[#efc08a] bg-[#fff6e8] px-4 py-3 text-sm leading-6 text-[#8a5b18] dark:border-[#6f5330] dark:bg-[#2d2418] dark:text-[#f1c98c]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 font-medium">
+            <span>Plan 仍有待确认项，暂不能进入 Code</span>
+            <TipIcon label="待确认项处理示例">
+              <div className="font-medium text-[#141413] dark:text-[#faf9f5]">待确认项需要被解决</div>
+              <div className="mt-2">
+                把确认后的答案写回文档，而不是只删除条目。字段语义、枚举值、文案 key、范围边界写到 Design；文件范围和执行步骤写到对应仓库 Plan。
+              </div>
+              <pre className="mt-2 whitespace-pre-wrap rounded-[8px] bg-[#f5f4ed] p-2 font-mono text-[11px] leading-5 dark:bg-[#232220]">
+{`Design:
+Starting bid: \`ecom_live_auction_pin_card_message_starting_price\`
+不涉及 bag / 购物袋场景。
+
+live_pack Plan:
+删除 converter_helpers.go 相关任务。`}
+              </pre>
+            </TipIcon>
+          </div>
+          <div className="mt-1">
+            请先把确认后的答案写回 Design 或对应仓库 Plan，保存后同步产物，再进入 Code。
+          </div>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5">
+            {plan.blockers.slice(0, 5).map((blocker) => (
+              <li key={blocker}>{blocker}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
   )
 }
 

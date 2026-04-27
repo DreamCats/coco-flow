@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import re
 
 from coco_flow.engines.plan.types import PlanPreparedInput
@@ -42,6 +43,7 @@ def build_structured_plan_artifacts(prepared: PlanPreparedInput) -> tuple[dict[s
         }
         work_items.append(item)
 
+    _apply_dependency_upgrade_tasks(work_items, prepared)
     edges, coordination_points = _infer_edges_and_coordination(work_items, repo_sections, prepared)
     depends_by_task = _depends_by_task(edges)
     blocks_by_task = _blocks_by_task(edges)
@@ -404,6 +406,60 @@ def _parse_dependency_line(value: str) -> list[str]:
     if not value or value.lower() == "none":
         return []
     return _dedupe([item.strip() for item in re.split(r"[,，]\s*", value) if item.strip()])
+
+
+def _apply_dependency_upgrade_tasks(work_items: list[dict[str, object]], prepared: PlanPreparedInput) -> None:
+    scopes_by_repo = {scope.repo_id: scope for scope in prepared.repo_scopes}
+    items_by_repo = {str(item.get("repo_id") or ""): item for item in work_items}
+    for contract in _contracts_by_pair(prepared).values():
+        if str(contract.get("type") or "") != "ab_experiment_field":
+            continue
+        producer_repo = str(contract.get("producer_repo") or "")
+        consumer_repo = str(contract.get("consumer_repo") or "")
+        consumer_item = items_by_repo.get(consumer_repo)
+        consumer_scope = scopes_by_repo.get(consumer_repo)
+        if not consumer_item or not consumer_scope:
+            continue
+        module_path = _find_consumer_module_dependency(str(consumer_scope.repo_path or ""), producer_repo, contract)
+        if not module_path:
+            continue
+        _append_unique_string(consumer_item, "change_scope", "go.mod")
+        _append_unique_string(consumer_item, "change_scope", "go.sum")
+        field_name = str(contract.get("field_name") or "跨仓契约字段")
+        _append_unique_string(consumer_item, "specific_steps", f"升级 {module_path} 依赖到包含 {field_name} 的版本")
+
+
+def _find_consumer_module_dependency(consumer_repo_path: str, producer_repo: str, contract: dict[str, object]) -> str:
+    go_mod_path = Path(consumer_repo_path) / "go.mod"
+    if not go_mod_path.exists():
+        return ""
+    try:
+        content = go_mod_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    candidates = _dependency_module_candidates(producer_repo, contract)
+    for module_path in candidates:
+        if re.search(rf"^\s*(?:require\s+)?{re.escape(module_path)}\s+", content, flags=re.MULTILINE):
+            return module_path
+    return ""
+
+
+def _dependency_module_candidates(producer_repo: str, contract: dict[str, object]) -> list[str]:
+    candidates: list[str] = []
+    producer_files = _string_list(contract.get("producer_files"))
+    if producer_repo == "live_common" and (
+        str(contract.get("type") or "") == "ab_experiment_field"
+        or any(path.startswith("abtest/") for path in producer_files)
+    ):
+        candidates.append("code.byted.org/oec/live_common/abtest")
+    return _dedupe(candidates)
+
+
+def _append_unique_string(item: dict[str, object], field: str, value: str) -> None:
+    values = _string_list(item.get(field))
+    if value not in values:
+        values.append(value)
+    item[field] = values
 
 
 def _edges_from_work_items(work_items: list[dict[str, object]], prepared: PlanPreparedInput) -> list[dict[str, object]]:

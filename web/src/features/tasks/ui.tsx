@@ -165,6 +165,23 @@ export function ActionButton({
   )
 }
 
+export function TipIcon({ children, label = '查看示例' }: { children: ReactNode; label?: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <button
+        aria-label={label}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[#d1cfc5] bg-[#faf9f5] text-xs font-medium text-[#6a6760] transition hover:bg-[#efeae0] focus:outline-none focus:ring-2 focus:ring-[#c96442]/35 dark:border-[#3a3937] dark:bg-[#191816] dark:text-[#d8d3c8] dark:hover:bg-[#24221f]"
+        type="button"
+      >
+        ?
+      </button>
+      <span className="pointer-events-none absolute right-0 top-8 z-30 hidden w-[320px] max-w-[calc(100vw-3rem)] rounded-[12px] border border-[#d1cfc5] bg-[#fffdf9] px-3 py-3 text-left text-xs leading-5 text-[#4d4c48] shadow-[0_12px_34px_rgba(34,31,26,0.18)] group-focus-within:block group-hover:block dark:border-[#3a3937] dark:bg-[#191816] dark:text-[#d8d3c8]">
+        {children}
+      </span>
+    </span>
+  )
+}
+
 export function EmptyPanel({ children }: { children: ReactNode }) {
   return (
     <section className="flex min-h-[520px] items-center justify-center rounded-[24px] border border-dashed border-[#d1cfc5] bg-[#f5f4ed] p-8 text-center text-[#87867f] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5]">
