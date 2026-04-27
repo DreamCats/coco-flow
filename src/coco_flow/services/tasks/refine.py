@@ -152,6 +152,8 @@ def _reset_refine_outputs(task_dir: Path) -> None:
         "design-skills-selection.json",
         "design-skills.json",
         "design-skills-brief.md",
+        "design-contracts.json",
+        "design-sync.json",
         "design-search-hints.json",
         "design-repo-binding.json",
         "design-sections.json",

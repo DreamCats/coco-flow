@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -48,6 +49,8 @@ def design_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
         result = run_design_engine(task_dir, task_meta, cfg, logger)
         (task_dir / "design.md").write_text(result.design_markdown, encoding="utf-8")
         _write_json(task_dir / "design-skills.json", result.design_skills_payload)
+        _write_json(task_dir / "design-contracts.json", result.design_contracts_payload)
+        _write_json(task_dir / "design-sync.json", build_design_sync_payload(result.design_markdown, status="synced"))
         task_meta["status"] = result.status
         task_meta["updated_at"] = datetime.now().astimezone().isoformat()
         (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -115,6 +118,8 @@ def _reset_design_outputs(task_dir: Path) -> None:
         "design-skills-selection.json",
         "design-skills.json",
         "design-skills-brief.md",
+        "design-contracts.json",
+        "design-sync.json",
         "design-search-hints.json",
         "design-repo-binding.json",
         "design-sections.json",
@@ -210,3 +215,15 @@ def _sync_repo_status(task_dir: Path, status: str) -> None:
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def build_design_sync_payload(design_markdown: str, *, status: str) -> dict[str, object]:
+    return {
+        "synced": True,
+        "status": status,
+        "source_artifact": "design.md",
+        "source_hash": hashlib.sha256(design_markdown.encode("utf-8")).hexdigest(),
+        "synced_artifacts": ["design-contracts.json"],
+        "reason": "Design contracts were generated from the current design.md.",
+        "updated_at": datetime.now().astimezone().isoformat(),
+    }

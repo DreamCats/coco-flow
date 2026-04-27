@@ -1,5 +1,5 @@
 import type { TaskRecord } from '../../../api'
-import { updateTaskArtifact } from '../../../api'
+import { syncDesign, updateTaskArtifact } from '../../../api'
 import { useEffect, useMemo, useState } from 'react'
 import { hasArtifact } from '../model'
 import { TaskRepoBindingModal } from '../task-repo-binding-modal'
@@ -31,7 +31,10 @@ export function DesignStage({
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState('')
   const steps = useMemo(() => buildDesignProgress(task), [task])
+  const designSync = useMemo(() => buildDesignSync(task), [task])
   const progressPercent = useMemo(() => buildDesignProgressPercent(task, steps), [task, steps])
   const activeLabel = steps.find((step) => step.current)?.label ?? (task.status === 'designed' ? '设计完成' : '等待开始')
   const progressTone =
@@ -74,6 +77,19 @@ export function DesignStage({
       setSaveError(error instanceof Error ? error.message : '保存失败')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleSync() {
+    try {
+      setSyncing(true)
+      setSyncError('')
+      await syncDesign(task.id)
+      await onTaskUpdated()
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : '同步失败')
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -120,6 +136,7 @@ export function DesignStage({
             ))}
           </div>
         </div>
+        <DesignSyncNotice busy={syncing} error={syncError} onSync={() => void handleSync()} sync={designSync} />
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] p-1 dark:border-[#30302e] dark:bg-[#232220]">
@@ -178,6 +195,67 @@ export function DesignStage({
       />
     </>
   )
+}
+
+type DesignSyncState = {
+  synced: boolean | null
+  changedArtifact: string
+}
+
+function DesignSyncNotice({
+  busy,
+  error,
+  onSync,
+  sync,
+}: {
+  busy: boolean
+  error: string
+  onSync: () => void
+  sync: DesignSyncState
+}) {
+  if (sync.synced !== false) {
+    return null
+  }
+  return (
+    <div className="mt-4 rounded-[16px] border border-[#efc08a] bg-[#fff6e8] px-4 py-3 text-sm leading-6 text-[#8a5b18] dark:border-[#6f5330] dark:bg-[#2d2418] dark:text-[#f1c98c]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-medium">Design Markdown 已保存，但结构化设计契约未同步。</div>
+          <div className="mt-1">
+            {sync.changedArtifact || 'design.md'} 已被编辑。Plan 阶段当前会被阻断；请先同步设计契约，系统会保留当前 Markdown，只刷新 design-contracts.json。
+          </div>
+          {error ? <div className="mt-2 text-xs text-[#b53333] dark:text-[#ffb4a8]">{error}</div> : null}
+        </div>
+        <ActionButton disabled={busy} onClick={onSync} tone="secondary">
+          {busy ? '同步中...' : '同步设计契约'}
+        </ActionButton>
+      </div>
+    </div>
+  )
+}
+
+function buildDesignSync(task: TaskRecord): DesignSyncState {
+  const payload = parseJSON(task.artifacts['design-sync.json'])
+  return {
+    synced: typeof payload.synced === 'boolean' ? payload.synced : null,
+    changedArtifact: asString(payload.changed_artifact) || asString(payload.changedArtifact),
+  }
+}
+
+function parseJSON(content: string | undefined): Record<string, unknown> {
+  if (!content) {
+    return {}
+  }
+  try {
+    const parsed = JSON.parse(content) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }
 
 function buildDesignBlocker(task: TaskRecord): { title: string; body: string; action: string } | null {

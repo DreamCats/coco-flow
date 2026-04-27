@@ -58,6 +58,11 @@ CODE_ARTIFACTS = [
     "code.log",
 ]
 
+DESIGN_CONTRACT_ARTIFACTS = [
+    "design-contracts.json",
+    "design-sync.json",
+]
+
 EDIT_RULES = {
     "prd.source.md": {
         "allowed": {STATUS_INITIALIZED, STATUS_INPUT_PROCESSING, STATUS_INPUT_READY, STATUS_INPUT_FAILED, STATUS_REFINED, STATUS_DESIGNED, STATUS_PLANNED},
@@ -95,6 +100,7 @@ EDIT_RULES = {
             "design-skills-selection.json",
             "design-skills.json",
             "design-skills-brief.md",
+            *DESIGN_CONTRACT_ARTIFACTS,
             "design-search-hints.json",
             "design-repo-binding.json",
             "design-sections.json",
@@ -128,6 +134,7 @@ EDIT_RULES = {
             "design-skills-selection.json",
             "design-skills.json",
             "design-skills-brief.md",
+            *DESIGN_CONTRACT_ARTIFACTS,
             "design-search-hints.json",
             "design-repo-binding.json",
             "design-sections.json",
@@ -199,6 +206,8 @@ def update_artifact(
             raise ValueError(error)
 
     (task_dir / name).write_text(trimmed + "\n")
+    if name == "design.md":
+        mark_design_unsynced(task_dir, changed_artifact=name)
     if name == "plan.md":
         mark_plan_unsynced(task_dir, changed_artifact=name)
 
@@ -275,6 +284,17 @@ def mark_plan_unsynced(task_dir: Path, *, changed_artifact: str, repo_id: str = 
         "updated_at": datetime.now().astimezone().isoformat(),
     }
     (task_dir / "plan-sync.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def mark_design_unsynced(task_dir: Path, *, changed_artifact: str) -> None:
+    payload = {
+        "synced": False,
+        "status": "markdown_changed",
+        "reason": "Design Markdown was edited after structured contracts were generated. Sync Design before Plan.",
+        "changed_artifact": changed_artifact,
+        "updated_at": datetime.now().astimezone().isoformat(),
+    }
+    (task_dir / "design-sync.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def sync_repo_statuses(task_dir: Path, status: str) -> None:

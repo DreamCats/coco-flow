@@ -30,6 +30,7 @@ class PlanPreparedInput:
     repo_ids: set[str]
     refined_sections: RefinedSections
     inherited_design_skills_payload: dict[str, object] = field(default_factory=dict)
+    design_contracts_payload: dict[str, object] = field(default_factory=dict)
     skills_index_markdown: str = ""
     skills_fallback_markdown: str = ""
     skills_selection_payload: dict[str, object] = field(default_factory=dict)

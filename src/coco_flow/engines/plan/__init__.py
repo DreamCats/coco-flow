@@ -5,6 +5,7 @@ Plan 阶段的目标是把上游的人类可读产物编译成 Code 阶段可消
 
 - ``prd-refined.md``：明确本次需求范围、验收标准和待确认项。
 - ``design.md``：明确技术方案、分仓职责、依赖关系和风险。
+- ``design-contracts.json``：Design 从 Markdown 提取的跨仓字段、接口或配置契约。
 - ``repos.json``：明确本次任务绑定哪些仓库。
 - ``.livecoding/context`` 与 Skills/SOP：补充仓库知识、术语和执行规则。
 
@@ -71,7 +72,7 @@ Plan 的核心问题不是能否生成一篇长文，而是能否稳定回答三
 - 使用程序规则的部分：
   - ``input`` 读取文件、解析 refined/design、聚合 repo scope。
   - ``knowledge`` 选择 Skills/SOP，并提供完整文件路径索引；不把完整上下文提前压缩给 native LLM。
-  - ``compiler`` 从已知输入构建 work items、依赖边、repo markdown 和 gate result。
+  - ``compiler`` 从已知输入和 ``design-contracts.json`` 构建 work items、依赖边、repo markdown 和 gate result。
   - ``compiler.validate_plan_artifacts`` 校验任务覆盖、repo 覆盖、依赖引用、validation 覆盖。
   - ``services.tasks.plan`` 负责 artifact 落盘、状态更新和 repo 状态同步。
 

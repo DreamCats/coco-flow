@@ -20,6 +20,7 @@ from coco_flow.engines.plan.types import PlanPreparedInput
 from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
+from coco_flow.services.tasks.design_sync import sync_design_task
 
 
 def make_settings(root: Path, *, plan_executor: str = "local") -> Settings:
@@ -310,16 +311,16 @@ class DesignPipelineTest(unittest.TestCase):
                 "- **Producer 仓库**：live_common（新增实验字段）\n"
                 "- **Consumer 仓库**：live_pack（消费实验字段）\n\n"
                 "## 分仓库方案\n"
-                "### live_pack - 消费实验字段并修改文案逻辑\n"
+                "### live_pack（必须改动）\n"
                 "- **待修改文件**：\n"
                 "  - `entities/converters/auction_converters/regular_auction_converter.go`：处理普通竞拍文案\n"
                 "  - `entities/converters/auction_converters/surprise_set_auction_converter.go`：处理 Surprise set 文案\n"
                 "- 读取实验字段 `rc.GetAbParam().TTECContent.AuctionInteractionExpType`\n"
                 "- **关键证据**：\n"
                 "  - 普通竞拍文案逻辑在 RegularAuctionConverter.getAuctionText 中\n\n"
-                "### live_common - 新增实验字段\n"
+                "### live_common（必须改动）\n"
                 "- **待修改文件**：\n"
-                "  - `abtest/struct.go`：新增 AuctionInteractionExpType 字段\n"
+                "  - `abtest/struct.go`：新增 `AuctionInteractionExpType int64` 字段\n"
                 "- json tag 为 auction_interaction_exp_type，默认值 0 保持线上逻辑\n\n"
                 "## 风险与待确认\n"
                 "- **待确认项 1**：实验字段枚举值\n"
@@ -421,6 +422,9 @@ class DesignPipelineTest(unittest.TestCase):
             self.assertEqual(status, "designed")
             self.assertTrue((task_dir / "design.md").exists())
             self.assertTrue((task_dir / "design-skills.json").exists())
+            self.assertTrue((task_dir / "design-contracts.json").exists())
+            self.assertTrue((task_dir / "design-sync.json").exists())
+            self.assertTrue(self._read_json(task_dir / "design-sync.json")["synced"])
             self.assertFalse((task_dir / "design-decision.json").exists())
             self.assertFalse((task_dir / "design-repo-binding.json").exists())
             self.assertFalse((task_dir / "design-sections.json").exists())
@@ -483,6 +487,58 @@ class DesignPipelineTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "design requires bound repos"):
                 design_task("task-no-repo", settings=settings)
+
+    def test_plan_blocks_when_design_contracts_unsynced(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            task_dir, _repo_dir = self._create_refined_task(settings.task_root, "task-design-unsynced")
+            self._write_json(task_dir / "task.json", {"task_id": "task-design-unsynced", "title": "Demo", "status": "designed"})
+            (task_dir / "design.md").write_text("# Design\n\n更新 demo。\n", encoding="utf-8")
+            self._write_json(task_dir / "design-sync.json", {"synced": False, "status": "markdown_changed"})
+
+            with self.assertRaisesRegex(ValueError, "结构化设计契约未同步"):
+                start_planning_task("task-design-unsynced", settings=settings)
+
+    def test_sync_design_task_refreshes_contract_sidecar_without_overwriting_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            task_dir, _repo_dir = self._create_refined_task(settings.task_root, "task-design-sync")
+            original_markdown = (
+                "# Design\n\n"
+                "## 工作流分类与仓库职责\n"
+                "- **Producer 仓库**：live_common（新增实验字段）\n"
+                "- **Consumer 仓库**：live_pack（消费实验字段）\n\n"
+                "## 分仓库方案\n"
+                "### live_common（必须改动）\n"
+                "- `abtest/struct.go`：新增 `AuctionInteractionExpType int64` 字段\n"
+                "- json tag 为 auction_interaction_exp_type，默认值 0 保持线上逻辑\n\n"
+                "### live_pack（必须改动）\n"
+                "- 读取实验字段 `rc.GetAbParam().TTECContent.AuctionInteractionExpType`\n"
+            )
+            self._write_json(task_dir / "task.json", {"task_id": "task-design-sync", "title": "Demo", "status": "designed"})
+            self._write_json(
+                task_dir / "repos.json",
+                {
+                    "repos": [
+                        {"id": "live_pack", "path": "/repo/live_pack", "status": "designed"},
+                        {"id": "live_common", "path": "/repo/live_common", "status": "designed"},
+                    ]
+                },
+            )
+            (task_dir / "design.md").write_text(original_markdown, encoding="utf-8")
+            self._write_json(task_dir / "design-sync.json", {"synced": False, "status": "markdown_changed"})
+
+            self.assertEqual(sync_design_task("task-design-sync", settings=settings), "designed")
+
+            self.assertEqual((task_dir / "design.md").read_text(encoding="utf-8"), original_markdown)
+            contracts = self._read_json(task_dir / "design-contracts.json")
+            sync_payload = self._read_json(task_dir / "design-sync.json")
+            self.assertEqual(contracts["contract_count"], 1)
+            self.assertEqual(contracts["contracts"][0]["field_name"], "AuctionInteractionExpType")
+            self.assertTrue(sync_payload["synced"])
+            self.assertEqual(sync_payload["status"], "synced_from_markdown")
 
     def _create_refined_task(self, task_root: Path, task_id: str) -> tuple[Path, Path]:
         repo_dir = task_root.parent / "demo-repo"

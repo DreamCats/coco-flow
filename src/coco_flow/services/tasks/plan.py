@@ -95,8 +95,12 @@ def mark_task_failed(task_id: str, settings: Settings | None = None) -> str:
 
 
 def _ensure_design_allows_plan(task_dir: Path) -> None:
-    del task_dir
-    return
+    sync_payload = read_json_file(task_dir / "design-sync.json")
+    if sync_payload.get("synced") is False:
+        raise ValueError(
+            "Design Markdown 已保存，但结构化设计契约未同步。"
+            "请先同步 Design 契约，系统会保留当前 design.md，只刷新 design-contracts.json。"
+        )
 
 
 def _write_plan_outputs(task_dir: Path, result) -> None:

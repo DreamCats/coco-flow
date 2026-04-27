@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from coco_flow.config import Settings
+from coco_flow.engines.shared.contracts import build_design_contracts_payload
 
 from .discovery import build_search_hints
 from .evidence import build_research_plan, build_research_summary, run_parallel_repo_research
@@ -69,12 +70,15 @@ def run_design_engine(
         native_ok=native_ok,
         on_log=on_log,
     )
+    contracts_payload = build_design_contracts_payload(design_markdown, prepared.repo_scopes)
     on_log("design_writer_ok: true")
+    on_log(f"design_contracts_ok: count={int(contracts_payload.get('contract_count') or 0)}")
     on_log(f"status: {STATUS_DESIGNED}")
     return DesignEngineResult(
         status=STATUS_DESIGNED,
         design_markdown=design_markdown,
         design_skills_payload=selection_payload,
+        design_contracts_payload=contracts_payload,
     )
 
 

@@ -181,14 +181,18 @@ uv run python -m unittest discover -s tests -v
   - select Skills/SOP
   - repo research
   - writer 直接生成 `design.md`
-- `design` 阶段目录主要保留 `design.md` 和 `design.log`，不再持久化 adjudication / review / debate / decision / repo-binding / sections / verify / diagnosis / result schema。
-- `design` 会额外写 `design-skills.json`，只记录本次 Design 选中的业务 Skills/SOP，供 Plan 继承；不作为旧 schema gate。
-- Plan 是否可执行由 `design.md` 是否存在和任务状态判断，不再依赖 `design-result.json` gate。
+- `design` 阶段目录主要保留 `design.md`、`design.log` 和轻量 sidecar，不再持久化 adjudication / review / debate / decision / repo-binding / sections / verify / diagnosis / result schema。
+- `design` 会额外写：
+  - `design-skills.json`：记录本次 Design 选中的业务 Skills/SOP，供 Plan 继承；不作为旧 schema gate。
+  - `design-contracts.json`：从当前 `design.md` 提取跨仓字段、接口或配置契约，供 Plan 生成依赖图和仓库任务。
+  - `design-sync.json`：记录 `design.md` 与结构化设计契约是否同步。
+- 编辑 `design.md` 后会把 `design-sync.json` 标记为未同步；需要执行 Sync Design 后才能进入 Plan，且不会覆盖用户编辑后的 Markdown。
+- Plan 是否可执行由 `design.md`、任务状态和 `design-sync.json` 判断，不再依赖 `design-result.json` gate。
 
 ### plan
 
 - `plan` 支持 `native` 和 `local`
-- `native` / `local` 都基于 `prd-refined.md`、`design.md`、绑定仓库和 Skills/SOP 生成 `plan.md`
+- `native` / `local` 都基于 `prd-refined.md`、`design.md`、`design-contracts.json`、绑定仓库和 Skills/SOP 生成 `plan.md`
 - `plan` 会额外生成 Code 可消费的结构化 sidecar：
   - `plan-work-items.json`
   - `plan-execution-graph.json`

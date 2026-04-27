@@ -8,13 +8,20 @@ from __future__ import annotations
 import re
 
 from coco_flow.engines.plan.types import PlanPreparedInput
+from coco_flow.engines.shared.contracts import (
+    build_design_contracts_payload,
+    extract_repo_sections,
+    is_consumer_section,
+    is_producer_section,
+    looks_like_shared_repo,
+    shared_dependency_signal,
+)
 
 _FILE_RE = re.compile(r"[\w./-]+\.(?:go|py|ts|tsx|js|jsx|proto|thrift|sql)")
-_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
 
 def build_structured_plan_artifacts(prepared: PlanPreparedInput) -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object], dict[str, str]]:
-    repo_sections = _extract_repo_sections(prepared.design_markdown, [scope.repo_id for scope in prepared.repo_scopes])
+    repo_sections = extract_repo_sections(prepared.design_markdown, [scope.repo_id for scope in prepared.repo_scopes])
     work_items: list[dict[str, object]] = []
 
     for index, scope in enumerate(prepared.repo_scopes, start=1):
@@ -90,7 +97,7 @@ def build_structured_plan_artifacts_from_repo_markdowns(
         item = _parse_repo_task_markdown(repo_markdowns.get(scope.repo_id, ""), scope.repo_id, index, previous, prepared)
         work_items.append(item)
 
-    edges = _edges_from_work_items(work_items)
+    edges = _edges_from_work_items(work_items, prepared)
     depends_by_task = _depends_by_task(edges)
     blocks_by_task = _blocks_by_task(edges)
     for item in work_items:
@@ -265,43 +272,6 @@ def validate_plan_artifacts(
     return issues
 
 
-def _extract_repo_sections(markdown: str, repo_ids: list[str]) -> dict[str, str]:
-    lines = markdown.splitlines()
-    headings: list[tuple[int, int, str]] = []
-    starts: list[tuple[int, int, str]] = []
-    for index, line in enumerate(lines):
-        match = _HEADING_RE.match(line.strip())
-        if not match:
-            continue
-        title = match.group(2).strip().strip("`")
-        level = len(match.group(1))
-        headings.append((index, level, title))
-        repo_id = _match_repo_heading(title, repo_ids)
-        if repo_id:
-            starts.append((index, level, repo_id))
-    sections: dict[str, str] = {}
-    for start, level, repo_id in starts:
-        end = len(lines)
-        for next_start, next_level, _next_title in headings:
-            if next_start > start and next_level <= level:
-                end = next_start
-                break
-        sections[repo_id] = "\n".join(lines[start:end]).strip()
-    return sections
-
-
-def _match_repo_heading(title: str, repo_ids: list[str]) -> str:
-    normalized = title.strip().strip("`")
-    for repo_id in repo_ids:
-        if normalized == repo_id:
-            return repo_id
-        if normalized.startswith(f"{repo_id} ") or normalized.startswith(f"{repo_id}-") or normalized.startswith(f"{repo_id} -"):
-            return repo_id
-        if normalized.startswith(f"{repo_id}：") or normalized.startswith(f"{repo_id}:"):
-            return repo_id
-    return ""
-
-
 def _extract_files(section: str, repo_id: str = "") -> list[str]:
     files = []
     for path in _FILE_RE.findall(section):
@@ -351,7 +321,11 @@ def _should_skip_step_text(text: str) -> bool:
     return text.startswith(
         (
             "仓库路径",
+            "路径",
+            "职责",
+            "相关参考",
             "待修改文件",
+            "涉及文件",
             "关键证据",
             "证据",
             "主要风险",
@@ -432,10 +406,11 @@ def _parse_dependency_line(value: str) -> list[str]:
     return _dedupe([item.strip() for item in re.split(r"[,，]\s*", value) if item.strip()])
 
 
-def _edges_from_work_items(work_items: list[dict[str, object]]) -> list[dict[str, object]]:
+def _edges_from_work_items(work_items: list[dict[str, object]], prepared: PlanPreparedInput) -> list[dict[str, object]]:
     edges: list[dict[str, object]] = []
     item_ids = {str(item.get("id") or "") for item in work_items}
     item_repo_by_id = {str(item.get("id") or ""): str(item.get("repo_id") or "") for item in work_items}
+    contracts_by_pair = _contracts_by_pair(prepared)
     for item in work_items:
         task_id = str(item.get("id") or "")
         repo_id = str(item.get("repo_id") or "")
@@ -447,6 +422,7 @@ def _edges_from_work_items(work_items: list[dict[str, object]]) -> list[dict[str
                         "to": task_id,
                         "type": "hard_dependency",
                         "reason": f"{repo_id} depends on {item_repo_by_id.get(dependency, dependency)}.",
+                        **({"contract": contract} if (contract := contracts_by_pair.get((item_repo_by_id.get(dependency, ""), repo_id), {})) else {}),
                     }
                 )
         for blocked in _string_list(item.get("blocks")):
@@ -457,6 +433,7 @@ def _edges_from_work_items(work_items: list[dict[str, object]]) -> list[dict[str
                         "to": blocked,
                         "type": "hard_dependency",
                         "reason": f"{item_repo_by_id.get(blocked, blocked)} depends on {repo_id}.",
+                        **({"contract": contract} if (contract := contracts_by_pair.get((repo_id, item_repo_by_id.get(blocked, "")), {})) else {}),
                     }
                 )
     return _dedupe_edges(edges)
@@ -480,7 +457,7 @@ def _extract_repo_markdown_blockers(repo_markdowns: dict[str, str]) -> list[str]
 
 def _infer_task_title(repo_id: str, section: str, title: str) -> str:
     if "实验字段" in section or "AB" in section:
-        if _looks_like_shared_repo(repo_id):
+        if looks_like_shared_repo(repo_id):
             return "新增或更新实验字段契约"
         return "接入实验字段并更新业务逻辑"
     files = _extract_files(section, repo_id)
@@ -515,18 +492,19 @@ def _infer_edges_and_coordination(
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     edges: list[dict[str, object]] = []
     design_text = prepared.design_markdown
+    contracts_by_pair = _contracts_by_pair(prepared)
     for producer in work_items:
         producer_repo = str(producer.get("repo_id") or "")
         producer_text = repo_sections.get(producer_repo, "")
-        if not _is_producer_section(producer_repo, producer_text, design_text):
+        if not is_producer_section(producer_repo, producer_text, design_text):
             continue
         for consumer in work_items:
             consumer_repo = str(consumer.get("repo_id") or "")
             if consumer_repo == producer_repo:
                 continue
             consumer_text = repo_sections.get(consumer_repo, "")
-            if _is_consumer_section(consumer_text, design_text) or _shared_dependency_signal(producer_text, consumer_text):
-                contract = _extract_dependency_contract(prepared, producer_repo, consumer_repo, producer_text, consumer_text)
+            if is_consumer_section(consumer_text, design_text) or shared_dependency_signal(producer_text, consumer_text):
+                contract = contracts_by_pair.get((producer_repo, consumer_repo), {})
                 edges.append(
                     {
                         "from": producer.get("id"),
@@ -550,6 +528,21 @@ def _infer_edges_and_coordination(
     return _dedupe_edges(edges), coordination_points
 
 
+def _contracts_by_pair(prepared: PlanPreparedInput) -> dict[tuple[str, str], dict[str, object]]:
+    payload = prepared.design_contracts_payload
+    if not isinstance(payload.get("contracts"), list):
+        payload = build_design_contracts_payload(prepared.design_markdown, prepared.repo_scopes)
+    result: dict[tuple[str, str], dict[str, object]] = {}
+    for item in payload.get("contracts", []):
+        if not isinstance(item, dict):
+            continue
+        producer_repo = str(item.get("producer_repo") or "")
+        consumer_repo = str(item.get("consumer_repo") or "")
+        if producer_repo and consumer_repo:
+            result[(producer_repo, consumer_repo)] = item
+    return result
+
+
 def _extract_blockers(prepared: PlanPreparedInput) -> list[str]:
     candidates: list[str] = []
     candidates.extend(_clean_markdown_inline(item) for item in prepared.refined_sections.open_questions if not _is_noop_question(item))
@@ -565,147 +558,6 @@ def _extract_blockers(prepared: PlanPreparedInput) -> list[str]:
         if text and not _is_noop_question(text) and ("确认" in text or "待确认" in text or "是否" in text):
             candidates.append(text)
     return _dedupe(candidates)[:8]
-
-
-def _is_producer_section(repo_id: str, text: str, design_text: str = "") -> bool:
-    if _looks_like_shared_repo(repo_id):
-        return True
-    if _repo_has_role(repo_id, design_text, "Producer"):
-        return True
-    if _is_consumer_section(text, design_text):
-        return False
-    return any(token in text for token in ("新增", "定义", "产出", "提供")) and any(
-        token in text for token in ("字段", "接口", "模型", "配置", "key", "契约", "AB")
-    )
-
-
-def _is_consumer_section(text: str, design_text: str = "") -> bool:
-    if any(role in design_text for role in ("Consumer 仓库", "consumer")) and any(token in text for token in ("消费", "接入", "读取")):
-        return True
-    return any(token in text for token in ("读取", "消费", "依赖", "接入", "使用")) and any(
-        token in text for token in ("字段", "接口", "模型", "配置", "key", "契约", "AB")
-    )
-
-
-def _repo_has_role(repo_id: str, design_text: str, role: str) -> bool:
-    if not design_text:
-        return False
-    role_patterns = [
-        rf"{re.escape(role)}\s*仓库\*\*[:：]\s*{re.escape(repo_id)}",
-        rf"{re.escape(role)}\s*仓库[:：]\s*{re.escape(repo_id)}",
-        rf"{re.escape(repo_id)}[^\n]*{re.escape(role)}",
-    ]
-    return any(re.search(pattern, design_text, flags=re.IGNORECASE) for pattern in role_patterns)
-
-
-def _shared_dependency_signal(producer_text: str, consumer_text: str) -> bool:
-    shared_terms = {"AB", "实验字段", "字段", "接口", "配置"}
-    return any(term in producer_text and term in consumer_text for term in shared_terms)
-
-
-def _extract_dependency_contract(
-    prepared: PlanPreparedInput,
-    producer_repo: str,
-    consumer_repo: str,
-    producer_text: str,
-    consumer_text: str,
-) -> dict[str, object]:
-    text = "\n".join([producer_text, consumer_text, prepared.design_markdown])
-    field_name = _extract_contract_field_name(text)
-    json_tag = _extract_json_tag(text, field_name)
-    consumer_access = _extract_consumer_access(text, field_name)
-    if field_name and not consumer_access:
-        consumer_access = f"待确认：{consumer_repo} 读取 {field_name}"
-    default_value = _extract_contract_default_value(text)
-    value_semantics = _extract_contract_value_semantics(text)
-    contract_type = "ab_experiment_field" if any(token in text for token in ("实验", "AB", "abtest")) else "cross_repo_contract"
-    if not any([field_name, json_tag, consumer_access, default_value, value_semantics]):
-        return {}
-    return {
-        "type": contract_type,
-        "producer_repo": producer_repo,
-        "consumer_repo": consumer_repo,
-        **({"field_name": field_name} if field_name else {}),
-        **({"json_tag": json_tag} if json_tag else {}),
-        **({"default_value": default_value} if default_value else {}),
-        **({"value_semantics": value_semantics} if value_semantics else {}),
-        **({"consumer_access": consumer_access} if consumer_access else {}),
-        "compatibility": "默认值必须保持线上原逻辑；consumer 不得在字段缺失或默认值下改变旧链路行为。",
-    }
-
-
-def _extract_contract_field_name(text: str) -> str:
-    patterns = [
-        r"(?:字段名|field_name|field)\s*[:：]\s*`?([A-Z][A-Za-z0-9_]{2,})`?",
-        r"`?([A-Z][A-Za-z0-9_]*(?:Exp|Experiment|Type|Flag)[A-Za-z0-9_]*)`?\s*字段",
-        r"新增\s+`?([A-Z][A-Za-z0-9_]*(?:Exp|Experiment|Type|Flag)[A-Za-z0-9_]*)`?",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            return match.group(1).strip()
-    return ""
-
-
-def _extract_json_tag(text: str, field_name: str) -> str:
-    patterns = [
-        r"(?:json tag|json_tag|JSON tag)\s*(?:为|=|[:：])\s*`?([a-z][a-z0-9_]+)`?",
-        r"`json:\"([a-z][a-z0-9_]+)\"`",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-    if field_name:
-        return _camel_to_snake(field_name)
-    return ""
-
-
-def _extract_consumer_access(text: str, field_name: str) -> str:
-    if field_name:
-        pattern = rf"`?([A-Za-z_][A-Za-z0-9_().]*\.{re.escape(field_name)})`?"
-        match = re.search(pattern, text)
-        if match:
-            return match.group(1).strip()
-    match = re.search(r"(?:读取|消费|access path|consumer_access)[^`\n]*`([^`]+)`", text, flags=re.IGNORECASE)
-    return match.group(1).strip() if match else ""
-
-
-def _extract_contract_default_value(text: str) -> str:
-    patterns = [
-        r"(?:默认值|default(?:_value)?)\s*(?:为|=|[:：])\s*`?([A-Za-z0-9_\"'-]+)`?",
-        r"([0-9]+)\s*[（(]\s*默认[^）)]*[）)]",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
-            return match.group(1).strip().strip('"')
-    if "默认" in text and "0" in text:
-        return "0"
-    return ""
-
-
-def _extract_contract_value_semantics(text: str) -> list[str]:
-    values: list[str] = []
-    for match in re.finditer(r"([0-9]+)\s*[（(]([^）)]+)[）)]", text):
-        values.append(f"{match.group(1)}: {match.group(2).strip()}")
-    slash_values = re.search(r"\b([0-9]+(?:/[0-9]+)+)\b", text)
-    if slash_values and not values:
-        values.append(f"{slash_values.group(1)}: 待确认")
-    if not slash_values:
-        for match in re.finditer(r"([0-9]+)\s*(?:对应|代表)\s*([^；;，,\n]+)", text):
-            values.append(f"{match.group(1)}: {match.group(2).strip()}")
-    return _dedupe(values)[:6]
-
-
-def _camel_to_snake(value: str) -> str:
-    first = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", value)
-    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", first).lower()
-
-
-def _looks_like_shared_repo(repo_id: str) -> bool:
-    lowered = repo_id.lower()
-    return any(token in lowered for token in ("common", "proto", "idl", "model", "schema", "shared"))
 
 
 def _is_empty_label(text: str) -> bool:

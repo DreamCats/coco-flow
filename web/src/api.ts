@@ -33,6 +33,8 @@ export type TaskArtifactName =
   | 'refine.log'
   | 'design.log'
   | 'design.md'
+  | 'design-contracts.json'
+  | 'design-sync.json'
   | 'plan.md'
   | 'plan-work-items.json'
   | 'plan-execution-graph.json'
@@ -393,8 +395,8 @@ export async function startPlan(taskId: string) {
     method: 'POST',
   })
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null
-    throw new Error(body?.error || '启动 plan 失败')
+    const body = (await response.json().catch(() => null)) as { detail?: string; error?: string } | null
+    throw new Error(body?.detail || body?.error || '启动 plan 失败')
   }
   return response.json() as Promise<{ task_id: string; status: string }>
 }
@@ -406,6 +408,17 @@ export async function syncPlan(taskId: string) {
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null
     throw new Error(body?.detail || body?.error || '同步 Plan 失败')
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
+}
+
+export async function syncDesign(taskId: string) {
+  const response = await fetch(`/api/tasks/${taskId}/design/sync`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null
+    throw new Error(body?.detail || body?.error || '同步 Design 契约失败')
   }
   return response.json() as Promise<{ task_id: string; status: string }>
 }

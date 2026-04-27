@@ -30,7 +30,7 @@ plan/
 `pipeline.run_plan_engine()` 是主入口：
 
 1. `input.prepare_plan_input()`
-   读取 `prd-refined.md`、`design.md`、`input.json`、`repos.json`、`design-skills.json`，生成 `PlanPreparedInput`。
+   读取 `prd-refined.md`、`design.md`、`design-contracts.json`、`input.json`、`repos.json`、`design-skills.json`，生成 `PlanPreparedInput`。
 
 2. `knowledge.build_plan_skills_bundle()`
    继承 Design 已选中的业务 Skills/SOP，生成 writer 可渐进式加载的完整文件路径索引。
@@ -44,6 +44,8 @@ plan/
    - `plan-validation.json`
    - `plan-result.json`
    - `plan-repos/<repo>.md`
+
+   跨仓依赖的字段、接口或配置细节优先来自 `design-contracts.json`，缺失时才从 `design.md` 做兼容提取。
 
 4. `compiler.validate_plan_artifacts()`
    做最低限度的结构校验，避免缺仓、缺任务、依赖指向不存在任务。

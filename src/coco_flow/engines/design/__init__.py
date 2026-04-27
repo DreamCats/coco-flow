@@ -7,6 +7,7 @@ Design 阶段按架构层拆分：
 - ``discovery/``：生成 repo research 的搜索线索。
 - ``evidence/``：在本地仓库收集代码证据、候选文件和 git evidence。
 - ``writer/``：生成最终 ``design.md``。
+- ``shared/contracts.py``：从最终 ``design.md`` 提取跨仓契约，供 Plan 消费。
 - ``runtime/``：ACP session 与 ``design.log`` 适配。
 
 这里只暴露服务层需要的状态常量、日志函数、任务目录定位和主编排入口。
