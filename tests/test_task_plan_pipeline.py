@@ -13,7 +13,7 @@ from coco_flow.engines.design.evidence import build_research_plan, research_sing
 from coco_flow.engines.design.knowledge import build_design_skills_bundle
 from coco_flow.engines.design.types import DesignInputBundle
 from coco_flow.engines.design.writer.markdown import render_research_summary_markdown
-from coco_flow.engines.plan.compiler import build_structured_plan_artifacts
+from coco_flow.engines.plan.compiler import build_structured_plan_artifacts, render_plan_markdown
 from coco_flow.engines.plan.knowledge import build_plan_skills_bundle
 from coco_flow.engines.plan.knowledge.selection import build_plan_skills_context
 from coco_flow.engines.plan.types import PlanPreparedInput
@@ -314,11 +314,13 @@ class DesignPipelineTest(unittest.TestCase):
                 "- **待修改文件**：\n"
                 "  - `entities/converters/auction_converters/regular_auction_converter.go`：处理普通竞拍文案\n"
                 "  - `entities/converters/auction_converters/surprise_set_auction_converter.go`：处理 Surprise set 文案\n"
+                "- 读取实验字段 `rc.GetAbParam().TTECContent.AuctionInteractionExpType`\n"
                 "- **关键证据**：\n"
                 "  - 普通竞拍文案逻辑在 RegularAuctionConverter.getAuctionText 中\n\n"
                 "### live_common - 新增实验字段\n"
                 "- **待修改文件**：\n"
-                "  - `abtest/struct.go`：新增实验字段\n\n"
+                "  - `abtest/struct.go`：新增 AuctionInteractionExpType 字段\n"
+                "- json tag 为 auction_interaction_exp_type，默认值 0 保持线上逻辑\n\n"
                 "## 风险与待确认\n"
                 "- **待确认项 1**：实验字段枚举值\n"
             ),
@@ -341,7 +343,7 @@ class DesignPipelineTest(unittest.TestCase):
             ),
         )
 
-        work_items_payload, graph_payload, _validation_payload, result_payload, _repo_markdowns = build_structured_plan_artifacts(prepared)
+        work_items_payload, graph_payload, validation_payload, result_payload, repo_markdowns = build_structured_plan_artifacts(prepared)
 
         items = {item["repo_id"]: item for item in work_items_payload["work_items"]}
         self.assertEqual(items["live_pack"]["depends_on"], ["W2"])
@@ -350,6 +352,16 @@ class DesignPipelineTest(unittest.TestCase):
         self.assertNotIn("RegularAuctionConverter.getAuctionText", "\n".join(items["live_pack"]["specific_steps"]))
         self.assertEqual(graph_payload["execution_order"], ["W2", "W1"])
         self.assertEqual(graph_payload["parallel_groups"], [])
+        contract = graph_payload["edges"][0]["contract"]
+        self.assertEqual(contract["field_name"], "AuctionInteractionExpType")
+        self.assertEqual(contract["json_tag"], "auction_interaction_exp_type")
+        self.assertEqual(contract["default_value"], "0")
+        self.assertEqual(contract["consumer_access"], "rc.GetAbParam().TTECContent.AuctionInteractionExpType")
+        rendered = render_plan_markdown(prepared, work_items_payload, graph_payload, validation_payload, result_payload)
+        self.assertIn("## 跨仓契约", rendered)
+        self.assertIn("field: AuctionInteractionExpType", rendered)
+        self.assertIn("## 输出契约", repo_markdowns["live_common"])
+        self.assertIn("## 输入契约", repo_markdowns["live_pack"])
         self.assertEqual(result_payload["blockers"], ["待确认项 1：实验字段枚举值"])
 
     def test_repo_research_uses_file_pattern_hints(self) -> None:
