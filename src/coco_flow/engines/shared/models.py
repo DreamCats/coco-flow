@@ -223,7 +223,7 @@ class PlanBuild:
     finding: ResearchFinding
     research_signals: DesignResearchSignals
     assessment: ComplexityAssessment
-    skills_brief_markdown: str = ""
+    skills_fallback_markdown: str = ""
     skills_selection_payload: dict[str, object] = field(default_factory=dict)
     selected_skill_ids: list[str] = field(default_factory=list)
     llm_scope: PlanScope = field(default_factory=PlanScope)
@@ -249,3 +249,4 @@ class SkillSourceDocument:
     engines: list[str]
     repos: list[str]
     body: str
+    source_files: list[str] = field(default_factory=list)

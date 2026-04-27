@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import json
 from pathlib import Path
+import shutil
 
 from coco_flow.config import Settings, load_settings
 from coco_flow.engines.design import (
@@ -46,19 +48,9 @@ def design_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
     try:
         result = run_design_engine(task_dir, task_meta, cfg, logger)
         (task_dir / "design.md").write_text(result.design_markdown, encoding="utf-8")
-        for name, payload in result.intermediate_artifacts.items():
-            _write_intermediate_artifact(task_dir / name, payload)
-        _write_intermediate_artifact(
-            task_dir / "design-result.json",
-            {
-                "task_id": task_id,
-                "status": result.status,
-                "repo_binding": result.repo_binding_payload,
-                "sections": result.sections_payload,
-                "intermediate_artifacts": sorted(result.intermediate_artifacts.keys()),
-                "updated_at": datetime.now().astimezone().isoformat(),
-            },
-        )
+        _write_json(task_dir / "design-skills.json", result.design_skills_payload)
+        _write_json(task_dir / "design-contracts.json", result.design_contracts_payload)
+        _write_json(task_dir / "design-sync.json", build_design_sync_payload(result.design_markdown, status="synced"))
         task_meta["status"] = result.status
         task_meta["updated_at"] = datetime.now().astimezone().isoformat()
         (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -100,13 +92,6 @@ def start_designing_task(task_id: str, settings: Settings | None = None) -> str:
     return STATUS_DESIGNING
 
 
-def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -> None:
-    if isinstance(payload, dict):
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        return
-    path.write_text(payload.rstrip() + "\n", encoding="utf-8")
-
-
 def _ensure_bound_repos(task_dir: Path) -> None:
     repos_meta = read_json_file(task_dir / "repos.json")
     raw_repos = repos_meta.get("repos")
@@ -118,20 +103,52 @@ def _reset_design_outputs(task_dir: Path) -> None:
     for name in (
         "design.md",
         "design.log",
+        "design-input.json",
+        "design-input.md",
+        "design-research-plan.json",
+        "design-research-summary.json",
+        "design-adjudication.json",
+        "design-review.json",
+        "design-debate.json",
+        "design-decision.json",
         "design-change-points.json",
         "design-repo-assignment.json",
         "design-research.json",
         "design-repo-responsibility-matrix.json",
+        "design-skills-selection.json",
+        "design-skills.json",
         "design-skills-brief.md",
+        "design-contracts.json",
+        "design-sync.json",
+        "design-search-hints.json",
         "design-repo-binding.json",
         "design-sections.json",
         "design-verify.json",
+        "design-diagnosis.json",
         "design-result.json",
     ):
         path = task_dir / name
         if path.exists():
             path.unlink()
-    for pattern in (".design-template-*.md", ".design-research-*.json", ".design-repo-binding-*.json", ".design-verify-*.json"):
+    research_dir = task_dir / "design-research"
+    if research_dir.is_dir():
+        for path in research_dir.glob("*.json"):
+            path.unlink()
+        try:
+            research_dir.rmdir()
+        except OSError:
+            pass
+    for pattern in (
+        ".design-template-*.md",
+        ".design-research-*.json",
+        ".design-repo-binding-*.json",
+        ".design-verify-*.json",
+        ".design-architect-*.json",
+        ".design-skeptic-*.json",
+        ".design-search-hints-*.json",
+        ".design-writer-*.md",
+        ".design-gate-*.json",
+    ):
         for path in task_dir.glob(pattern):
             path.unlink()
 
@@ -141,14 +158,22 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         "plan.md",
         "plan.log",
         "plan-skills-selection.json",
+        "plan-skills.json",
         "plan-skills-brief.md",
+        "plan-draft-work-items.json",
+        "plan-draft-execution-graph.json",
+        "plan-draft-validation.json",
         "plan-task-outline.json",
         "plan-work-items.json",
         "plan-execution-graph.json",
         "plan-validation.json",
+        "plan-review.json",
+        "plan-debate.json",
+        "plan-decision.json",
         "plan-dependency-notes.json",
         "plan-risk-check.json",
         "plan-verify.json",
+        "plan-diagnosis.json",
         "plan-result.json",
         "plan-scope.json",
         "plan-execution.json",
@@ -156,9 +181,20 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         path = task_dir / name
         if path.exists():
             path.unlink()
-    for pattern in (".plan-template-*.md", ".plan-task-outline-*.json", ".plan-verify-*.json"):
+    for pattern in (
+        ".plan-template-*.md",
+        ".plan-task-outline-*.json",
+        ".plan-planner-*.json",
+        ".plan-scheduler-*.json",
+        ".plan-validation-designer-*.json",
+        ".plan-skeptic-*.json",
+        ".plan-verify-*.json",
+    ):
         for path in task_dir.glob(pattern):
             path.unlink()
+    repo_dir = task_dir / "plan-repos"
+    if repo_dir.exists():
+        shutil.rmtree(repo_dir)
 
 
 def _sync_repo_status(task_dir: Path, status: str) -> None:
@@ -175,3 +211,19 @@ def _sync_repo_status(task_dir: Path, status: str) -> None:
         changed = True
     if changed:
         repos_path.write_text(json.dumps(repos_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def build_design_sync_payload(design_markdown: str, *, status: str) -> dict[str, object]:
+    return {
+        "synced": True,
+        "status": status,
+        "source_artifact": "design.md",
+        "source_hash": hashlib.sha256(design_markdown.encode("utf-8")).hexdigest(),
+        "synced_artifacts": ["design-contracts.json"],
+        "reason": "Design contracts were generated from the current design.md.",
+        "updated_at": datetime.now().astimezone().isoformat(),
+    }

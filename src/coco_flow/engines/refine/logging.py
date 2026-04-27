@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# 本文件只负责 Refine 阶段日志落盘，统一给 `refine.log` 追加时间戳和消息。
+
 from datetime import datetime
 from pathlib import Path
 

@@ -1,18 +1,16 @@
 from __future__ import annotations
 
+# 本文件定义 Refine 阶段内部使用的数据模型和状态常量。模型用于内存编排
+# 和函数传参，不代表阶段目录中需要持久化的 schema artifact。
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
-
-from coco_flow.engines.shared.manual_extract import MANUAL_EXTRACT_HEADING
 
 STATUS_INITIALIZED = "initialized"
 STATUS_REFINING = "refining"
 STATUS_REFINED = "refined"
 EXECUTOR_NATIVE = "native"
-EXECUTOR_LOCAL = "local"
-SOURCE_TYPE_LARK_DOC = "lark_doc"
-SUPPLEMENT_HEADING = MANUAL_EXTRACT_HEADING
 
 LogHandler = Callable[[str], None]
 
@@ -82,20 +80,11 @@ class RefineVerifyResult:
     issues: list[str]
     missing_sections: list[str]
     reason: str
-
-    def to_payload(self) -> dict[str, object]:
-        return {
-            "ok": self.ok,
-            "issues": self.issues,
-            "missing_sections": self.missing_sections,
-            "reason": self.reason,
-        }
+    failure_type: str = ""
+    repair_attempts: int = 0
 
 
 @dataclass
 class RefineEngineResult:
     status: str
     refined_markdown: str
-    skills_used: bool
-    selected_skill_ids: list[str]
-    intermediate_artifacts: dict[str, str | dict[str, object]] = field(default_factory=dict)

@@ -24,6 +24,7 @@ class RepoBinding(BaseModel):
     path: str
     status: str | None = None
     scope_tier: str | None = None
+    confidence: str | None = None
     execution_mode: str | None = None
     batch_id: str | None = None
     batch_status: str | None = None
@@ -45,6 +46,16 @@ class TimelineItem(BaseModel):
     label: str
     state: str
     detail: str
+
+
+class DiagnosisSummary(BaseModel):
+    stage: str
+    ok: bool
+    severity: str
+    failure_type: str = ""
+    next_action: str
+    reason: str = ""
+    issue_count: int = 0
 
 
 class ArtifactItem(BaseModel):
@@ -88,6 +99,7 @@ class TaskDetail(BaseModel):
     repos: list[RepoBinding]
     code_dispatch: CodeDispatchSummary | None = None
     code_progress: CodeProgressSummary | None = None
+    diagnosis: DiagnosisSummary | None = None
     timeline: list[TimelineItem]
     artifacts: list[ArtifactItem]
 

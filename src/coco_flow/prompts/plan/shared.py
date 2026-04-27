@@ -20,7 +20,8 @@ def build_plan_input_section(
     title: str,
     design_markdown: str,
     refined_markdown: str,
-    skills_brief_markdown: str,
+    skills_fallback_markdown: str,
+    skills_index_markdown: str = "",
 ) -> PromptSection:
     return PromptSection(
         title="Plan 输入",
@@ -29,7 +30,8 @@ def build_plan_input_section(
                 f"- 标题：{title}",
                 "### Design Markdown\n\n" + design_markdown.strip(),
                 "### PRD Refined\n\n" + (refined_markdown.strip() or "- 当前没有 refined markdown。"),
-                "### Plan Skills Brief\n\n" + (skills_brief_markdown.strip() or "- 当前没有 skills brief。"),
+                "### Plan Skills Index\n\n" + (skills_index_markdown.strip() or "- 当前没有 skills index。"),
+                "### Plan Skills Local Fallback\n\n" + (skills_fallback_markdown.strip() or "- 当前没有 skills fallback。"),
             ]
         ),
     )
@@ -57,3 +59,7 @@ def build_plan_execution_graph_section(payload: dict[str, object]) -> PromptSect
 
 def build_plan_validation_section(payload: dict[str, object]) -> PromptSection:
     return PromptSection(title="Plan Validation", body=render_json_block(payload))
+
+
+def build_plan_decision_section(payload: dict[str, object]) -> PromptSection:
+    return PromptSection(title="Plan Decision", body=render_json_block(payload))

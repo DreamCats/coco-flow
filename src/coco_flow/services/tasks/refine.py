@@ -7,7 +7,11 @@ import shutil
 
 from coco_flow.config import Settings, load_settings
 from coco_flow.engines.input import STATUS_INPUT_READY
-from coco_flow.engines.shared.manual_extract import split_source_and_manual_extract, validate_manual_extract
+from coco_flow.engines.shared.manual_extract import (
+    missing_required_manual_extract_sections,
+    split_source_and_manual_extract,
+    validate_manual_extract,
+)
 from coco_flow.engines.refine import (
     LogHandler,
     STATUS_INITIALIZED,
@@ -47,19 +51,6 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
     try:
         result = run_refine_engine(task_dir, task_meta, cfg, logger)
         _write_markdown_artifact(task_dir / "prd-refined.md", result.refined_markdown)
-        for name, payload in result.intermediate_artifacts.items():
-            _write_intermediate_artifact(task_dir / name, payload)
-        _write_json_artifact(
-            task_dir / "refine-result.json",
-            {
-                "task_id": task_id,
-                "status": result.status,
-                "skills_used": result.skills_used,
-                "selected_skill_ids": result.selected_skill_ids,
-                "intermediate_artifacts": sorted(result.intermediate_artifacts.keys()),
-                "updated_at": datetime.now().astimezone().isoformat(),
-            },
-        )
         task_meta["status"] = result.status
         task_meta["updated_at"] = datetime.now().astimezone().isoformat()
         (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n")
@@ -112,17 +103,6 @@ def _write_markdown_artifact(path: Path, content: str) -> None:
     path.write_text(content.rstrip() + "\n", encoding="utf-8")
 
 
-def _write_json_artifact(path: Path, payload: dict[str, object]) -> None:
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def _write_intermediate_artifact(path: Path, payload: str | dict[str, object]) -> None:
-    if isinstance(payload, dict):
-        _write_json_artifact(path, payload)
-        return
-    _write_markdown_artifact(path, payload)
-
-
 def _reset_refine_outputs(task_dir: Path) -> None:
     for name in (
         "prd-refined.md",
@@ -132,6 +112,7 @@ def _reset_refine_outputs(task_dir: Path) -> None:
         "refine-brief.json",
         "refine-intent.json",
         "refine-verify.json",
+        "refine-diagnosis.json",
         "refine-result.json",
         "refine-scope.candidates.json",
         "refine-scope.json",
@@ -156,25 +137,47 @@ def _reset_refine_outputs(task_dir: Path) -> None:
     for name in (
         "design.md",
         "design.log",
+        "design-input.json",
+        "design-input.md",
+        "design-research-plan.json",
+        "design-research-summary.json",
+        "design-adjudication.json",
+        "design-review.json",
+        "design-debate.json",
+        "design-decision.json",
         "design-change-points.json",
         "design-repo-assignment.json",
         "design-research.json",
         "design-repo-responsibility-matrix.json",
+        "design-skills-selection.json",
+        "design-skills.json",
         "design-skills-brief.md",
+        "design-contracts.json",
+        "design-sync.json",
+        "design-search-hints.json",
         "design-repo-binding.json",
         "design-sections.json",
         "design-verify.json",
+        "design-diagnosis.json",
         "design-result.json",
         "plan.md",
         "plan-skills-selection.json",
+        "plan-skills.json",
         "plan-skills-brief.md",
+        "plan-draft-work-items.json",
+        "plan-draft-execution-graph.json",
+        "plan-draft-validation.json",
         "plan-task-outline.json",
         "plan-work-items.json",
         "plan-execution-graph.json",
         "plan-validation.json",
+        "plan-review.json",
+        "plan-debate.json",
+        "plan-decision.json",
         "plan-dependency-notes.json",
         "plan-risk-check.json",
         "plan-verify.json",
+        "plan-diagnosis.json",
         "plan-result.json",
         "plan-scope.json",
         "plan-execution.json",
@@ -187,7 +190,7 @@ def _reset_refine_outputs(task_dir: Path) -> None:
         path = task_dir / name
         if path.exists():
             path.unlink()
-    for directory in ("code-results", "code-logs", "code-verify", "diffs"):
+    for directory in ("design-research", "plan-repos", "code-results", "code-logs", "code-verify", "diffs"):
         path = task_dir / directory
         if path.exists():
             shutil.rmtree(path)
@@ -218,4 +221,14 @@ def _ensure_manual_extract_ready(task_dir: Path) -> None:
         supplement = str(input_meta.get("supplement") or "").strip()
     error = validate_manual_extract(supplement)
     if error:
+        _write_manual_extract_needs_human_diagnosis(
+            task_dir,
+            error,
+            missing_required_manual_extract_sections(supplement),
+        )
         raise ValueError(error)
+
+
+def _write_manual_extract_needs_human_diagnosis(task_dir: Path, reason: str, missing_sections: list[str]) -> None:
+    del task_dir, missing_sections
+    raise ValueError(reason)

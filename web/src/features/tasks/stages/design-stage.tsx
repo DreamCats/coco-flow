@@ -1,10 +1,10 @@
 import type { TaskRecord } from '../../../api'
-import { updateTaskArtifact } from '../../../api'
+import { syncDesign, updateTaskArtifact } from '../../../api'
 import { useEffect, useMemo, useState } from 'react'
 import { hasArtifact } from '../model'
 import { TaskRepoBindingModal } from '../task-repo-binding-modal'
 import { TaskStageEditorModal } from '../task-stage-editor-modal'
-import { ActionButton, ArtifactPanel, NotePanel, SectionCard, TabButton } from '../ui'
+import { ActionButton, ArtifactPanel, NotePanel, SectionCard, TabButton, TipIcon } from '../ui'
 
 type DesignTab = 'artifact' | 'notes' | 'log'
 type DesignProgressStep = {
@@ -12,6 +12,9 @@ type DesignProgressStep = {
   done: boolean
   current: boolean
 }
+
+const DESIGN_PROGRESS_LABELS = ['准备输入', '选择 Skills', '仓库调研', '生成设计', '完成设计'] as const
+type DesignProgressLabel = (typeof DESIGN_PROGRESS_LABELS)[number]
 
 export function DesignStage({
   task,
@@ -28,7 +31,10 @@ export function DesignStage({
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState('')
   const steps = useMemo(() => buildDesignProgress(task), [task])
+  const designSync = useMemo(() => buildDesignSync(task), [task])
   const progressPercent = useMemo(() => buildDesignProgressPercent(task, steps), [task, steps])
   const activeLabel = steps.find((step) => step.current)?.label ?? (task.status === 'designed' ? '设计完成' : '等待开始')
   const progressTone =
@@ -43,6 +49,7 @@ export function DesignStage({
   const currentDesign = task.artifacts['design.md'] || ''
   const currentValue = editingTab === 'artifact' ? currentDesign : task.artifacts['design.notes.md'] || ''
   const canSave = editingTab === 'artifact' ? draft.trim().length > 0 && draft.trim() !== currentValue.trim() : draft.trim() !== currentValue.trim()
+  const blocker = buildDesignBlocker(task)
 
   useEffect(() => {
     if (openRepoBindingToken > 0) {
@@ -73,9 +80,29 @@ export function DesignStage({
     }
   }
 
+  async function handleSync() {
+    try {
+      setSyncing(true)
+      setSyncError('')
+      await syncDesign(task.id)
+      await onTaskUpdated()
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : '同步失败')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <>
       <SectionCard title="阶段详情">
+        {blocker ? (
+          <div className="mb-4 rounded-[14px] border border-[#e7bf7a] bg-[#fff6e6] px-4 py-3 text-sm leading-6 text-[#75510d] dark:border-[#6b5428] dark:bg-[#2d2416] dark:text-[#f0d59b]">
+            <div className="font-medium text-[#5f430d] dark:text-[#f5dfad]">{blocker.title}</div>
+            <div className="mt-1">{blocker.body}</div>
+            {blocker.action ? <div className="mt-2 text-xs text-[#8a6826] dark:text-[#d5bb83]">{blocker.action}</div> : null}
+          </div>
+        ) : null}
         <div className="rounded-[18px] border border-[#ece6da] bg-[#fffdf9] px-4 py-4 dark:border-[#383632] dark:bg-[#151412]">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -109,6 +136,7 @@ export function DesignStage({
             ))}
           </div>
         </div>
+        <DesignSyncNotice busy={syncing} error={syncError} onSync={() => void handleSync()} sync={designSync} />
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] p-1 dark:border-[#30302e] dark:bg-[#232220]">
@@ -130,6 +158,21 @@ export function DesignStage({
               <ActionButton onClick={() => openEditor(tab === 'artifact' ? 'artifact' : 'notes')} tone="secondary">
                 {tab === 'artifact' ? '编辑原文' : '编辑补充'}
               </ActionButton>
+              {tab === 'artifact' ? (
+                <TipIcon label="Design 确认项填写示例">
+                  <div className="font-medium text-[#141413] dark:text-[#faf9f5]">确认后的答案写回 design.md</div>
+                  <div className="mt-2">
+                    字段语义、实验枚举值、文案 key、范围边界要写成明确结论，不要只删除“待确认”。
+                  </div>
+                  <pre className="mt-2 whitespace-pre-wrap rounded-[8px] bg-[#f5f4ed] p-2 font-mono text-[11px] leading-5 dark:bg-[#232220]">
+{`### 文案 key
+- Starting bid: \`ecom_live_auction_pin_card_message_starting_price\`
+
+## 明确不做
+- 不涉及 bag / 购物袋场景。`}
+                  </pre>
+                </TipIcon>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -169,69 +212,144 @@ export function DesignStage({
   )
 }
 
+type DesignSyncState = {
+  synced: boolean | null
+  changedArtifact: string
+}
+
+function DesignSyncNotice({
+  busy,
+  error,
+  onSync,
+  sync,
+}: {
+  busy: boolean
+  error: string
+  onSync: () => void
+  sync: DesignSyncState
+}) {
+  if (sync.synced !== false) {
+    return null
+  }
+  return (
+    <div className="mt-4 rounded-[16px] border border-[#efc08a] bg-[#fff6e8] px-4 py-3 text-sm leading-6 text-[#8a5b18] dark:border-[#6f5330] dark:bg-[#2d2418] dark:text-[#f1c98c]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-medium">Design Markdown 已保存，但结构化设计契约未同步。</div>
+          <div className="mt-1">
+            {sync.changedArtifact || 'design.md'} 已被编辑。Plan 阶段当前会被阻断；请先同步设计契约，系统会保留当前 Markdown，只刷新 design-contracts.json。
+          </div>
+          {error ? <div className="mt-2 text-xs text-[#b53333] dark:text-[#ffb4a8]">{error}</div> : null}
+        </div>
+        <ActionButton disabled={busy} onClick={onSync} tone="secondary">
+          {busy ? '同步中...' : '同步设计契约'}
+        </ActionButton>
+      </div>
+    </div>
+  )
+}
+
+function buildDesignSync(task: TaskRecord): DesignSyncState {
+  const payload = parseJSON(task.artifacts['design-sync.json'])
+  return {
+    synced: typeof payload.synced === 'boolean' ? payload.synced : null,
+    changedArtifact: asString(payload.changed_artifact) || asString(payload.changedArtifact),
+  }
+}
+
+function parseJSON(content: string | undefined): Record<string, unknown> {
+  if (!content) {
+    return {}
+  }
+  try {
+    const parsed = JSON.parse(content) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function buildDesignBlocker(task: TaskRecord): { title: string; body: string; action: string } | null {
+  const diagnosis = task.diagnosis
+  if (!diagnosis || diagnosis.stage !== 'design' || diagnosis.ok) {
+    return null
+  }
+  const severity = diagnosis.severity || ''
+  const blocked = severity === 'needs_human' || severity === 'degraded' || task.status === 'failed'
+  if (!blocked) {
+    return null
+  }
+  const reason = diagnosis.reason || 'Design 阶段需要人工确认后才能继续。'
+  const issueText = diagnosis.issueCount > 0 ? `共发现 ${diagnosis.issueCount} 个问题。` : ''
+  return {
+    title: severity === 'degraded' ? 'Design 产物需要人工确认' : 'Design 已被阻断',
+    body: [issueText, reason].filter(Boolean).join(' '),
+    action: task.nextAction || '请查看 design-diagnosis.json 和 design-decision.json，确认后重新执行 Design。',
+  }
+}
+
 function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
   const log = task.artifacts['design.log'] || ''
-  const designSkillsBriefArtifact = task.artifacts['design-skills-brief.md'] || ''
+  const designInputArtifact = task.artifacts['design-input.json'] || ''
   const refineSkillsReadArtifact = task.artifacts['refine-skills-read.md'] || ''
   const hasStarted = task.status === 'designing' || task.status === 'designed' || log.includes('=== DESIGN START ===')
-  const hasKnowledge =
-    hasArtifact(designSkillsBriefArtifact) ||
+  const hasPrepared =
+    hasArtifact(designInputArtifact) ||
+    log.includes('design_prepare_ok:') ||
+    log.includes('design_v3_prepare_ok:')
+  const hasSkills =
+    hasArtifact(designInputArtifact) ||
     hasArtifact(refineSkillsReadArtifact) ||
     log.includes('design_skills_ok:') ||
-    log.includes('repo_research_prefilter_candidates:')
+    log.includes('design_v3_prepare_ok:')
   const hasResearch =
-    hasArtifact(task.artifacts['design-research.json']) ||
-    log.includes('repo_research_prefilter_candidates:') ||
-    log.includes('repo_research_agent_ok:') ||
-    log.includes('repo_research_agent_fallback:')
-  const hasBinding = hasArtifact(task.artifacts['design-repo-binding.json']) || log.includes('design_repo_binding: true')
+    hasArtifact(task.artifacts['design-research-summary.json']) ||
+    hasArtifact(task.artifacts['design-research-plan.json']) ||
+    log.includes('design_research_ok:') ||
+    log.includes('design_v3_repo_research_ok:')
   const hasDraft =
     hasArtifact(task.artifacts['design.md']) ||
     hasArtifact(task.artifacts['design-sections.json']) ||
-    log.includes('design_sections: true') ||
-    log.includes('native_design_fallback:')
-  const hasVerified = hasArtifact(task.artifacts['design-verify.json']) || task.status === 'designed' || log.includes('status: designed')
+    log.includes('design_writer_ok:') ||
+    log.includes('design_v3_writer_ok:')
+  const hasFinished =
+    hasArtifact(task.artifacts['design-verify.json']) ||
+    task.status === 'designed' ||
+    log.includes('status: designed') ||
+    log.includes('design_v3_gate_ok:')
 
   if (task.status === 'designed') {
-    return [
-      { label: '继承 Skills', done: true, current: false },
-      { label: '仓库探索', done: true, current: false },
-      { label: 'Repo Binding', done: true, current: false },
-      { label: '生成成稿', done: true, current: false },
-      { label: '完成校验', done: true, current: false },
-    ]
+    return DESIGN_PROGRESS_LABELS.map((label) => ({ label, done: true, current: false }))
   }
 
   if (task.status !== 'designing') {
-    return [
-      { label: '继承 Skills', done: false, current: false },
-      { label: '仓库探索', done: false, current: false },
-      { label: 'Repo Binding', done: false, current: false },
-      { label: '生成成稿', done: false, current: false },
-      { label: '完成校验', done: false, current: false },
-    ]
+    return DESIGN_PROGRESS_LABELS.map((label) => ({ label, done: false, current: false }))
   }
 
-  const currentStep = !hasStarted
-    ? '继承 Skills'
-    : !hasKnowledge
-      ? '继承 Skills'
+  const currentStep: DesignProgressLabel = !hasStarted
+    ? '准备输入'
+    : !hasPrepared
+      ? '准备输入'
+      : !hasSkills
+        ? '选择 Skills'
       : !hasResearch
-        ? '仓库探索'
-        : !hasBinding
-          ? 'Repo Binding'
-          : !hasDraft
-            ? '生成成稿'
-            : !hasVerified
-              ? '完成校验'
-              : '完成校验'
+        ? '仓库调研'
+        : !hasDraft
+          ? '生成设计'
+          : !hasFinished
+            ? '完成设计'
+            : '完成设计'
 
   return [
-    { label: '继承 Skills', done: hasKnowledge, current: currentStep === '继承 Skills' },
-    { label: '仓库探索', done: hasResearch, current: currentStep === '仓库探索' },
-    { label: 'Repo Binding', done: hasBinding, current: currentStep === 'Repo Binding' },
-    { label: '生成成稿', done: hasDraft, current: currentStep === '生成成稿' },
-    { label: '完成校验', done: hasVerified, current: currentStep === '完成校验' },
+    { label: '准备输入', done: hasPrepared, current: currentStep === '准备输入' },
+    { label: '选择 Skills', done: hasSkills, current: currentStep === '选择 Skills' },
+    { label: '仓库调研', done: hasResearch, current: currentStep === '仓库调研' },
+    { label: '生成设计', done: hasDraft, current: currentStep === '生成设计' },
+    { label: '完成设计', done: hasFinished, current: currentStep === '完成设计' },
   ]
 }
 

@@ -9,6 +9,7 @@ from coco_flow.api.presenters import task_detail_item
 from coco_flow.config import Settings
 from coco_flow.models.task import ArtifactItem, RepoBinding, TaskDetail, TimelineItem
 from coco_flow.services.queries.task_detail import (
+    build_latest_diagnosis,
     build_next_action,
     build_task_detail,
     build_timeline,
@@ -142,6 +143,94 @@ class TaskDetailPresenterTest(unittest.TestCase):
 
         self.assertEqual(payload["repoNext"], ["repo-a"])
 
+    def test_build_task_detail_exposes_latest_diagnosis_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp)
+            (task_dir / "task.json").write_text(
+                json.dumps({"task_id": "task-1", "title": "demo", "status": "planning"}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "source.json").write_text(json.dumps({"type": "text"}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "repos.json").write_text(json.dumps({"repos": []}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (task_dir / "refine-diagnosis.json").write_text(
+                json.dumps({"stage": "refine", "ok": True, "severity": "info", "next_action": "continue", "issues": []}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "plan-diagnosis.json").write_text(
+                json.dumps(
+                    {
+                        "stage": "plan",
+                        "ok": False,
+                        "severity": "blocking",
+                        "failure_type": "missing_work_item_coverage",
+                        "next_action": "repair",
+                        "reason": "local plan verify failed",
+                        "issues": [{"id": "P001"}],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            summary = build_latest_diagnosis(task_dir)
+            detail = build_task_detail(task_dir, "text", json.loads((task_dir / "task.json").read_text()), {"type": "text"}, {"repos": []})
+            payload = task_detail_item(detail)
+
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary.stage, "plan")
+        self.assertEqual(summary.issue_count, 1)
+        self.assertEqual(payload["diagnosis"]["failureType"], "missing_work_item_coverage")
+        self.assertEqual(payload["diagnosis"]["nextAction"], "repair")
+
+    def test_build_next_action_prefers_needs_human_diagnosis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp)
+            (task_dir / "prd-refined.md").write_text("# PRD Refined\n", encoding="utf-8")
+            (task_dir / "design.md").write_text("# Design\n", encoding="utf-8")
+            diagnosis = build_latest_diagnosis(task_dir)
+            self.assertIsNone(diagnosis)
+
+            design_diagnosis = {
+                "stage": "design",
+                "ok": False,
+                "severity": "needs_human",
+                "failure_type": "repo_responsibility_uncertain",
+                "next_action": "needs_human",
+                "issues": [{"id": "D001"}],
+            }
+            (task_dir / "design-diagnosis.json").write_text(json.dumps(design_diagnosis, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            diagnosis = build_latest_diagnosis(task_dir)
+            assert diagnosis is not None
+
+            action = build_next_action("task-1", "designed", task_dir, [], diagnosis)
+
+        self.assertIn("请先确认", action)
+        self.assertIn("design-repo-binding.json", action)
+        self.assertNotIn("tasks plan", action)
+
+    def test_build_next_action_points_to_manual_scope_for_refine_needs_human(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp)
+            refine_diagnosis = {
+                "stage": "refine",
+                "ok": False,
+                "severity": "needs_human",
+                "failure_type": "missing_human_scope",
+                "next_action": "needs_human",
+                "issues": [{"id": "R001"}],
+            }
+            (task_dir / "refine-diagnosis.json").write_text(json.dumps(refine_diagnosis, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            diagnosis = build_latest_diagnosis(task_dir)
+            assert diagnosis is not None
+
+            action = build_next_action("task-1", "input_ready", task_dir, [], diagnosis)
+
+        self.assertIn("请先补齐", action)
+        self.assertIn("prd.source.md", action)
+        self.assertIn("tasks refine task-1", action)
+
     def test_build_task_detail_exposes_code_v2_typed_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             task_dir = Path(tmp)
@@ -172,6 +261,24 @@ class TaskDetailPresenterTest(unittest.TestCase):
                                 "id": "repo-a",
                                 "path": "/tmp/repo-a",
                                 "status": "coding",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "design-repo-binding.json").write_text(
+                json.dumps(
+                    {
+                        "repo_bindings": [
+                            {
+                                "repo_id": "repo-a",
+                                "decision": "in_scope",
+                                "scope_tier": "must_change",
+                                "confidence": "high",
                             }
                         ]
                     },
@@ -300,6 +407,7 @@ class TaskDetailPresenterTest(unittest.TestCase):
         self.assertEqual(detail.code_progress.running_batches, 1)
         self.assertEqual(detail.code_progress.completed_work_items, 1)
         self.assertEqual(detail.repos[0].scope_tier, "must_change")
+        self.assertEqual(detail.repos[0].confidence, "high")
         self.assertEqual(detail.repos[0].execution_mode, "apply")
         self.assertEqual(detail.repos[0].batch_id, "batch-1")
         self.assertEqual(detail.repos[0].batch_status, "running")
@@ -334,6 +442,7 @@ class TaskDetailPresenterTest(unittest.TestCase):
             },
         )
         self.assertEqual(payload["repos"][0]["scopeTier"], "must_change")
+        self.assertEqual(payload["repos"][0]["confidence"], "high")
         self.assertEqual(payload["repos"][0]["executionMode"], "apply")
         self.assertEqual(payload["repos"][0]["batchId"], "batch-1")
         self.assertEqual(payload["repos"][0]["batchStatus"], "running")

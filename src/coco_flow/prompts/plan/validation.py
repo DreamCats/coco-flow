@@ -10,7 +10,7 @@ from .shared import (
 )
 
 
-def build_plan_validation_template_json() -> str:
+def build_plan_validation_designer_template_json() -> str:
     return (
         '{\n'
         '  "global_validation_focus": ["__FILL__"],\n'
@@ -33,19 +33,23 @@ def build_plan_validation_template_json() -> str:
     )
 
 
-def build_plan_validation_agent_prompt(
+def build_plan_validation_template_json() -> str:
+    return build_plan_validation_designer_template_json()
+
+
+def build_plan_validation_designer_agent_prompt(
     *,
     title: str,
     design_markdown: str,
     refined_markdown: str,
-    skills_brief_markdown: str,
+    skills_fallback_markdown: str,
     work_items_payload: dict[str, object],
     execution_graph_payload: dict[str, object],
     template_path: str,
 ) -> str:
     document = PromptDocument(
-        intro="你在做 coco-flow Plan V2 的验证契约生成。",
-        goal="基于 work items、execution graph 和 Design 重点，直接编辑指定 JSON 模板文件，产出 plan-validation.json。",
+        intro="你在做 coco-flow Plan Open Harness 的 Validation Designer 角色。",
+        goal="基于 work items、execution graph 和 Design 重点，直接编辑指定 JSON 模板文件，产出 plan-draft-validation.json。",
         requirements=[
             "必须直接编辑指定 JSON 文件，不要只在回复里输出结果。",
             "验证契约要服务执行，不要把大量泛化测试建议堆成 checklist。",
@@ -66,10 +70,31 @@ def build_plan_validation_agent_prompt(
                 title=title,
                 design_markdown=design_markdown,
                 refined_markdown=refined_markdown,
-                skills_brief_markdown=skills_brief_markdown,
+                skills_fallback_markdown=skills_fallback_markdown,
             ),
             build_plan_work_items_section(work_items_payload),
             build_plan_execution_graph_section(execution_graph_payload),
         ],
     )
     return render_prompt(document)
+
+
+def build_plan_validation_agent_prompt(
+    *,
+    title: str,
+    design_markdown: str,
+    refined_markdown: str,
+    skills_fallback_markdown: str,
+    work_items_payload: dict[str, object],
+    execution_graph_payload: dict[str, object],
+    template_path: str,
+) -> str:
+    return build_plan_validation_designer_agent_prompt(
+        title=title,
+        design_markdown=design_markdown,
+        refined_markdown=refined_markdown,
+        skills_fallback_markdown=skills_fallback_markdown,
+        work_items_payload=work_items_payload,
+        execution_graph_payload=execution_graph_payload,
+        template_path=template_path,
+    )

@@ -22,18 +22,27 @@ STATUS_PLANNED = "planned"
 STATUS_FAILED = "failed"
 
 PLAN_V2_ARTIFACTS = [
+    "plan-draft-work-items.json",
+    "plan-draft-execution-graph.json",
+    "plan-draft-validation.json",
     "plan-task-outline.json",
     "plan-work-items.json",
     "plan-execution-graph.json",
     "plan-validation.json",
+    "plan-sync.json",
+    "plan-review.json",
+    "plan-debate.json",
+    "plan-decision.json",
     "plan-dependency-notes.json",
     "plan-risk-check.json",
     "plan-verify.json",
+    "plan-diagnosis.json",
     "plan-result.json",
 ]
 
 PLAN_ARTIFACTS = [
     "plan-skills-selection.json",
+    "plan-skills.json",
     "plan-skills-brief.md",
     *PLAN_V2_ARTIFACTS,
     "plan-scope.json",
@@ -49,6 +58,11 @@ CODE_ARTIFACTS = [
     "code.log",
 ]
 
+DESIGN_CONTRACT_ARTIFACTS = [
+    "design-contracts.json",
+    "design-sync.json",
+]
+
 EDIT_RULES = {
     "prd.source.md": {
         "allowed": {STATUS_INITIALIZED, STATUS_INPUT_PROCESSING, STATUS_INPUT_READY, STATUS_INPUT_FAILED, STATUS_REFINED, STATUS_DESIGNED, STATUS_PLANNED},
@@ -62,6 +76,7 @@ EDIT_RULES = {
             "refine-brief.json",
             "refine-intent.json",
             "refine-verify.json",
+            "refine-diagnosis.json",
             "refine-result.json",
             "refine-scope.candidates.json",
             "refine-scope.json",
@@ -70,20 +85,33 @@ EDIT_RULES = {
             "refine-skills-read.md",
             "design.md",
             "design.log",
+            "design-input.json",
+            "design-input.md",
+            "design-research-plan.json",
+            "design-research-summary.json",
+            "design-adjudication.json",
+            "design-review.json",
+            "design-debate.json",
+            "design-decision.json",
             "design-change-points.json",
             "design-repo-assignment.json",
             "design-research.json",
             "design-repo-responsibility-matrix.json",
+            "design-skills-selection.json",
+            "design-skills.json",
             "design-skills-brief.md",
+            *DESIGN_CONTRACT_ARTIFACTS,
+            "design-search-hints.json",
             "design-repo-binding.json",
             "design-sections.json",
             "design-verify.json",
+            "design-diagnosis.json",
             "design-result.json",
             "refine.log",
             *PLAN_ARTIFACTS,
             *CODE_ARTIFACTS,
         ],
-        "invalidate_dirs": ["code-results", "code-logs", "code-verify", "diffs"],
+        "invalidate_dirs": ["design-research", "code-results", "code-logs", "code-verify", "diffs"],
     },
     "prd-refined.md": {
         "allowed": {STATUS_REFINING, STATUS_REFINED, STATUS_DESIGNING, STATUS_DESIGNED, STATUS_PLANNED},
@@ -91,19 +119,32 @@ EDIT_RULES = {
         "invalidate": [
             "design.md",
             "design.log",
+            "design-input.json",
+            "design-input.md",
+            "design-research-plan.json",
+            "design-research-summary.json",
+            "design-adjudication.json",
+            "design-review.json",
+            "design-debate.json",
+            "design-decision.json",
             "design-change-points.json",
             "design-repo-assignment.json",
             "design-research.json",
             "design-repo-responsibility-matrix.json",
+            "design-skills-selection.json",
+            "design-skills.json",
             "design-skills-brief.md",
+            *DESIGN_CONTRACT_ARTIFACTS,
+            "design-search-hints.json",
             "design-repo-binding.json",
             "design-sections.json",
             "design-verify.json",
+            "design-diagnosis.json",
             "design-result.json",
             *PLAN_ARTIFACTS,
             *CODE_ARTIFACTS,
         ],
-        "invalidate_dirs": ["code-results", "code-logs", "code-verify", "diffs"],
+        "invalidate_dirs": ["design-research", "code-results", "code-logs", "code-verify", "diffs"],
     },
     "refine.notes.md": {
         "allowed": {STATUS_INPUT_READY, STATUS_REFINING, STATUS_REFINED, STATUS_DESIGNING, STATUS_DESIGNED, STATUS_PLANNED, STATUS_FAILED},
@@ -133,9 +174,11 @@ EDIT_RULES = {
 
 
 def update_artifact(
-    task_id: str, name: str, content: str, settings: Settings | None = None
+    task_id: str, name: str, content: str, settings: Settings | None = None, repo_id: str | None = None
 ) -> tuple[str, str]:
     cfg = settings or load_settings()
+    if repo_id:
+        return update_repo_artifact(task_id, repo_id, name, content, cfg)
     rule = EDIT_RULES.get(name)
     if rule is None:
         raise ValueError(f"artifact {name} 不支持编辑")
@@ -163,6 +206,10 @@ def update_artifact(
             raise ValueError(error)
 
     (task_dir / name).write_text(trimmed + "\n")
+    if name == "design.md":
+        mark_design_unsynced(task_dir, changed_artifact=name)
+    if name == "plan.md":
+        mark_plan_unsynced(task_dir, changed_artifact=name)
 
     for artifact_name in rule["invalidate"]:
         remove_path(task_dir / artifact_name)
@@ -187,6 +234,31 @@ def update_artifact(
     return next_status, read_artifact_content(task_dir, name)
 
 
+def update_repo_artifact(task_id: str, repo_id: str, name: str, content: str, cfg: Settings) -> tuple[str, str]:
+    if name not in {"plan.md", "repo-plan.md"}:
+        raise ValueError(f"repo 级 artifact 暂不支持编辑 {name}")
+    task_dir = locate_task_dir(task_id, cfg)
+    if task_dir is None:
+        raise ValueError(f"task not found: {task_id}")
+    task_meta = read_json_file(task_dir / "task.json")
+    if not task_meta:
+        raise ValueError(f"task metadata missing: {task_id}")
+    status = str(task_meta.get("status") or "")
+    if status != STATUS_PLANNED:
+        raise ValueError(f"当前状态为 {status}，不能编辑 repo plan")
+    trimmed = content.strip()
+    if not trimmed:
+        raise ValueError("repo plan 不能为空")
+    repo_dir = task_dir / "plan-repos"
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    target = repo_dir / f"{_sanitize_repo_id(repo_id)}.md"
+    target.write_text(trimmed + "\n", encoding="utf-8")
+    mark_plan_unsynced(task_dir, changed_artifact="plan.md", repo_id=repo_id)
+    task_meta["updated_at"] = datetime.now().astimezone().isoformat()
+    (task_dir / "task.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2) + "\n")
+    return status, target.read_text(encoding="utf-8")
+
+
 def remove_path(path: Path) -> None:
     if path.exists() and path.is_file():
         path.unlink()
@@ -195,6 +267,34 @@ def remove_path(path: Path) -> None:
 def remove_tree(path: Path) -> None:
     if path.exists():
         shutil.rmtree(path)
+
+
+def _sanitize_repo_id(repo_id: str) -> str:
+    chars = [char if char.isalnum() or char in {"-", "_", "."} else "_" for char in repo_id.strip()]
+    return "".join(chars) or "repo"
+
+
+def mark_plan_unsynced(task_dir: Path, *, changed_artifact: str, repo_id: str = "") -> None:
+    payload = {
+        "synced": False,
+        "status": "markdown_changed",
+        "reason": "Plan Markdown was edited after structured Plan artifacts were generated. Sync Plan before Code.",
+        "changed_artifact": changed_artifact,
+        "repo_id": repo_id,
+        "updated_at": datetime.now().astimezone().isoformat(),
+    }
+    (task_dir / "plan-sync.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def mark_design_unsynced(task_dir: Path, *, changed_artifact: str) -> None:
+    payload = {
+        "synced": False,
+        "status": "markdown_changed",
+        "reason": "Design Markdown was edited after structured contracts were generated. Sync Design before Plan.",
+        "changed_artifact": changed_artifact,
+        "updated_at": datetime.now().astimezone().isoformat(),
+    }
+    (task_dir / "design-sync.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def sync_repo_statuses(task_dir: Path, status: str) -> None:

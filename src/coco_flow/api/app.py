@@ -35,7 +35,9 @@ from coco_flow.services.runtime.build_meta import current_build_meta
 from coco_flow.services.tasks.lifecycle import archive_task, reset_task
 from coco_flow.services.tasks.code import start_coding_task
 from coco_flow.services.tasks.design import start_designing_task
+from coco_flow.services.tasks.design_sync import sync_design_task
 from coco_flow.services.tasks.plan import start_planning_task
+from coco_flow.services.tasks.plan_sync import sync_plan_task
 from coco_flow.services.queries.repos import list_recent_repos, validate_repo_path
 from coco_flow.services.tasks.repos import update_task_repos
 from coco_flow.services.tasks.refine import start_refining_task
@@ -252,6 +254,28 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
                 raise HTTPException(status_code=404, detail=message) from error
             raise HTTPException(status_code=409, detail=message) from error
 
+    @app.post("/api/tasks/{task_id}/design/sync", response_model=TaskActionResponse)
+    def sync_design_task_handler(task_id: str) -> TaskActionResponse:
+        try:
+            status = sync_design_task(task_id, settings=store.settings)
+            return TaskActionResponse(task_id=task_id, status=status)
+        except ValueError as error:
+            message = str(error)
+            if "not found" in message:
+                raise HTTPException(status_code=404, detail=message) from error
+            raise HTTPException(status_code=409, detail=message) from error
+
+    @app.post("/api/tasks/{task_id}/plan/sync", response_model=TaskActionResponse)
+    def sync_plan_task_handler(task_id: str) -> TaskActionResponse:
+        try:
+            status = sync_plan_task(task_id, settings=store.settings)
+            return TaskActionResponse(task_id=task_id, status=status)
+        except ValueError as error:
+            message = str(error)
+            if "not found" in message:
+                raise HTTPException(status_code=404, detail=message) from error
+            raise HTTPException(status_code=409, detail=message) from error
+
     @app.post("/api/tasks/{task_id}/code", response_model=TaskActionResponse, status_code=202)
     def code_task_handler(task_id: str, repo: str = "") -> TaskActionResponse:
         try:
@@ -307,7 +331,7 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
 
     @app.put("/api/tasks/{task_id}/artifact", response_model=UpdateArtifactResponse)
     def update_task_artifact(
-        task_id: str, name: str, payload: UpdateArtifactRequest
+        task_id: str, name: str, payload: UpdateArtifactRequest, repo: str = ""
     ) -> UpdateArtifactResponse:
         try:
             status, content = update_artifact(
@@ -315,6 +339,7 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
                 name=name,
                 content=payload.content,
                 settings=store.settings,
+                repo_id=repo or None,
             )
             return UpdateArtifactResponse(
                 task_id=task_id,

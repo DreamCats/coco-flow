@@ -23,6 +23,7 @@ def prepare_code_input(task_dir: Path, task_meta: dict[str, object]) -> CodePrep
     plan_work_items_payload = read_json_file(task_dir / "plan-work-items.json")
     plan_execution_graph_payload = read_json_file(task_dir / "plan-execution-graph.json")
     plan_validation_payload = read_json_file(task_dir / "plan-validation.json")
+    plan_sync_payload = read_json_file(task_dir / "plan-sync.json")
     plan_result_payload = read_json_file(task_dir / "plan-result.json")
 
     refined_markdown = _read_text_if_exists(task_dir / "prd-refined.md")
@@ -30,12 +31,10 @@ def prepare_code_input(task_dir: Path, task_meta: dict[str, object]) -> CodePrep
     plan_markdown = _read_text_if_exists(task_dir / "plan.md")
     title = str(task_meta.get("title") or input_meta.get("title") or task_id)
 
-    _require_payload(design_repo_binding_payload, "design-repo-binding.json 缺失，无法执行 code")
-    _require_payload(plan_work_items_payload, "plan-work-items.json 缺失，无法执行 code")
-    _require_payload(plan_execution_graph_payload, "plan-execution-graph.json 缺失，无法执行 code")
-    _require_payload(plan_validation_payload, "plan-validation.json 缺失，无法执行 code")
-    _require_payload(plan_result_payload, "plan-result.json 缺失，无法执行 code")
     _require_payload(repos_meta, "repos.json 缺失，无法执行 code")
+    _ensure_plan_synced(plan_sync_payload)
+    if plan_result_payload:
+        _ensure_plan_allows_code(plan_result_payload)
 
     return CodePreparedInput(
         task_dir=task_dir,
@@ -66,3 +65,23 @@ def _read_text_if_exists(path: Path) -> str:
 def _require_payload(payload: dict[str, object], message: str) -> None:
     if not payload:
         raise ValueError(message)
+
+
+def _ensure_plan_allows_code(plan_result_payload: dict[str, object]) -> None:
+    gate_status = str(plan_result_payload.get("gate_status") or "").strip()
+    code_allowed = plan_result_payload.get("code_allowed")
+    if code_allowed is False:
+        raise ValueError(f"plan gate status {gate_status or 'blocked'} does not allow code")
+    if gate_status and gate_status not in {"passed", "passed_with_warnings"}:
+        raise ValueError(f"plan gate status {gate_status} does not allow code")
+
+
+def _ensure_plan_synced(plan_sync_payload: dict[str, object]) -> None:
+    if not plan_sync_payload:
+        return
+    if plan_sync_payload.get("synced") is not False:
+        return
+    changed = str(plan_sync_payload.get("changed_artifact") or "plan.md").strip()
+    repo_id = str(plan_sync_payload.get("repo_id") or "").strip()
+    target = f"{repo_id} {changed}".strip()
+    raise ValueError(f"plan markdown changed after structured artifacts were generated: {target}. Sync Plan before Code.")

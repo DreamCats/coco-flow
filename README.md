@@ -9,7 +9,7 @@
 - Product: `coco-flow`
 - Package: `coco-flow`
 - Python: `>=3.13`
-- Stack: Python, `uv`, Typer, FastAPI, Vite/React, Electron, Chrome Extension
+- Stack: Python, `uv`, Typer, FastAPI, Vite/React, Chrome Extension
 - Default interaction language: Chinese
 
 Current task flow:
@@ -166,17 +166,23 @@ Notes:
 ### Refine
 
 - `refine` supports `native` and `local`.
-- The current refine engine is `manual-first`: it treats the Input-stage `人工提炼范围` as the primary source of truth, then turns it into a structured implementation brief.
-- `local` renders directly from the rule-generated brief.
-- `native` now uses `AGENT_MODE`: the controller prepares `manual_extract / brief draft / source excerpt`, then a read-write agent fills the markdown template and a second agent verifies it.
-- Typical artifacts include `refine-brief.json`, compatibility `refine-intent.json`, `prd-refined.md`, `refine-verify.json`, and `refine-result.json`.
+- The current refine engine is `manual-first`: it treats the Input-stage `人工提炼范围` as the primary source of truth and writes `prd-refined.md`.
+- `local` renders the markdown directly.
+- `native` uses temporary generation inputs and writes only the markdown template result.
+- Refine no longer persists stage schema artifacts such as brief, intent, verify, diagnosis, or result JSON.
+- Refine verification now classifies common failures and runs a bounded local repair loop for low-risk markdown issues such as missing sections, template placeholders, and acceptance criteria mixed with boundary text.
+- If the required manual extract fields are missing, refine writes a `needs_human` diagnosis and stops before generation.
 
 ### Design And Plan
 
 - `design` is a standalone stage exposed in both CLI and API.
+- Design now follows a doc-only MVP flow: refined PRD, repo research, and Skills/SOP are collapsed directly into `design.md`.
+- Design no longer persists adjudication, review, debate, decision, repo-binding, sections, verify, diagnosis, or result JSON.
 - `plan` supports `native` and `local`.
-- `native plan` runs staged scope extraction, generation, and verification.
-- Typical artifacts include `design.md`, `design-skills-brief.md`, `plan.md`, `plan-scope.json`, `plan-execution.json`, `plan-verify.json`, `plan-skills-selection.json`, and `plan-skills-brief.md`.
+- Plan writes a human-readable `plan.md` plus Code-consumable sidecars: `plan-work-items.json`, `plan-execution-graph.json`, `plan-validation.json`, `plan-sync.json`, and `plan-result.json`.
+- Plan also writes per-repo task files under `plan-repos/<repo_id>.md` for multi-repo review.
+- Editing `plan.md` or `plan-repos/<repo_id>.md` marks `plan-sync.json` as unsynced; use Sync Plan before Code so structured artifacts match the reviewed Markdown without overwriting the Markdown.
+- If Plan detects unresolved blockers, `plan-result.json` sets `code_allowed=false` so Code cannot proceed until the blocker is resolved.
 
 ### Code
 
@@ -238,40 +244,6 @@ Current UI capabilities:
 - browse and edit skills packages
 - edit `prd.source.md`, `prd-refined.md`, `design.md`, and `plan.md`
 - reset, archive, and inspect task artifacts
-
-## Desktop Launcher
-
-The Electron launcher MVP lives in [`desktop/`](desktop/).
-
-It now exposes two lightweight entry modes:
-
-- `Local`: start or stop local `coco-flow`, inspect local status, and open the local Web UI
-- `Remote`: list saved remotes, add or remove profiles, connect or disconnect, inspect status, and open the forwarded Web UI
-
-Both modes stream CLI logs into the same desktop log panel.
-
-Current constraints:
-
-- the desktop app still requires a locally installed `coco-flow` binary
-- it does not bundle the Python runtime or reimplement SSH/auth flows
-- it does not embed the full Web UI yet; successful local or remote launches still open the browser
-
-Local development:
-
-```bash
-cd /Users/bytedance/Work/tools/bytedance/coco-flow/desktop
-npm install
-npm run dev
-npm run build
-npm run dist:dir
-npm run dist:mac
-```
-
-Packaging notes:
-
-- `npm run dist:dir` builds an unpacked macOS app bundle in `desktop/dist/mac/`
-- `npm run dist:mac` builds a distributable macOS package such as `.dmg` in `desktop/dist/`
-- the current setup is unsigned; macOS signing and notarization still need to be added before wider distribution
 
 ## Chrome Extension Gateway MVP
 

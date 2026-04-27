@@ -165,6 +165,25 @@ export function ActionButton({
   )
 }
 
+export function TipIcon({ children, label = '查看示例' }: { children: ReactNode; label?: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <button
+        aria-label={label}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[#d65c45] bg-[#fff1ed] text-xs font-semibold text-[#b93624] shadow-[0_0_0_1px_rgba(214,92,69,0.16)] transition hover:bg-[#ffe4dc] focus:outline-none focus:ring-2 focus:ring-[#d65c45]/35 dark:border-[#8f3c2e] dark:bg-[#351b17] dark:text-[#ffb4a6] dark:hover:bg-[#452019]"
+        type="button"
+      >
+        ?
+      </button>
+      <span className="absolute right-0 top-full z-30 hidden w-[320px] max-w-[calc(100vw-3rem)] pt-2 group-focus-within:block group-hover:block">
+        <span className="block rounded-[12px] border border-[#d1cfc5] bg-[#fffdf9] px-3 py-3 text-left text-xs leading-5 text-[#4d4c48] shadow-[0_12px_34px_rgba(34,31,26,0.18)] dark:border-[#3a3937] dark:bg-[#191816] dark:text-[#d8d3c8]">
+          {children}
+        </span>
+      </span>
+    </span>
+  )
+}
+
 export function EmptyPanel({ children }: { children: ReactNode }) {
   return (
     <section className="flex min-h-[520px] items-center justify-center rounded-[24px] border border-dashed border-[#d1cfc5] bg-[#f5f4ed] p-8 text-center text-[#87867f] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5]">

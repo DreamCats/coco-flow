@@ -33,7 +33,14 @@ export type TaskArtifactName =
   | 'refine.log'
   | 'design.log'
   | 'design.md'
+  | 'design-contracts.json'
+  | 'design-sync.json'
   | 'plan.md'
+  | 'plan-work-items.json'
+  | 'plan-execution-graph.json'
+  | 'plan-validation.json'
+  | 'plan-sync.json'
+  | 'plan-result.json'
   | 'plan.log'
   | 'code-result.json'
   | 'code.log'
@@ -73,6 +80,7 @@ export type RepoResult = {
   failureAction?: string
   filesWritten?: string[]
   scopeTier?: CodeRepoScopeTier
+  confidence?: string
   executionMode?: CodeRepoExecutionMode
   queueState?: CodeRepoQueueState
   blockedBy?: string[]
@@ -103,6 +111,16 @@ export type TaskTimelineItem = {
   detail: string
 }
 
+export type TaskDiagnosis = {
+  stage: string
+  ok: boolean
+  severity: string
+  failureType: string
+  nextAction: string
+  reason: string
+  issueCount: number
+}
+
 export type TaskListItem = {
   id: string
   title: string
@@ -124,6 +142,7 @@ export type TaskRecord = {
   owner: string
   complexity: string
   nextAction: string
+  diagnosis?: TaskDiagnosis
   repoNext: string[]
   repos: RepoResult[]
   timeline: TaskTimelineItem[]
@@ -376,8 +395,30 @@ export async function startPlan(taskId: string) {
     method: 'POST',
   })
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null
-    throw new Error(body?.error || '启动 plan 失败')
+    const body = (await response.json().catch(() => null)) as { detail?: string; error?: string } | null
+    throw new Error(body?.detail || body?.error || '启动 plan 失败')
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
+}
+
+export async function syncPlan(taskId: string) {
+  const response = await fetch(`/api/tasks/${taskId}/plan/sync`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null
+    throw new Error(body?.detail || body?.error || '同步 Plan 失败')
+  }
+  return response.json() as Promise<{ task_id: string; status: string }>
+}
+
+export async function syncDesign(taskId: string) {
+  const response = await fetch(`/api/tasks/${taskId}/design/sync`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null
+    throw new Error(body?.detail || body?.error || '同步 Design 契约失败')
   }
   return response.json() as Promise<{ task_id: string; status: string }>
 }
@@ -442,8 +483,11 @@ export async function getTaskArtifact(taskId: string, name: TaskArtifactName, re
   return fetchJSON<ArtifactResponse>(`/api/tasks/${taskId}/artifact?${params.toString()}`)
 }
 
-export async function updateTaskArtifact(taskId: string, name: TaskArtifactName, content: string) {
+export async function updateTaskArtifact(taskId: string, name: TaskArtifactName, content: string, repoId?: string) {
   const params = new URLSearchParams({ name })
+  if (repoId) {
+    params.set('repo', repoId)
+  }
   const response = await fetch(`/api/tasks/${taskId}/artifact?${params.toString()}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -517,6 +561,7 @@ function normalizeTaskRecord(raw: unknown): TaskRecord {
     owner: asString(current.owner),
     complexity: asString(current.complexity),
     nextAction: asString(current.nextAction) || asString(current.next_action),
+    diagnosis: normalizeDiagnosis(current.diagnosis),
     repoNext: normalizeStringList(current.repoNext ?? current.repo_next),
     repos,
     timeline,
@@ -533,6 +578,25 @@ function normalizeTaskRecord(raw: unknown): TaskRecord {
   }
 }
 
+function normalizeDiagnosis(raw: unknown): TaskDiagnosis | undefined {
+  const current = asRecord(raw)
+  const stage = asString(current.stage)
+  const severity = asString(current.severity)
+  const nextAction = asString(current.nextAction) || asString(current.next_action)
+  if (!stage && !severity && !nextAction) {
+    return undefined
+  }
+  return {
+    stage,
+    ok: Boolean(current.ok),
+    severity,
+    failureType: asString(current.failureType) || asString(current.failure_type),
+    nextAction,
+    reason: asString(current.reason),
+    issueCount: asNumber(current.issueCount) || asNumber(current.issue_count) || 0,
+  }
+}
+
 function deriveCodeContract(
   task: TaskRecord,
   raw: Record<string, unknown>,
@@ -541,6 +605,7 @@ function deriveCodeContract(
   const workItemsPayload = parseJSONArtifact(task.artifacts['plan-work-items.json'])
   const graphPayload = parseJSONArtifact(task.artifacts['plan-execution-graph.json'])
   const validationPayload = parseJSONArtifact(task.artifacts['plan-validation.json'])
+  const planSyncPayload = parseJSONArtifact(task.artifacts['plan-sync.json'])
   const typedProgress = normalizeTypedCodeProgress(raw.codeProgress ?? raw.code_progress)
   const bindings = normalizeBindingEntries(bindingPayload.repo_bindings ?? bindingPayload.bindings)
   const workItems = normalizeWorkItems(workItemsPayload.work_items)
@@ -549,6 +614,8 @@ function deriveCodeContract(
   const executionOrder = buildRepoExecutionOrder(workItems, graphPayload.execution_order)
   const executionIndex = new Map(executionOrder.map((repoId, index) => [repoId, index]))
   const repoNextFallback = task.repoNext.length > 0 ? task.repoNext : executionOrder
+  const planUnsynced = planSyncPayload.synced === false
+  const planUnsyncedBlocker = 'Plan Markdown 未同步，请先同步执行契约'
 
   const repos = task.repos.map((repo) => {
     const binding = bindings.get(repo.id)
@@ -562,14 +629,16 @@ function deriveCodeContract(
         const dependency = task.repos.find((item) => item.id === dependencyRepo)
         return Boolean(dependency) && dependency?.status !== 'coded' && dependency?.status !== 'archived'
       }) ?? []
+    const effectiveBlockedBy = planUnsynced ? uniqueStrings([...blockedBy, planUnsyncedBlocker]) : blockedBy
 
-    const queueState = resolveRepoQueueState(repo, executionMode, blockedBy, repoNextFallback)
+    const queueState = planUnsynced ? 'blocked' : resolveRepoQueueState(repo, executionMode, effectiveBlockedBy, repoNextFallback)
     return {
       ...repo,
       scopeTier,
+      confidence: binding?.confidence || repo.confidence,
       executionMode,
       queueState,
-      blockedBy,
+      blockedBy: effectiveBlockedBy,
       workItems: repoWorkItems,
       verificationChecks: validationEntry?.checks ?? [],
       changeScope: uniqueStrings(repoWorkItems.flatMap((item) => item.changeScope)),
@@ -649,6 +718,7 @@ function normalizeRepos(raw: unknown): RepoResult[] {
       failureType: asString(current.failureType) || asString(current.failure_type) || undefined,
       failureHint: asString(current.failureHint) || asString(current.failure_hint) || undefined,
       failureAction: asString(current.failureAction) || asString(current.failure_action) || undefined,
+      confidence: asString(current.confidence) || undefined,
       filesWritten: normalizeStringList(current.filesWritten ?? current.files_written),
       diffSummary: Object.keys(diff).length
         ? {
@@ -685,6 +755,7 @@ function normalizeBindingEntries(raw: unknown) {
     string,
     {
       scopeTier: CodeRepoScopeTier
+      confidence: string
       reason: string
       candidateFiles: string[]
       dependsOn: string[]
@@ -701,6 +772,7 @@ function normalizeBindingEntries(raw: unknown) {
     }
     byRepo.set(repoId, {
       scopeTier: normalizeScopeTier(asString(current.scope_tier) || asString(current.scopeTier)),
+      confidence: asString(current.confidence),
       reason: asString(current.reason),
       candidateFiles: normalizeStringList(current.candidate_files ?? current.candidateFiles),
       dependsOn: normalizeStringList(current.depends_on ?? current.dependsOn),
@@ -753,8 +825,10 @@ function normalizeTaskValidations(raw: unknown) {
       ? current.checks
           .map((entry) => {
             const check = asRecord(entry)
-            const label = asString(check.label) || asString(check.name) || asString(check.type)
-            const expectation = asString(check.expectation) || asString(check.detail) || asString(check.rule)
+            const label = asString(check.label) || asString(check.name) || asString(check.type) || asString(check.kind)
+            const target = asString(check.target)
+            const reason = asString(check.reason)
+            const expectation = asString(check.expectation) || asString(check.detail) || asString(check.rule) || [target, reason].filter(Boolean).join(' - ')
             if (!label && !expectation) {
               return null
             }

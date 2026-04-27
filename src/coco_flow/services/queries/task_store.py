@@ -68,6 +68,8 @@ class TaskStore:
             return None
         if repo_id:
             try:
+                if name in {"plan.md", "repo-plan.md"}:
+                    return _read_repo_plan(task_dir, repo_id)
                 if name == "code.log":
                     return read_repo_code_log(task_dir, repo_id)
                 if name == "code-result.json":
@@ -79,6 +81,8 @@ class TaskStore:
                 if name == "diff.json":
                     return json.dumps(read_repo_diff_summary(task_dir, repo_id), ensure_ascii=False, indent=2)
             except OSError:
+                if name in {"plan.md", "repo-plan.md"}:
+                    return f"repo `{repo_id}` 当前没有可用的 plan.md。可能尚未执行 plan，或该 repo 未绑定。"
                 if name == "code.log":
                     return f"repo `{repo_id}` 当前没有可用的 code.log。可能尚未执行实现，或日志尚未生成。"
                 if name == "code-result.json":
@@ -88,7 +92,7 @@ class TaskStore:
                 if name in {"diff.patch", "diff.json"}:
                     return f"repo `{repo_id}` 当前没有可用的 {name}。可能尚未生成提交差异。"
                 return f"repo `{repo_id}` 的 `{name}` 当前为空。"
-            if name in {"code.log", "code-result.json", "code-verify.json", "diff.patch", "diff.json"}:
+            if name in {"plan.md", "repo-plan.md", "code.log", "code-result.json", "code-verify.json", "diff.patch", "diff.json"}:
                 return None
             return f"repo 级 artifact 暂不支持 {name}"
         if task_dir.is_dir():
@@ -147,6 +151,10 @@ def _sort_key(item: TaskSummary) -> tuple[str, str]:
 
 def _read_repo_verify_raw(task_dir: Path, repo_id: str) -> str:
     return (task_dir / "code-verify" / f"{_sanitize_repo_name(repo_id)}.json").read_text()
+
+
+def _read_repo_plan(task_dir: Path, repo_id: str) -> str:
+    return (task_dir / "plan-repos" / f"{_sanitize_repo_name(repo_id)}.md").read_text()
 
 
 def _sanitize_repo_name(repo_id: str) -> str:

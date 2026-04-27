@@ -12,7 +12,7 @@
 - 维护人：Maifeng `<maifeng@bytedance.com>`
 - CLI 入口：[`src/coco_flow/cli/__init__.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/cli/__init__.py)
 - Web API 入口：[`src/coco_flow/api/app.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/api/app.py)
-- 技术栈：Python + `uv`、Typer、FastAPI、Vite/React、Electron、Chrome Extension
+- 技术栈：Python + `uv`、Typer、FastAPI、Vite/React、Chrome Extension
 - 交互语言：默认中文
 
 ## 先读什么
@@ -22,7 +22,7 @@
 - [`README.md`](/Users/bytedance/Work/tools/bytedance/coco-flow/README.md)
 - [`pyproject.toml`](/Users/bytedance/Work/tools/bytedance/coco-flow/pyproject.toml)
 - [`src/coco_flow/cli/__init__.py`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/cli/__init__.py)
-- 与当前改动直接相关的 `src/coco_flow/services/`、`src/coco_flow/api/`、`web/src/`、`desktop/src/`、`extension/chrome/` 文件
+- 与当前改动直接相关的 `src/coco_flow/services/`、`src/coco_flow/api/`、`web/src/`、`extension/chrome/` 文件
 
 如果发现本文过时，修代码时顺手修正文档，不要把错误上下文继续传给下一个 agent。
 
@@ -77,16 +77,6 @@ npm install
 npm run build
 ```
 
-桌面端调试：
-
-```bash
-cd /Users/bytedance/Work/tools/bytedance/coco-flow/desktop
-npm install
-npm run build
-npm run dist:dir
-npm run dist:mac
-```
-
 Chrome 插件调试：
 
 ```bash
@@ -124,7 +114,6 @@ uv run python -m unittest discover -s tests -v
 - [`src/coco_flow/daemon/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/daemon)：daemon client / server / protocol / paths
 - [`src/coco_flow/models/`](/Users/bytedance/Work/tools/bytedance/coco-flow/src/coco_flow/models)：API response model
 - [`web/`](/Users/bytedance/Work/tools/bytedance/coco-flow/web)：本地 Web UI
-- [`desktop/`](/Users/bytedance/Work/tools/bytedance/coco-flow/desktop)：Electron launcher MVP，复用 `coco-flow remote ...` CLI 做远程连接入口
 - [`extension/chrome/`](/Users/bytedance/Work/tools/bytedance/coco-flow/extension/chrome)：Chrome 插件 MVP，走 `gateway` HTTP 服务做轻入口
 
 ## 核心流程
@@ -157,54 +146,63 @@ uv run python -m unittest discover -s tests -v
 - `refine` 当前已经切到 `manual-first` 新引擎：
   - 主输入是 Input 阶段的“人工提炼范围”
   - 不再运行旧的 `scope -> intent -> skills -> generate -> verify` 多段链路
-  - `local` 直接从规则生成的 brief 渲染文档
-  - `native` 通过 `AGENT_MODE` 读取 `manual_extract / brief draft / source excerpt`，填充模板并做 verify
-- `refine` 当前会额外生成：
-  - `refine-brief.json`
-  - `refine-intent.json`
-  - `refine-verify.json`
+  - `local` 直接渲染 `prd-refined.md`
+  - `native` 通过临时输入文件填充 Markdown 模板
+  - verify 会细分常见 `failure_type`，并对缺章节、模板占位、验收标准混入边界说明做最多 2 次本地定点 repair
+  - 人工提炼范围缺“本次范围”或“人工提炼改动点”时会直接停止生成
+- `refine` 阶段目录只保留 `prd-refined.md` 和 `refine.log`，不再持久化 brief / intent / verify / diagnosis / result schema。
 - 飞书文档若暂时拉不到正文，会生成 pending refine 占位稿，状态保持 `initialized`
 - `refine.log` 当前会记录：
   - `=== REFINE START === / === REFINE END ===`
   - `task_id / task_dir / executor`
-  - `refine_mode / manual_scope_count / manual_change_points_count`
-  - `brief_target_surface / brief_goal / brief_in_scope / brief_out_of_scope`
-  - `verify_ok`
+  - `generation_path / session_role / agent_prompt_start / agent_prompt_done`
+  - `refine_strategy / scope_count / change_point_count`
+  - `target_surface / goal / confirmed_changes / out_of_scope`
+  - `refine_check / local_repair_count`
   - `source_type / source_path / source_url / source_doc_token`
   - `source_length`
   - pending 信息
 
+### design
+
+- `design` 当前采用 doc-only MVP：
+  - prepare input
+  - select Skills/SOP
+  - repo research
+  - writer 直接生成 `design.md`
+- `design` 阶段目录主要保留 `design.md`、`design.log` 和轻量 sidecar，不再持久化 adjudication / review / debate / decision / repo-binding / sections / verify / diagnosis / result schema。
+- `design` 会额外写：
+  - `design-skills.json`：记录本次 Design 选中的业务 Skills/SOP，供 Plan 继承；不作为旧 schema gate。
+  - `design-contracts.json`：从当前 `design.md` 提取跨仓字段、接口或配置契约，供 Plan 生成依赖图和仓库任务。
+  - `design-sync.json`：记录 `design.md` 与结构化设计契约是否同步。
+- 编辑 `design.md` 后会把 `design-sync.json` 标记为未同步；需要执行 Sync Design 后才能进入 Plan，且不会覆盖用户编辑后的 Markdown。
+- Plan 是否可执行由 `design.md`、任务状态和 `design-sync.json` 判断，不再依赖 `design-result.json` gate。
+
 ### plan
 
 - `plan` 支持 `native` 和 `local`
-- `native` 通过 ACP 的 readonly/explorer 模式生成 `design.md` 和 `plan.md`
-- `local` 会基于 refined PRD、本地 context 和代码调研生成本地方案
-- `plan` 当前内部已拆成 orchestrator + 多模块：
-  - `src/coco_flow/engines/plan/pipeline.py`：主流程编排、native/local 调度、artifact 组织
-  - `src/coco_flow/engines/plan/source.py`：读取上游产物并准备 plan 输入
-  - `src/coco_flow/engines/plan/task_outline.py`：生成/归一化 `plan-work-items.json`
-  - `src/coco_flow/engines/plan/generate.py`：生成 `plan.md`
-  - `src/coco_flow/engines/plan/graph.py`、`validation.py`、`verify.py`：执行图、验证矩阵与 verify
-  - `src/coco_flow/engines/shared/models.py`、`shared/research.py`：Design / Plan 共用的共享模型与 repo research 能力
-  - `src/coco_flow/engines/plan_skills.py`：selected skills 的规则筛选与 brief 构建
-- `native plan` 当前已升级成三段式 LLM 编排：
-  - `scope extractor`
-  - `plan generator`
-  - `verifier / judge`
+- `native` / `local` 都基于 `prd-refined.md`、`design.md`、`design-contracts.json`、绑定仓库和 Skills/SOP 生成 `plan.md`
+- `plan` 会额外生成 Code 可消费的结构化 sidecar：
+  - `plan-work-items.json`
+  - `plan-execution-graph.json`
+  - `plan-validation.json`
+  - `plan-sync.json`
+  - `plan-result.json`
+- `plan` 会按绑定仓库生成 `plan-repos/<repo_id>.md`，供 UI 分仓库展示任务。
+- 编辑 `plan.md` 或 `plan-repos/<repo_id>.md` 后会把 `plan-sync.json` 标记为未同步；需要执行 Sync Plan 后才能进入 Code，避免 Code 消费旧结构化产物，且不会覆盖用户编辑后的 Markdown。
+- `plan-result.json` 会记录 gate 结果；若存在进入 Code 前必须确认的 blocker，`code_allowed=false`，Code 阶段应阻止继续执行。
 - 当前 `plan` 已支持多 repo research：
   - 对 task 绑定的每个 repo 分别读取 `.livecoding/context`
   - 分别提取 glossary 命中、未命中术语、candidate files / dirs
   - 在 `design.md`、`plan.md`、prompt 和 `plan.log` 中按 repo 聚合
 - `plan` 当前已接入 skills 的规则筛选：
-  - 优先消费 `skills_root` 下的 `SKILL.md + references/*`
-  - 先生成 `plan-skills-selection.json`
-  - 再生成 `plan-skills-brief.md`
-  - brief 会尽量压成“决策边界 / 稳定规则 / 验证要点”
-  - native prompt 和 local `design.md` / `plan.md` 都会消费该 brief
+  - 优先继承 `design-skills.json` 里 Design 已选中的业务 Skills/SOP
+  - Plan 不再从全量业务 Skill 里重新判断业务范围；后续如有 planning / verification 类 Skill，再作为 Plan 专属补充
+  - 会写 `plan-skills.json` 记录继承来源，writer 仍通过完整文件路径索引渐进式读取 `SKILL.md + references/*`
 - `plan.log` 当前会记录：
   - `repo_count`
   - 每个 repo 的 `repo_research`
-  - `plan_skills_ok / selected_skill_ids / skills_brief`
+  - `plan_skills_ok`，包含 `source`、`selected` 和 `ids`
   - `scope_start / scope_ok / scope_error`
   - `verify_start / verify_ok / verify_passed` 或 `verify_failed / verify_error`
   - glossary hits / unmatched terms / candidate files / complexity
@@ -215,12 +213,9 @@ uv run python -m unittest discover -s tests -v
 - 单 repo task 可直接推进；多 repo task 支持：
   - `POST /api/tasks/{task_id}/code?repo=<repo_id>`
   - `POST /api/tasks/{task_id}/code-all`
-- `Code V2` 正式消费：
-  - `design-repo-binding.json`
-  - `plan-work-items.json`
-  - `plan-execution-graph.json`
-  - `plan-validation.json`
-  - `plan-result.json`
+- `Code V2` 当前兼容 doc-only Plan：
+  - 优先消费旧结构化产物（如果存在）
+  - 缺少结构化产物时，退回到 `repos.json` + `prd-refined.md` + `design.md` + `plan.md`
 - `native code` 通过 ACP agent 模式在隔离 worktree 内执行 repo batch
 - worktree 根目录：
   - `<repo-parent>/.coco-flow-worktree/`
@@ -247,19 +242,11 @@ uv run python -m unittest discover -s tests -v
   - `prd-refined.md`
   - `design.md`
   - `plan.md`
-- 当前 task 级非编辑 artifact 还包括：
-  - `refine-brief.json`
-  - `refine-intent.json`
-  - `refine-verify.json`
-  - `refine-result.json`
-  - `design-skills-brief.md`
-  - `plan-skills-selection.json`
-  - `plan-skills-brief.md`
+- 当前 Refine / Design 不再额外写阶段 schema artifact；Plan 会写结构化 sidecar 供 Code 调度使用。
+- Code 阶段仍会写执行结果类 artifact：
   - `code-dispatch.json`
   - `code-progress.json`
-  - `plan-scope.json`
-  - `plan-execution.json`
-  - `plan-verify.json`
+  - `code-result.json`
 
 ### daemon / ACP
 

@@ -88,25 +88,47 @@ def _invalidate_downstream_outputs(task_dir: Path) -> None:
     for name in (
         "design.md",
         "design.log",
+        "design-input.json",
+        "design-input.md",
+        "design-research-plan.json",
+        "design-research-summary.json",
+        "design-adjudication.json",
+        "design-review.json",
+        "design-debate.json",
+        "design-decision.json",
         "design-change-points.json",
         "design-repo-assignment.json",
         "design-research.json",
         "design-repo-responsibility-matrix.json",
+        "design-skills-selection.json",
+        "design-skills.json",
         "design-skills-brief.md",
+        "design-contracts.json",
+        "design-sync.json",
+        "design-search-hints.json",
         "design-repo-binding.json",
         "design-sections.json",
         "design-verify.json",
+        "design-diagnosis.json",
         "design-result.json",
         "plan.md",
         "plan-skills-selection.json",
+        "plan-skills.json",
         "plan-skills-brief.md",
+        "plan-draft-work-items.json",
+        "plan-draft-execution-graph.json",
+        "plan-draft-validation.json",
         "plan-task-outline.json",
         "plan-work-items.json",
         "plan-execution-graph.json",
         "plan-validation.json",
+        "plan-review.json",
+        "plan-debate.json",
+        "plan-decision.json",
         "plan-dependency-notes.json",
         "plan-risk-check.json",
         "plan-verify.json",
+        "plan-diagnosis.json",
         "plan-result.json",
         "plan-scope.json",
         "plan-execution.json",
@@ -119,10 +141,29 @@ def _invalidate_downstream_outputs(task_dir: Path) -> None:
         artifact = task_dir / name
         if artifact.exists():
             artifact.unlink()
-    for pattern in (".design-template-*.md", ".design-research-*.json", ".design-repo-binding-*.json", ".design-verify-*.json"):
+    research_dir = task_dir / "design-research"
+    if research_dir.exists():
+        shutil.rmtree(research_dir)
+    for pattern in (
+        ".design-template-*.md",
+        ".design-research-*.json",
+        ".design-repo-binding-*.json",
+        ".design-verify-*.json",
+        ".design-architect-*.json",
+        ".design-skeptic-*.json",
+        ".design-writer-*.md",
+        ".design-gate-*.json",
+        ".plan-template-*.md",
+        ".plan-task-outline-*.json",
+        ".plan-planner-*.json",
+        ".plan-scheduler-*.json",
+        ".plan-validation-designer-*.json",
+        ".plan-skeptic-*.json",
+        ".plan-verify-*.json",
+    ):
         for path in task_dir.glob(pattern):
             path.unlink()
-    for directory in ("code-results", "code-logs", "code-verify", "diffs"):
+    for directory in ("plan-repos", "code-results", "code-logs", "code-verify", "diffs"):
         path = task_dir / directory
         if path.exists():
             shutil.rmtree(path)

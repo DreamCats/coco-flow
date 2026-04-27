@@ -166,6 +166,7 @@ function RepoQueuePanel({
               <div className="mt-4 flex flex-wrap gap-2 text-xs">
                 <QueuePill label={queueLabel(repo.queueState)} tone={queueTone(repo.queueState)} />
                 <QueuePill label={scopeTierLabel(repo.scopeTier)} tone="neutral" />
+                {repo.confidence ? <QueuePill label={`confidence:${repo.confidence}`} tone={repo.confidence === 'low' ? 'failed' : 'neutral'} /> : null}
                 <QueuePill label={executionModeLabel(repo.executionMode)} tone="neutral" />
               </div>
 

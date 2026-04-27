@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from coco_flow.models import ArtifactItem, RepoBinding, TaskDetail, TimelineItem
+from coco_flow.models import ArtifactItem, DiagnosisSummary, RepoBinding, TaskDetail, TimelineItem
 from coco_flow.models.task import CodeDispatchSummary, CodeProgressSummary
 from coco_flow.services.runtime.repo_state import (
     clean_files_written,
@@ -14,18 +14,15 @@ from coco_flow.services.runtime.repo_state import (
 )
 
 PLAN_V2_PRIMARY_ARTIFACTS = [
+    "plan.md",
     "plan-work-items.json",
     "plan-execution-graph.json",
     "plan-validation.json",
+    "plan-sync.json",
     "plan-result.json",
-    "plan.md",
 ]
 
-PLAN_V2_INTERMEDIATE_ARTIFACTS = [
-    "plan-task-outline.json",
-    "plan-dependency-notes.json",
-    "plan-risk-check.json",
-]
+PLAN_V2_INTERMEDIATE_ARTIFACTS = []
 
 TRACKED_ARTIFACTS = [
     "input.json",
@@ -36,31 +33,13 @@ TRACKED_ARTIFACTS = [
     "prd-refined.md",
     "refine.notes.md",
     "design.notes.md",
-    "refine-manual-extract.json",
-    "refine-brief.draft.json",
-    "refine-source.excerpt.md",
-    "refine-brief.json",
-    "refine-intent.json",
-    "refine-verify.json",
-    "refine-result.json",
-    "design-change-points.json",
-    "design-repo-assignment.json",
-    "design-research.json",
-    "design-repo-responsibility-matrix.json",
-    "design-skills-brief.md",
-    "design-repo-binding.json",
-    "design-sections.json",
-    "design-verify.json",
-    "design-result.json",
-    "plan-skills-selection.json",
-    "plan-skills-brief.md",
     *PLAN_V2_INTERMEDIATE_ARTIFACTS,
-    *PLAN_V2_PRIMARY_ARTIFACTS[:-1],
-    "plan-scope.json",
-    "plan-execution.json",
-    "plan-verify.json",
     "design.md",
-    "plan.md",
+    "design-skills.json",
+    "design-contracts.json",
+    "design-sync.json",
+    "plan-skills.json",
+    *PLAN_V2_PRIMARY_ARTIFACTS,
     "refine.log",
     "design.log",
     "plan.log",
@@ -86,6 +65,7 @@ def build_task_detail(
     code_progress = read_json_file(task_dir / "code-progress.json")
     design_repo_binding = read_json_file(task_dir / "design-repo-binding.json")
     repos = parse_repos(repos_meta, task_dir, code_dispatch, code_progress, design_repo_binding)
+    diagnosis = build_latest_diagnosis(task_dir)
 
     return TaskDetail(
         task_id=task_id,
@@ -100,10 +80,11 @@ def build_task_detail(
         repo_count=int(metadata.get("repo_count") or len(repos)),
         task_dir=str(task_dir),
         source_label=source_label,
-        next_action=build_next_action(task_id, status, task_dir, repos),
+        next_action=build_next_action(task_id, status, task_dir, repos, diagnosis),
         repos=repos,
         code_dispatch=build_code_dispatch_summary(code_dispatch),
         code_progress=build_code_progress_summary(status, repos, code_dispatch, code_progress),
+        diagnosis=diagnosis,
         timeline=build_timeline(status, task_dir),
         artifacts=build_artifacts(task_dir),
     )
@@ -149,6 +130,24 @@ def build_artifacts(task_dir: Path) -> list[ArtifactItem]:
     return items
 
 
+def build_latest_diagnosis(task_dir: Path) -> DiagnosisSummary | None:
+    for name in ("plan-diagnosis.json", "design-diagnosis.json", "refine-diagnosis.json"):
+        payload = read_json_file(task_dir / name)
+        if not payload:
+            continue
+        issues = payload.get("issues")
+        return DiagnosisSummary(
+            stage=str(payload.get("stage") or name.split("-", 1)[0]),
+            ok=bool(payload.get("ok")),
+            severity=str(payload.get("severity") or ""),
+            failure_type=str(payload.get("failure_type") or ""),
+            next_action=str(payload.get("next_action") or ""),
+            reason=str(payload.get("reason") or ""),
+            issue_count=len(issues) if isinstance(issues, list) else 0,
+        )
+    return None
+
+
 def parse_repos(
     repos_meta: dict[str, object],
     task_dir: Path | None = None,
@@ -175,6 +174,7 @@ def parse_repos(
         worktree = _optional_str(item.get("worktree"))
         commit = _optional_str(item.get("commit"))
         scope_tier = _optional_str(item.get("scope_tier"))
+        confidence: str | None = None
         build = "n/a"
         failure_hint: str | None = None
         failure_type: str | None = None
@@ -215,6 +215,7 @@ def parse_repos(
                 ) or None
         if design_binding_entry:
             scope_tier = scope_tier or _optional_str(design_binding_entry.get("scope_tier"))
+            confidence = _optional_str(design_binding_entry.get("confidence"))
             execution_mode = execution_mode or infer_execution_mode(scope_tier)
 
         if task_dir is not None and repo_id:
@@ -268,6 +269,7 @@ def parse_repos(
                 path=repo_path,
                 status=status,
                 scope_tier=scope_tier,
+                confidence=confidence,
                 execution_mode=execution_mode,
                 batch_id=batch_id,
                 batch_status=batch_status,
@@ -461,11 +463,27 @@ def _string_list(value: object) -> list[str]:
 
 
 def build_next_action(
-    task_id: str, status: str, task_dir: Path, repos: list[RepoBinding]
+    task_id: str,
+    status: str,
+    task_dir: Path,
+    repos: list[RepoBinding],
+    diagnosis: DiagnosisSummary | None = None,
 ) -> str:
     has_refined = (task_dir / "prd-refined.md").exists()
     has_design = (task_dir / "design.md").exists()
     has_plan = has_plan_artifacts(task_dir)
+    if diagnosis and diagnosis.severity == "needs_design_revision":
+        return f"请先查看 {task_dir / 'plan-diagnosis.json'} 和 {task_dir / 'plan-review.json'}，必要时重新执行 coco-flow tasks design {task_id}"
+    if diagnosis and diagnosis.severity in {"needs_human", "degraded"}:
+        if diagnosis.failure_type == "missing_human_scope":
+            return f"请先补齐 {task_dir / 'prd.source.md'} 中的人工提炼范围，然后重新执行 coco-flow tasks refine {task_id}"
+        if diagnosis.failure_type == "repo_responsibility_uncertain":
+            return f"请先确认 {task_dir / 'design-repo-binding.json'} 中的仓库执行职责，然后重新执行 coco-flow tasks design {task_id}"
+        if diagnosis.stage == "design":
+            return f"请先查看 {task_dir / 'design-diagnosis.json'} 和 {task_dir / 'design-decision.json'}，确认后重新执行 coco-flow tasks design {task_id}"
+        return "当前阶段需要人工确认，请先查看 diagnosis artifact。"
+    if diagnosis and diagnosis.stage == "design" and not diagnosis.ok:
+        return f"请先查看 {task_dir / 'design-diagnosis.json'}，然后重新执行 coco-flow tasks design {task_id}"
     if status == "input_processing":
         return "Input 正在解析飞书正文，请稍候刷新任务详情。"
     if status == "input_failed":

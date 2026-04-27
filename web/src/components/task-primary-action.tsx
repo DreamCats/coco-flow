@@ -63,6 +63,7 @@ export function TaskPrimaryAction({
   const pendingRefine = isPendingRefineTask(task)
   const missingLarkCli = pendingRefine && task.sourceFetchErrorCode === 'missing_lark_cli'
   const dominantFailure = summarizeFailureType(task)
+  const diagnosis = task.diagnosis
 
   if (compact) {
     return (
@@ -165,6 +166,12 @@ export function TaskPrimaryAction({
         />
       </div>
 
+      {diagnosis ? (
+        <NoticeBox tone={diagnosis.ok ? 'emerald' : ['needs_human', 'degraded'].includes(diagnosis.severity) ? 'amber' : 'rose'}>
+          {renderDiagnosisSummary(diagnosis)}
+        </NoticeBox>
+      ) : null}
+
       {polling ? <RunningStatusCard status={task.status} lastRefreshedAt={lastRefreshedAt} /> : null}
 
       {task.status === 'initialized' ? (
@@ -234,6 +241,16 @@ export function TaskPrimaryAction({
       </div>
     </section>
   )
+}
+
+function renderDiagnosisSummary(diagnosis: NonNullable<TaskRecord['diagnosis']>) {
+  const stage = diagnosis.stage || 'stage'
+  const severity = diagnosis.severity || (diagnosis.ok ? 'info' : 'blocking')
+  const nextAction = diagnosis.nextAction || (diagnosis.ok ? 'continue' : 'fail')
+  const failure = diagnosis.failureType ? `，失败类型：${diagnosis.failureType}` : ''
+  const issueText = diagnosis.issueCount > 0 ? `，问题数：${diagnosis.issueCount}` : ''
+  const reason = diagnosis.reason ? `。${diagnosis.reason}` : ''
+  return `诊断：${stage} / ${severity} / ${nextAction}${failure}${issueText}${reason}`
 }
 
 function StageField({ label, value }: { label: string; value: string }) {

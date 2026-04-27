@@ -14,7 +14,8 @@ def build_code_runtime_state(prepared: CodePreparedInput) -> CodeRunState:
     batches: list[CodeRepoBatch] = []
     batch_id_by_repo: dict[str, str] = {}
 
-    for binding in _in_scope_repo_bindings(prepared.design_repo_binding_payload):
+    repo_bindings = _in_scope_repo_bindings(prepared.design_repo_binding_payload) or _fallback_repo_bindings(prepared.repos_meta)
+    for binding in repo_bindings:
         repo_id = str(binding.get("repo_id") or "").strip()
         scope_tier = str(binding.get("scope_tier") or "").strip()
         if not repo_id or scope_tier == "reference_only":
@@ -22,7 +23,18 @@ def build_code_runtime_state(prepared: CodePreparedInput) -> CodeRunState:
         execution_mode = "verify_only" if scope_tier == "validate_only" else "apply"
         repo_items = [item for item in work_items if item.repo_id == repo_id]
         if execution_mode == "apply" and not repo_items:
-            continue
+            repo_items = [
+                CodeWorkItem(
+                    id=f"W{len(batches) + 1}",
+                    repo_id=repo_id,
+                    title=f"[{repo_id}] 按 plan.md 执行",
+                    goal="根据 prd-refined.md、design.md 和 plan.md 完成本仓库相关改动。",
+                    change_scope=[],
+                    done_definition=["改动符合 plan.md 与 design.md。"],
+                    verification_steps=["执行本仓库最小验证。"],
+                    depends_on=[],
+                )
+            ]
         batch_id = f"B{len(batches) + 1}"
         batch_id_by_repo[repo_id] = batch_id
         change_scope = _dedupe(
@@ -102,6 +114,30 @@ def _parse_work_items(prepared: CodePreparedInput) -> list[CodeWorkItem]:
             )
         )
     return items
+
+
+def _fallback_repo_bindings(repos_meta: dict[str, object]) -> list[dict[str, object]]:
+    raw = repos_meta.get("repos")
+    if not isinstance(raw, list):
+        return []
+    bindings: list[dict[str, object]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        repo_id = str(item.get("repo_id") or item.get("id") or item.get("name") or "").strip()
+        repo_path = str(item.get("path") or item.get("repo_path") or "").strip()
+        if not repo_id:
+            continue
+        bindings.append(
+            {
+                "repo_id": repo_id,
+                "repo_path": repo_path,
+                "scope_tier": "must_change",
+                "reason": "doc-only workflow fallback from repos.json",
+                "change_summary": [],
+            }
+        )
+    return bindings
 
 
 def _build_validation_index(payload: dict[str, object]) -> dict[str, list[dict[str, object]]]:

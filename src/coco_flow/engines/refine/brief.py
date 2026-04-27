@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# 本文件负责把“人工提炼范围”转换成稳定的需求要点：本次范围、改动点、
+# 非目标、前置条件和待确认项。它只做需求收敛，不做技术设计判断。
+
 import re
 
 from coco_flow.engines.shared.manual_extract import parse_manual_extract_sections
@@ -70,21 +73,8 @@ def build_source_excerpt(prepared: RefinePreparedInput, brief: RefineBrief) -> s
     return f"# Refine Source Excerpt\n\n{body}\n"
 
 
-def build_compat_intent_payload(prepared: RefinePreparedInput, brief: RefineBrief) -> dict[str, object]:
-    return {
-        "goal": brief.goal,
-        "change_points": brief.in_scope,
-        "acceptance_criteria": brief.acceptance_criteria,
-        "terms": _extract_terms([prepared.title, *brief.in_scope, *brief.out_of_scope, *brief.gating_conditions]),
-        "risks_seed": brief.edge_cases,
-        "discussion_seed": brief.open_questions,
-        "boundary_seed": brief.out_of_scope,
-        "mode": "manual_first",
-    }
-
-
 def merge_brief_with_refined_markdown(brief: RefineBrief, refined_markdown: str) -> RefineBrief:
-    refined_in_scope = _extract_bullet_section(refined_markdown, "具体变更点")
+    refined_in_scope = _strip_scope_meta_items(_extract_bullet_section(refined_markdown, "具体变更点"))
     refined_acceptance = _extract_bullet_section(refined_markdown, "验收标准")
     refined_boundaries = _extract_bullet_section(refined_markdown, "边界与非目标")
     refined_questions = _extract_bullet_section(refined_markdown, "待确认项")
@@ -106,6 +96,14 @@ def _derive_goal(prepared: RefinePreparedInput, manual_extract: ManualExtract) -
     if manual_extract.change_points:
         return f"围绕 {prepared.title} 收敛服务端需要落地的改动点。"
     return prepared.title
+
+
+def _strip_scope_meta_items(items: list[str]) -> list[str]:
+    return [
+        item
+        for item in items
+        if not item.strip().startswith(("适用条件：", "生效条件：", "前置条件："))
+    ]
 
 
 def _infer_target_surface(prepared: RefinePreparedInput, manual_extract: ManualExtract) -> str:

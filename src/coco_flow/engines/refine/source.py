@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# 本文件负责准备 Refine 输入：从 task 目录读取原始 PRD、人工提炼范围、
+# input/source 元数据，并统一组装成后续编排使用的 RefinePreparedInput。
+
 from pathlib import Path
 
 from coco_flow.config import Settings
@@ -42,7 +45,3 @@ def extract_source_sections(markdown: str) -> tuple[str, str]:
     source, supplement = split_source_and_manual_extract(content)
     return source.strip(), supplement.strip()
 
-
-def extract_source_content(markdown: str) -> str:
-    source, _ = extract_source_sections(markdown)
-    return source

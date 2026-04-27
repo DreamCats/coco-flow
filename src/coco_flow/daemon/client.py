@@ -45,6 +45,77 @@ def run_prompt_via_daemon(
     return content
 
 
+def new_session_via_daemon(
+    *,
+    settings: Settings,
+    coco_bin: str,
+    cwd: str,
+    mode: str,
+    query_timeout: str,
+    acp_idle_timeout_seconds: float,
+    role: str,
+) -> dict[str, object]:
+    ensure_daemon_running(settings)
+    response = send_request(
+        settings,
+        {
+            "type": "session_new",
+            "coco_bin": coco_bin,
+            "cwd": cwd,
+            "mode": mode,
+            "query_timeout": query_timeout,
+            "acp_idle_timeout_seconds": acp_idle_timeout_seconds,
+            "role": role,
+        },
+    )
+    if not response.get("ok"):
+        raise ValueError(str(response.get("error") or "daemon session_new failed"))
+    handle = response.get("handle")
+    if not isinstance(handle, dict):
+        raise ValueError("daemon session_new response missing handle")
+    return handle
+
+
+def prompt_session_via_daemon(
+    *,
+    settings: Settings,
+    handle_id: str,
+    prompt: str,
+) -> str:
+    ensure_daemon_running(settings)
+    response = send_request(
+        settings,
+        {
+            "type": "session_prompt",
+            "handle_id": handle_id,
+            "prompt": prompt,
+        },
+    )
+    if not response.get("ok"):
+        raise ValueError(str(response.get("error") or "daemon session_prompt failed"))
+    content = response.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("daemon session_prompt returned empty content")
+    return content
+
+
+def close_session_via_daemon(
+    *,
+    settings: Settings,
+    handle_id: str,
+) -> None:
+    ensure_daemon_running(settings)
+    response = send_request(
+        settings,
+        {
+            "type": "session_close",
+            "handle_id": handle_id,
+        },
+    )
+    if not response.get("ok"):
+        raise ValueError(str(response.get("error") or "daemon session_close failed"))
+
+
 def ensure_daemon_running(settings: Settings | None = None) -> None:
     cfg = settings or load_settings()
     try:

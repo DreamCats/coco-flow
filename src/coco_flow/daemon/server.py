@@ -7,7 +7,12 @@ import socket
 import threading
 import time
 
-from coco_flow.clients.acp_client import run_prompt_with_pool
+from coco_flow.clients.acp_client import (
+    close_session_with_pool,
+    new_session_with_pool,
+    prompt_session_with_pool,
+    run_prompt_with_pool,
+)
 from coco_flow.config import Settings, load_settings
 from coco_flow.daemon.paths import daemon_log_path, daemon_pid_path, daemon_socket_path
 
@@ -82,24 +87,84 @@ class DaemonServer:
                     except OSError:
                         pass
                 return
-            if request_type != "prompt":
+            if request_type == "prompt":
+                self._handle_prompt(conn, raw)
+                return
+            if request_type == "session_new":
+                self._handle_session_new(conn, raw)
+                return
+            if request_type == "session_prompt":
+                self._handle_session_prompt(conn, raw)
+                return
+            if request_type == "session_close":
+                self._handle_session_close(conn, raw)
+                return
+            if request_type:
                 self._write_json(conn, {"ok": False, "error": f"unknown request type: {request_type}"})
                 return
+            self._write_json(conn, {"ok": False, "error": "missing request type"})
 
-            try:
-                content = run_prompt_with_pool(
-                    coco_bin=str(raw.get("coco_bin") or self.settings.coco_bin),
-                    cwd=str(raw.get("cwd") or os.getcwd()),
-                    mode=str(raw.get("mode") or "agent"),
-                    query_timeout=str(raw.get("query_timeout") or self.settings.native_query_timeout),
-                    prompt=str(raw.get("prompt") or ""),
-                    idle_timeout_seconds=float(raw.get("acp_idle_timeout_seconds") or self.settings.acp_idle_timeout_seconds),
-                    fresh_session=bool(raw.get("fresh_session")),
-                )
-                self._write_json(conn, {"ok": True, "content": content})
-            except Exception as error:
-                self._log(f"prompt_error: {error}")
-                self._write_json(conn, {"ok": False, "error": str(error)})
+    def _handle_prompt(self, conn: socket.socket, raw: dict[str, object]) -> None:
+        try:
+            content = run_prompt_with_pool(
+                coco_bin=str(raw.get("coco_bin") or self.settings.coco_bin),
+                cwd=str(raw.get("cwd") or os.getcwd()),
+                mode=str(raw.get("mode") or "agent"),
+                query_timeout=str(raw.get("query_timeout") or self.settings.native_query_timeout),
+                prompt=str(raw.get("prompt") or ""),
+                idle_timeout_seconds=float(raw.get("acp_idle_timeout_seconds") or self.settings.acp_idle_timeout_seconds),
+                fresh_session=bool(raw.get("fresh_session")),
+            )
+            self._write_json(conn, {"ok": True, "content": content})
+        except Exception as error:
+            self._log(f"prompt_error: {error}")
+            self._write_json(conn, {"ok": False, "error": str(error)})
+
+    def _handle_session_new(self, conn: socket.socket, raw: dict[str, object]) -> None:
+        try:
+            handle = new_session_with_pool(
+                coco_bin=str(raw.get("coco_bin") or self.settings.coco_bin),
+                cwd=str(raw.get("cwd") or os.getcwd()),
+                mode=str(raw.get("mode") or "agent"),
+                query_timeout=str(raw.get("query_timeout") or self.settings.native_query_timeout),
+                idle_timeout_seconds=float(raw.get("acp_idle_timeout_seconds") or self.settings.acp_idle_timeout_seconds),
+                role=str(raw.get("role") or "agent"),
+            )
+            self._write_json(
+                conn,
+                {
+                    "ok": True,
+                    "handle": {
+                        "handle_id": handle.handle_id,
+                        "cwd": handle.cwd,
+                        "mode": handle.mode,
+                        "query_timeout": handle.query_timeout,
+                        "role": handle.role,
+                    },
+                },
+            )
+        except Exception as error:
+            self._log(f"session_new_error: {error}")
+            self._write_json(conn, {"ok": False, "error": str(error)})
+
+    def _handle_session_prompt(self, conn: socket.socket, raw: dict[str, object]) -> None:
+        try:
+            content = prompt_session_with_pool(
+                handle_id=str(raw.get("handle_id") or ""),
+                prompt=str(raw.get("prompt") or ""),
+            )
+            self._write_json(conn, {"ok": True, "content": content})
+        except Exception as error:
+            self._log(f"session_prompt_error: {error}")
+            self._write_json(conn, {"ok": False, "error": str(error)})
+
+    def _handle_session_close(self, conn: socket.socket, raw: dict[str, object]) -> None:
+        try:
+            close_session_with_pool(handle_id=str(raw.get("handle_id") or ""))
+            self._write_json(conn, {"ok": True})
+        except Exception as error:
+            self._log(f"session_close_error: {error}")
+            self._write_json(conn, {"ok": False, "error": str(error)})
 
     def _idle_watch(self) -> None:
         while not self._shutdown.is_set():
