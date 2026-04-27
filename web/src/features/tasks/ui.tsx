@@ -170,7 +170,7 @@ export function TipIcon({ children, label = '查看示例' }: { children: ReactN
     <span className="group relative inline-flex">
       <button
         aria-label={label}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[#d1cfc5] bg-[#faf9f5] text-xs font-medium text-[#6a6760] transition hover:bg-[#efeae0] focus:outline-none focus:ring-2 focus:ring-[#c96442]/35 dark:border-[#3a3937] dark:bg-[#191816] dark:text-[#d8d3c8] dark:hover:bg-[#24221f]"
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[#d65c45] bg-[#fff1ed] text-xs font-semibold text-[#b93624] shadow-[0_0_0_1px_rgba(214,92,69,0.16)] transition hover:bg-[#ffe4dc] focus:outline-none focus:ring-2 focus:ring-[#d65c45]/35 dark:border-[#8f3c2e] dark:bg-[#351b17] dark:text-[#ffb4a6] dark:hover:bg-[#452019]"
         type="button"
       >
         ?
