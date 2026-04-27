@@ -9,7 +9,7 @@
 - Product: `coco-flow`
 - Package: `coco-flow`
 - Python: `>=3.13`
-- Stack: Python, `uv`, Typer, FastAPI, Vite/React, Electron, Chrome Extension
+- Stack: Python, `uv`, Typer, FastAPI, Vite/React, Chrome Extension
 - Default interaction language: Chinese
 
 Current task flow:
@@ -244,40 +244,6 @@ Current UI capabilities:
 - browse and edit skills packages
 - edit `prd.source.md`, `prd-refined.md`, `design.md`, and `plan.md`
 - reset, archive, and inspect task artifacts
-
-## Desktop Launcher
-
-The Electron launcher MVP lives in [`desktop/`](desktop/).
-
-It now exposes two lightweight entry modes:
-
-- `Local`: start or stop local `coco-flow`, inspect local status, and open the local Web UI
-- `Remote`: list saved remotes, add or remove profiles, connect or disconnect, inspect status, and open the forwarded Web UI
-
-Both modes stream CLI logs into the same desktop log panel.
-
-Current constraints:
-
-- the desktop app still requires a locally installed `coco-flow` binary
-- it does not bundle the Python runtime or reimplement SSH/auth flows
-- it does not embed the full Web UI yet; successful local or remote launches still open the browser
-
-Local development:
-
-```bash
-cd /Users/bytedance/Work/tools/bytedance/coco-flow/desktop
-npm install
-npm run dev
-npm run build
-npm run dist:dir
-npm run dist:mac
-```
-
-Packaging notes:
-
-- `npm run dist:dir` builds an unpacked macOS app bundle in `desktop/dist/mac/`
-- `npm run dist:mac` builds a distributable macOS package such as `.dmg` in `desktop/dist/`
-- the current setup is unsigned; macOS signing and notarization still need to be added before wider distribution
 
 ## Chrome Extension Gateway MVP
 
