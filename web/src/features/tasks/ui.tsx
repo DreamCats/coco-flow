@@ -175,8 +175,10 @@ export function TipIcon({ children, label = '查看示例' }: { children: ReactN
       >
         ?
       </button>
-      <span className="pointer-events-none absolute right-0 top-8 z-30 hidden w-[320px] max-w-[calc(100vw-3rem)] rounded-[12px] border border-[#d1cfc5] bg-[#fffdf9] px-3 py-3 text-left text-xs leading-5 text-[#4d4c48] shadow-[0_12px_34px_rgba(34,31,26,0.18)] group-focus-within:block group-hover:block dark:border-[#3a3937] dark:bg-[#191816] dark:text-[#d8d3c8]">
-        {children}
+      <span className="absolute right-0 top-full z-30 hidden w-[320px] max-w-[calc(100vw-3rem)] pt-2 group-focus-within:block group-hover:block">
+        <span className="block rounded-[12px] border border-[#d1cfc5] bg-[#fffdf9] px-3 py-3 text-left text-xs leading-5 text-[#4d4c48] shadow-[0_12px_34px_rgba(34,31,26,0.18)] dark:border-[#3a3937] dark:bg-[#191816] dark:text-[#d8d3c8]">
+          {children}
+        </span>
       </span>
     </span>
   )
