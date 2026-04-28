@@ -241,7 +241,7 @@ Current UI capabilities:
 
 - create tasks
 - run `refine`, `design`, `plan`, and `code`
-- browse and edit skills packages
+- manage skills sources, clone/pull Git-backed skills repositories, and browse skills packages read-only
 - edit `prd.source.md`, `prd-refined.md`, `design.md`, and `plan.md`
 - reset, archive, and inspect task artifacts
 
@@ -309,10 +309,14 @@ Current endpoints:
 - `GET /healthz`
 - `GET /api/meta`
 - `GET /api/workspace`
-- `GET /api/skills/tree`
-- `GET /api/skills/file`
-- `PUT /api/skills/file`
-- `POST /api/skills/package`
+- `GET /api/skills/sources`
+- `POST /api/skills/sources`
+- `DELETE /api/skills/sources/{source_id}`
+- `POST /api/skills/sources/{source_id}/clone`
+- `POST /api/skills/sources/{source_id}/pull`
+- `POST /api/skills/sources/{source_id}/checkout`
+- `GET /api/skills/tree?source=...`
+- `GET /api/skills/file?source=...&path=...`
 - `GET /api/tasks`
 - `POST /api/tasks`
 - `GET /api/tasks/{task_id}`

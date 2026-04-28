@@ -266,6 +266,14 @@ uv run python -m unittest discover -s tests -v
 ## 当前 API 入口
 
 - `GET /api/workspace`
+- `GET /api/skills/sources`
+- `POST /api/skills/sources`
+- `DELETE /api/skills/sources/{source_id}`
+- `POST /api/skills/sources/{source_id}/clone`
+- `POST /api/skills/sources/{source_id}/pull`
+- `POST /api/skills/sources/{source_id}/checkout`
+- `GET /api/skills/tree?source=...`
+- `GET /api/skills/file?source=...&path=...`
 - `GET /api/tasks`
 - `POST /api/tasks`
 - `GET /api/tasks/{task_id}`
@@ -292,6 +300,8 @@ uv run python -m unittest discover -s tests -v
 - worktree 根目录：`<repo-parent>/.coco-flow-worktree/`
 - 同步到 worktree 的 task 目录：`.coco-flow/tasks/<task_id>/`
 - context 目录：`.livecoding/context/`
+- skills Git source cache：`~/.config/coco-flow/skills-sources/<source_id>/`
+- skills source 配置：`~/.config/coco-flow/skills-sources.json`
 
 ## 本仓库的默认协作方式
 

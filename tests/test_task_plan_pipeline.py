@@ -146,7 +146,7 @@ class DesignPipelineTest(unittest.TestCase):
             root = Path(tmp)
             settings = make_settings(root)
             self._write_skill(
-                settings.config_root / "skills" / "auction-pop-card",
+                settings.config_root / "skills-sources" / "test-skills" / "auction-pop-card",
                 skill_body=(
                     "适用于竞拍讲解卡需求。\n"
                     "公共配置 / 实验开关 通常关注 live_common，再看业务仓如何消费。\n"
@@ -176,8 +176,10 @@ class DesignPipelineTest(unittest.TestCase):
 
             index, fallback, selection, selected_ids = build_design_skills_bundle(prepared, settings)
 
-            self.assertEqual(selected_ids, ["auction-pop-card"])
-            self.assertEqual(selection["selected_skill_ids"], ["auction-pop-card"])
+            self.assertEqual(selected_ids, ["test-skills/auction-pop-card"])
+            self.assertEqual(selection["selected_skill_ids"], ["test-skills/auction-pop-card"])
+            self.assertEqual(selection["selected_skill_sources"][0]["source_id"], "test-skills")
+            self.assertEqual(selection["selected_skill_sources"][0]["package_id"], "auction-pop-card")
             self.assertIn("Design Skills Index", index)
             self.assertIn("SKILL.md", index)
             self.assertIn("references/change-workflows.md", index)
@@ -190,7 +192,7 @@ class DesignPipelineTest(unittest.TestCase):
             root = Path(tmp)
             settings = make_settings(root)
             self._write_skill(
-                settings.config_root / "skills" / "auction-pop-card",
+                settings.config_root / "skills-sources" / "test-skills" / "auction-pop-card",
                 skill_body=(
                     "适用于竞拍讲解卡 / auction popcard 的需求分析。\n"
                     "Use this skill when the task changes pop card copy, price expression, or AuctionCardData."
@@ -198,7 +200,7 @@ class DesignPipelineTest(unittest.TestCase):
                 references={},
             )
             self._write_skill(
-                settings.config_root / "skills" / "auction-live-bag",
+                settings.config_root / "skills-sources" / "test-skills" / "auction-live-bag",
                 skill_body=(
                     "适用于竞拍购物袋 / auction live bag 的需求分析。\n"
                     "Use this skill when the task changes live bag list, shopping bag refresh, or bag item display."
@@ -216,16 +218,16 @@ class DesignPipelineTest(unittest.TestCase):
 
             _index, _fallback, selection, selected_ids = build_design_skills_bundle(prepared, settings)
 
-            self.assertEqual(selected_ids, ["auction-pop-card"])
+            self.assertEqual(selected_ids, ["test-skills/auction-pop-card"])
             self.assertEqual(selection["selector"]["source"], "program")
-            self.assertIn("auction-live-bag", [item["id"] for item in selection["candidates"]])
+            self.assertIn("test-skills/auction-live-bag", [item["id"] for item in selection["candidates"]])
 
     def test_plan_skills_builds_index_with_full_file_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             settings = make_settings(root)
             self._write_skill(
-                settings.config_root / "skills" / "auction-pop-card",
+                settings.config_root / "skills-sources" / "test-skills" / "auction-pop-card",
                 skill_body="适用于竞拍讲解卡需求，Plan 需要关注 live_pack 和 live_common 的执行顺序。",
                 references={"references/main-flow.md": "## Main Flow\n- live_pack 消费 live_common 实验字段。"},
             )
@@ -244,7 +246,7 @@ class DesignPipelineTest(unittest.TestCase):
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path="/repo/live_pack")],
             )
 
-            self.assertEqual(selected_ids, ["auction-pop-card"])
+            self.assertEqual(selected_ids, ["test-skills/auction-pop-card"])
             self.assertIn("Plan Skills Index", index)
             self.assertIn("SKILL.md", index)
             self.assertIn("references/main-flow.md", index)
@@ -256,12 +258,12 @@ class DesignPipelineTest(unittest.TestCase):
             root = Path(tmp)
             settings = make_settings(root)
             self._write_skill(
-                settings.config_root / "skills" / "auction-pop-card",
+                settings.config_root / "skills-sources" / "test-skills" / "auction-pop-card",
                 skill_body="适用于竞拍讲解卡需求。Plan 需要关注 live_pack 消费 live_common 实验字段的顺序。",
                 references={"references/main-flow.md": "## Main Flow\n- live_pack 消费 live_common 实验字段。"},
             )
             self._write_skill(
-                settings.config_root / "skills" / "auction-live-bag",
+                settings.config_root / "skills-sources" / "test-skills" / "auction-live-bag",
                 skill_body="适用于竞拍购物袋需求。Plan 需要关注购物袋列表刷新。",
                 references={},
             )
@@ -285,18 +287,20 @@ class DesignPipelineTest(unittest.TestCase):
                     raw="",
                 ),
                 inherited_design_skills_payload={
-                    "selected_skill_ids": ["auction-pop-card"],
-                    "selected_skill_sources": [{"id": "auction-pop-card", "keyword_hits": ["竞拍讲解卡"]}],
+                    "selected_skill_ids": ["test-skills/auction-pop-card"],
+                    "selected_skill_sources": [{"id": "test-skills/auction-pop-card", "keyword_hits": ["竞拍讲解卡"]}],
                     "selector": {"source": "native"},
                 },
             )
 
             index, fallback, selection, selected_ids = build_plan_skills_bundle(prepared, settings)
 
-            self.assertEqual(selected_ids, ["auction-pop-card"])
+            self.assertEqual(selected_ids, ["test-skills/auction-pop-card"])
             self.assertEqual(selection["source"], "design")
             self.assertEqual(selection["inherited_from"], "design-skills.json")
-            self.assertNotIn("auction-live-bag", selected_ids)
+            self.assertEqual(selection["selected_skill_sources"][0]["source_id"], "test-skills")
+            self.assertEqual(selection["selected_skill_sources"][0]["package_id"], "auction-pop-card")
+            self.assertNotIn("test-skills/auction-live-bag", selected_ids)
             self.assertIn("inherited_from_design=true", index)
             self.assertIn("不能扩大 design.md", fallback)
 
@@ -650,6 +654,27 @@ class DesignPipelineTest(unittest.TestCase):
 
     def _write_skill(self, root: Path, *, skill_body: str, references: dict[str, str]) -> None:
         root.mkdir(parents=True, exist_ok=True)
+        parts = root.parts
+        if "skills-sources" in parts:
+            source_id = parts[parts.index("skills-sources") + 1]
+            config_root = Path(*parts[: parts.index("skills-sources")])
+            config_path = config_root / "skills-sources.json"
+            payload = {"sources": []}
+            if config_path.is_file():
+                payload = json.loads(config_path.read_text(encoding="utf-8"))
+            sources = [item for item in payload.get("sources", []) if item.get("id") != source_id]
+            sources.append(
+                {
+                    "id": source_id,
+                    "name": source_id,
+                    "type": "git",
+                    "url": f"git@gitlab.example.com:team/{source_id}.git",
+                    "branch": "main",
+                    "local_path": str(config_root / "skills-sources" / source_id),
+                    "enabled": True,
+                }
+            )
+            config_path.write_text(json.dumps({"sources": sources}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         name = root.name
         (root / "SKILL.md").write_text(
             "---\n"

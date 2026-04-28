@@ -17,25 +17,50 @@ SkillTreeNode.model_rebuild()
 
 class SkillTreeResponse(BaseModel):
     rootPath: str
+    sourceId: str
     nodes: list[SkillTreeNode]
 
 
 class SkillFileResponse(BaseModel):
     path: str
+    sourceId: str
     content: str
 
 
-class UpdateSkillFileRequest(BaseModel):
-    content: str
-
-
-class CreateSkillPackageRequest(BaseModel):
+class SkillSourceStatus(BaseModel):
+    id: str
     name: str
-    description: str = ""
-    domain: str = ""
+    sourceType: Literal["git"]
+    enabled: bool = True
+    url: str = ""
+    branch: str = ""
+    localPath: str
+    status: str
+    message: str = ""
+    isGitRepo: bool = False
+    currentBranch: str = ""
+    commit: str = ""
+    remoteUrl: str = ""
+    dirty: bool = False
+    ahead: int = 0
+    behind: int = 0
+    packageCount: int = 0
 
 
-class SkillPackageResponse(BaseModel):
-    name: str
-    rootPath: str
-    skillPath: str
+class SkillSourcesResponse(BaseModel):
+    sources: list[SkillSourceStatus]
+
+
+class CreateSkillSourceRequest(BaseModel):
+    name: str = ""
+    url: str
+    branch: str = ""
+
+
+class CheckoutSkillSourceRequest(BaseModel):
+    branch: str
+
+
+class SkillSourceActionResponse(BaseModel):
+    source: SkillSourceStatus
+    output: str = ""

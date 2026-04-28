@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 
 from coco_flow.services import TaskStore
-from coco_flow.services.queries.skills import skills_root_path
+from coco_flow.services.queries.skills import skills_sources_root_path
 
 
 def workspace_summary(store: TaskStore) -> dict[str, object]:
@@ -22,7 +22,7 @@ def workspace_summary(store: TaskStore) -> dict[str, object]:
     return {
         "repoRoot": str(cwd),
         "tasksRoot": str(store.settings.task_root),
-        "skillsRoot": str(skills_root_path(store.settings)),
+        "skillsRoot": str(skills_sources_root_path(store.settings)),
         "worktreeRoot": str(cwd.parent / ".coco-flow-worktree"),
         "reposInvolved": sorted(repos_involved),
         "taskCount": len(tasks),

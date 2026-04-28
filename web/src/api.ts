@@ -1,5 +1,5 @@
 import type { KnowledgeDocument } from './knowledge/types'
-import type { SkillFile, SkillPackage, SkillTreeResponse } from './skills/types'
+import type { SkillFile, SkillSourceActionResponse, SkillSourcesResponse, SkillTreeResponse } from './skills/types'
 
 export type TaskStatus =
   | 'initialized'
@@ -312,30 +312,12 @@ export async function deleteKnowledgeDocument(documentId: string) {
   return response.json() as Promise<{ task_id: string; status: string }>
 }
 
-export async function getSkillsTree() {
-  return fetchJSON<SkillTreeResponse>('/api/skills/tree')
+export async function getSkillSources() {
+  return fetchJSON<SkillSourcesResponse>('/api/skills/sources')
 }
 
-export async function getSkillFile(path: string) {
-  const query = new URLSearchParams({ path })
-  return fetchJSON<SkillFile>(`/api/skills/file?${query.toString()}`)
-}
-
-export async function updateSkillFile(path: string, content: string) {
-  const query = new URLSearchParams({ path })
-  const response = await fetch(`/api/skills/file?${query.toString()}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  })
-  if (!response.ok) {
-    throw new Error(await response.text())
-  }
-  return response.json() as Promise<SkillFile>
-}
-
-export async function createSkillPackage(input: { name: string; description: string; domain: string }) {
-  const response = await fetch('/api/skills/package', {
+export async function addSkillSource(input: { name: string; url: string; branch: string }) {
+  const response = await fetch('/api/skills/sources', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -343,7 +325,59 @@ export async function createSkillPackage(input: { name: string; description: str
   if (!response.ok) {
     throw new Error(await response.text())
   }
-  return response.json() as Promise<SkillPackage>
+  return response.json() as Promise<SkillSourceActionResponse>
+}
+
+export async function cloneSkillSource(sourceId: string) {
+  const response = await fetch(`/api/skills/sources/${encodeURIComponent(sourceId)}/clone`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<SkillSourceActionResponse>
+}
+
+export async function pullSkillSource(sourceId: string) {
+  const response = await fetch(`/api/skills/sources/${encodeURIComponent(sourceId)}/pull`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<SkillSourceActionResponse>
+}
+
+export async function checkoutSkillSource(sourceId: string, branch: string) {
+  const response = await fetch(`/api/skills/sources/${encodeURIComponent(sourceId)}/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch }),
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<SkillSourceActionResponse>
+}
+
+export async function removeSkillSource(sourceId: string) {
+  const response = await fetch(`/api/skills/sources/${encodeURIComponent(sourceId)}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<SkillSourceActionResponse>
+}
+
+export async function getSkillsTree(source: string) {
+  const query = new URLSearchParams({ source })
+  return fetchJSON<SkillTreeResponse>(`/api/skills/tree?${query.toString()}`)
+}
+
+export async function getSkillFile(source: string, path: string) {
+  const query = new URLSearchParams({ source, path })
+  return fetchJSON<SkillFile>(`/api/skills/file?${query.toString()}`)
 }
 
 export async function createTask(input: CreateTaskRequest) {
