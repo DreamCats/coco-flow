@@ -1,4 +1,5 @@
 from .skills import (
+    CheckoutSkillSourceRequest,
     CreateSkillSourceRequest,
     SkillFileResponse,
     SkillSourceActionResponse,
@@ -27,6 +28,7 @@ from .task import (
 
 __all__ = [
     "CreateSkillSourceRequest",
+    "CheckoutSkillSourceRequest",
     "ArtifactContentResponse",
     "ArtifactItem",
     "CreateTaskRequest",

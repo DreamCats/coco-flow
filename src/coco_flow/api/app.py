@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from coco_flow.models import (
     ArtifactContentResponse,
+    CheckoutSkillSourceRequest,
     CreateSkillSourceRequest,
     CreateTaskRequest,
     CreateTaskResponse,
@@ -140,6 +141,14 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
     def pull_skill_source(source_id: str) -> SkillSourceActionResponse:
         try:
             source, output = skill_store.pull_source(source_id)
+            return SkillSourceActionResponse(source=source, output=output)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/skills/sources/{source_id}/checkout", response_model=SkillSourceActionResponse)
+    def checkout_skill_source(source_id: str, payload: CheckoutSkillSourceRequest) -> SkillSourceActionResponse:
+        try:
+            source, output = skill_store.checkout_source_branch(source_id, payload.branch)
             return SkillSourceActionResponse(source=source, output=output)
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error

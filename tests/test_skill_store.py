@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -57,6 +58,56 @@ def write_skill(settings: Settings, source_id: str, package_id: str, *, descript
     )
     (references / "main-flow.md").write_text("# Main Flow\n\n- live_pack consumes live_common.\n", encoding="utf-8")
     return package_root
+
+
+def run_git(args: list[str], cwd: Path) -> None:
+    subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
+
+
+def write_git_source_config(settings: Settings, source_id: str, *, url: str, branch: str, local_path: Path) -> None:
+    payload = {
+        "sources": [
+            {
+                "id": source_id,
+                "name": source_id,
+                "type": "git",
+                "url": url,
+                "branch": branch,
+                "local_path": str(local_path),
+                "enabled": True,
+            }
+        ]
+    }
+    settings.config_root.mkdir(parents=True, exist_ok=True)
+    (settings.config_root / "skills-sources.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def create_skill_origin(root: Path) -> tuple[Path, Path]:
+    origin = root / "origin.git"
+    seed = root / "seed"
+    local_path = root / "config" / "skills-sources" / "live-ai-skills"
+    run_git(["init", "--bare", str(origin)], cwd=root)
+    seed.mkdir()
+    run_git(["init"], cwd=seed)
+    run_git(["config", "user.email", "test@example.com"], cwd=seed)
+    run_git(["config", "user.name", "Test User"], cwd=seed)
+    package_root = seed / "auction-popcard"
+    package_root.mkdir()
+    (package_root / "SKILL.md").write_text("---\nname: auction-popcard\ndescription: main\n---\n\nmain\n", encoding="utf-8")
+    run_git(["add", "."], cwd=seed)
+    run_git(["commit", "-m", "main skill"], cwd=seed)
+    run_git(["branch", "-M", "main"], cwd=seed)
+    run_git(["remote", "add", "origin", str(origin)], cwd=seed)
+    run_git(["push", "-u", "origin", "main"], cwd=seed)
+    run_git(["symbolic-ref", "HEAD", "refs/heads/main"], cwd=origin)
+    run_git(["switch", "-c", "dev"], cwd=seed)
+    (package_root / "SKILL.md").write_text("---\nname: auction-popcard\ndescription: dev\n---\n\ndev\n", encoding="utf-8")
+    run_git(["add", "."], cwd=seed)
+    run_git(["commit", "-m", "dev skill"], cwd=seed)
+    run_git(["push", "-u", "origin", "dev"], cwd=seed)
+    local_path.parent.mkdir(parents=True)
+    run_git(["clone", "--branch", "main", str(origin), str(local_path)], cwd=root)
+    return origin, local_path
 
 
 class SkillStoreTest(unittest.TestCase):
@@ -174,6 +225,35 @@ class SkillStoreTest(unittest.TestCase):
             self.assertTrue(git_local_path.is_dir())
             self.assertEqual(store.list_sources(), [])
             self.assertEqual(store.list_packages(), [])
+
+    def test_checkout_source_branch_switches_remote_branch_and_updates_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            settings = make_settings(root)
+            origin, local_path = create_skill_origin(root)
+            write_git_source_config(settings, "live-ai-skills", url=str(origin), branch="main", local_path=local_path)
+            store = SkillStore(settings)
+
+            source, output = store.checkout_source_branch("live-ai-skills", "dev")
+
+            self.assertEqual(source["currentBranch"], "dev")
+            self.assertEqual(source["branch"], "dev")
+            self.assertIn("dev", output)
+            self.assertIn("description: dev", (local_path / "auction-popcard" / "SKILL.md").read_text(encoding="utf-8"))
+            config = json.loads((settings.config_root / "skills-sources.json").read_text(encoding="utf-8"))
+            self.assertEqual(config["sources"][0]["branch"], "dev")
+
+    def test_checkout_source_branch_rejects_dirty_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            settings = make_settings(root)
+            origin, local_path = create_skill_origin(root)
+            write_git_source_config(settings, "live-ai-skills", url=str(origin), branch="main", local_path=local_path)
+            (local_path / "dirty.md").write_text("dirty\n", encoding="utf-8")
+            store = SkillStore(settings)
+
+            with self.assertRaisesRegex(ValueError, "本地改动"):
+                store.checkout_source_branch("live-ai-skills", "dev")
 
 
 if __name__ == "__main__":

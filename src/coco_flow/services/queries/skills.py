@@ -101,6 +101,32 @@ class SkillStore:
         output = _run_git_command(["git", "pull", "--ff-only"], cwd=source.local_path)
         return self._source_status(self._source_by_id(source.id)), output
 
+    def checkout_source_branch(self, source_id: str, branch: str) -> tuple[dict[str, object], str]:
+        target_branch = _validate_branch_name(branch)
+        source = self._require_git_source(source_id)
+        if not source.local_path.is_dir():
+            raise ValueError(f"skill source not cloned: {source.id}")
+        if not _is_git_repo(source.local_path):
+            raise ValueError(f"skill source is not a git repo: {source.local_path}")
+        dirty = _git_output(["git", "status", "--porcelain"], cwd=source.local_path).strip()
+        if dirty:
+            raise ValueError("skills 仓库存在本地改动，请先提交、stash 或清理后再切换分支")
+
+        outputs = [_run_git_command(["git", "fetch", "--prune"], cwd=source.local_path)]
+        local_branch = _git_output(["git", "branch", "--list", target_branch], cwd=source.local_path).strip()
+        if local_branch:
+            outputs.append(_run_git_command(["git", "switch", target_branch], cwd=source.local_path))
+        else:
+            remote_branch = _git_output(["git", "branch", "--remotes", "--list", f"origin/{target_branch}"], cwd=source.local_path).strip()
+            if not remote_branch:
+                raise ValueError(f"skill source branch not found: {target_branch}")
+            outputs.append(_run_git_command(["git", "switch", "--track", "-c", target_branch, f"origin/{target_branch}"], cwd=source.local_path))
+        if _git_output(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], cwd=source.local_path).strip():
+            outputs.append(_run_git_command(["git", "pull", "--ff-only"], cwd=source.local_path))
+
+        self._update_source_branch(source.id, target_branch)
+        return self._source_status(self._source_by_id(source.id)), "\n".join(item for item in outputs if item)
+
     def remove_source(self, source_id: str) -> dict[str, object]:
         normalized = slugify_skill_source_id(source_id)
         sources = self._configured_sources()
@@ -256,6 +282,22 @@ class SkillStore:
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+    def _update_source_branch(self, source_id: str, branch: str) -> None:
+        sources = [
+            SkillSourceConfig(
+                id=source.id,
+                name=source.name,
+                source_type=source.source_type,
+                url=source.url,
+                branch=branch if source.id == source_id else source.branch,
+                local_path=source.local_path,
+                enabled=source.enabled,
+                managed=source.managed,
+            )
+            for source in self._configured_sources()
+        ]
+        self._write_configured_sources(sources)
+
     def _sources_config_path(self) -> Path:
         return self.settings.config_root / _SOURCES_CONFIG_NAME
 
@@ -335,6 +377,21 @@ def slugify_skill_source_id(name: str) -> str:
     normalized = _SOURCE_ID_RE.sub("-", lowered)
     normalized = re.sub(r"-{2,}", "-", normalized)
     return normalized.strip("-_")
+
+
+def _validate_branch_name(branch: str) -> str:
+    value = branch.strip()
+    invalid_chars = set(" ~^:?*[\\")
+    if (
+        not value
+        or value.startswith("-")
+        or value.endswith("/")
+        or ".." in value
+        or "@{" in value
+        or any(char in invalid_chars or ord(char) < 32 for char in value)
+    ):
+        raise ValueError("branch name 不合法")
+    return value
 
 
 def read_skill_package(package_root: Path, *, source: SkillSourceConfig) -> SkillPackage:

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { type ReactNode, useEffect } from 'react'
 
 type ConfirmationTone = 'danger' | 'warning' | 'neutral'
 
@@ -13,7 +13,9 @@ export function ConfirmationModal({
   cancelLabel = '取消',
   tone = 'warning',
   busy = false,
+  confirmDisabled = false,
   error = '',
+  children,
   onConfirm,
   onClose,
 }: {
@@ -27,7 +29,9 @@ export function ConfirmationModal({
   cancelLabel?: string
   tone?: ConfirmationTone
   busy?: boolean
+  confirmDisabled?: boolean
   error?: string
+  children?: ReactNode
   onConfirm: () => void
   onClose: () => void
 }) {
@@ -84,6 +88,8 @@ export function ConfirmationModal({
         </div>
 
         <div className="space-y-4 px-6 py-5">
+          {children ? <div>{children}</div> : null}
+
           {impacts.length > 0 ? (
             <section className={`rounded-[20px] border p-4 ${toneStyles.panel}`}>
               <div className="text-[10px] uppercase tracking-[0.42em] text-[#87867f] dark:text-[#b0aea5]">{impactTitle}</div>
@@ -114,7 +120,7 @@ export function ConfirmationModal({
           </button>
           <button
             className={`rounded-[14px] border px-5 py-3 text-sm text-[#faf9f5] transition disabled:cursor-not-allowed disabled:opacity-60 ${toneStyles.button}`}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             onClick={onConfirm}
             type="button"
           >

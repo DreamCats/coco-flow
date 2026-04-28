@@ -271,6 +271,7 @@ uv run python -m unittest discover -s tests -v
 - `DELETE /api/skills/sources/{source_id}`
 - `POST /api/skills/sources/{source_id}/clone`
 - `POST /api/skills/sources/{source_id}/pull`
+- `POST /api/skills/sources/{source_id}/checkout`
 - `GET /api/skills/tree?source=...`
 - `GET /api/skills/file?source=...&path=...`
 - `GET /api/tasks`

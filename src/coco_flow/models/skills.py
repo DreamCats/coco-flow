@@ -57,6 +57,10 @@ class CreateSkillSourceRequest(BaseModel):
     branch: str = ""
 
 
+class CheckoutSkillSourceRequest(BaseModel):
+    branch: str
+
+
 class SkillSourceActionResponse(BaseModel):
     source: SkillSourceStatus
     output: str = ""

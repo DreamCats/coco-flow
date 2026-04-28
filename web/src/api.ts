@@ -348,6 +348,18 @@ export async function pullSkillSource(sourceId: string) {
   return response.json() as Promise<SkillSourceActionResponse>
 }
 
+export async function checkoutSkillSource(sourceId: string, branch: string) {
+  const response = await fetch(`/api/skills/sources/${encodeURIComponent(sourceId)}/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch }),
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<SkillSourceActionResponse>
+}
+
 export async function removeSkillSource(sourceId: string) {
   const response = await fetch(`/api/skills/sources/${encodeURIComponent(sourceId)}`, {
     method: 'DELETE',

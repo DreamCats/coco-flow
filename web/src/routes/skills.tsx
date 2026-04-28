@@ -2,7 +2,7 @@ import { startTransition, useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import YAML from 'yaml'
-import { addSkillSource, cloneSkillSource, getSkillFile, getSkillSources, getSkillsTree, pullSkillSource, removeSkillSource } from '../api'
+import { addSkillSource, checkoutSkillSource, cloneSkillSource, getSkillFile, getSkillSources, getSkillsTree, pullSkillSource, removeSkillSource } from '../api'
 import { ConfirmationModal } from '../components/confirmation-modal'
 import { PanelMessage } from '../components/ui-primitives'
 import type { SkillFile, SkillSourceStatus, SkillTreeNode } from '../skills/types'
@@ -29,6 +29,9 @@ export function SkillsPage() {
   const [addingSource, setAddingSource] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<SkillSourceStatus | null>(null)
   const [removeError, setRemoveError] = useState('')
+  const [checkoutTarget, setCheckoutTarget] = useState<SkillSourceStatus | null>(null)
+  const [checkoutBranch, setCheckoutBranch] = useState('')
+  const [checkoutError, setCheckoutError] = useState('')
   const [error, setError] = useState('')
 
   const selectedSource = sources.find((source) => source.id === selectedSourceId) || null
@@ -214,6 +217,36 @@ export function SkillsPage() {
     }
   }
 
+  async function confirmCheckoutSource() {
+    if (!checkoutTarget) {
+      return
+    }
+    const branch = checkoutBranch.trim()
+    if (!branch) {
+      setCheckoutError('Branch 不能为空')
+      return
+    }
+    const source = checkoutTarget
+    try {
+      setActionSourceId(source.id)
+      setCheckoutError('')
+      const response = await checkoutSkillSource(source.id, branch)
+      replaceSource(response.source)
+      if (source.id === selectedSourceId) {
+        setSelectedPath('')
+        setSelectedFile(null)
+        await loadTree(source.id)
+      }
+      setCheckoutTarget(null)
+      setCheckoutBranch('')
+      setError('')
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : '切换 source 分支失败')
+    } finally {
+      setActionSourceId('')
+    }
+  }
+
   function toggleExpanded(path: string) {
     setExpandedPaths((current) => (current.includes(path) ? current.filter((item) => item !== path) : [...current, path]))
   }
@@ -276,6 +309,11 @@ export function SkillsPage() {
                 busy={actionSourceId === source.id}
                 key={source.id}
                 onAction={runSourceAction}
+                onCheckout={(nextSource) => {
+                  setCheckoutError('')
+                  setCheckoutBranch(nextSource.currentBranch || nextSource.branch)
+                  setCheckoutTarget(nextSource)
+                }}
                 onRemove={(nextSource) => {
                   setRemoveError('')
                   setRemoveTarget(nextSource)
@@ -396,6 +434,37 @@ export function SkillsPage() {
         title={removeTarget ? `移除 ${removeTarget.name}` : ''}
         tone="danger"
       />
+
+      <ConfirmationModal
+        busy={Boolean(checkoutTarget && actionSourceId === checkoutTarget.id)}
+        confirmDisabled={!checkoutBranch.trim()}
+        confirmLabel="切换分支"
+        description={checkoutTarget ? `切换「${checkoutTarget.name}」的本地 Git 缓存分支，并重新加载 package tree。` : ''}
+        error={checkoutError}
+        eyebrow="Skills Branch"
+        impacts={
+          checkoutTarget
+            ? [
+                '会先 fetch 远端分支信息，再切换本地缓存仓库',
+                '本地仓库存在未提交改动时会拒绝切换',
+                '切换后 Design / Plan 新生成时会读取新分支上的 skills',
+              ]
+            : []
+        }
+        onClose={() => {
+          if (!actionSourceId) {
+            setCheckoutTarget(null)
+            setCheckoutBranch('')
+            setCheckoutError('')
+          }
+        }}
+        onConfirm={() => void confirmCheckoutSource()}
+        open={Boolean(checkoutTarget)}
+        title={checkoutTarget ? `切换 ${checkoutTarget.name} 分支` : ''}
+        tone="warning"
+      >
+        <TextInput label="Branch" onChange={setCheckoutBranch} placeholder="main / dev / feature/xxx" value={checkoutBranch} />
+      </ConfirmationModal>
     </>
   )
 }
@@ -406,6 +475,7 @@ function SourceCard({
   busy,
   onSelect,
   onAction,
+  onCheckout,
   onRemove,
 }: {
   source: SkillSourceStatus
@@ -413,9 +483,11 @@ function SourceCard({
   busy: boolean
   onSelect: (sourceId: string) => void
   onAction: (source: SkillSourceStatus) => Promise<void>
+  onCheckout: (source: SkillSourceStatus) => void
   onRemove: (source: SkillSourceStatus) => void
 }) {
   const canSync = source.sourceType === 'git' && source.status !== 'dirty' && source.status !== 'not_git'
+  const canCheckout = source.isGitRepo && !source.dirty && source.status !== 'not_cloned' && source.status !== 'not_git'
   const actionLabel = source.status === 'not_cloned' ? '初始化' : '更新'
   return (
     <div className={`rounded-[16px] border p-3 transition ${selected ? 'border-[#c96442] bg-[#fff7f2] dark:border-[#d97757] dark:bg-[#3a2620]' : 'border-[#e8e6dc] bg-[#faf9f5] dark:border-[#30302e] dark:bg-[#232220]'}`}>
@@ -444,6 +516,15 @@ function SourceCard({
           type="button"
         >
           {busy ? '执行中...' : actionLabel}
+        </button>
+        <button
+          className="rounded-[12px] border border-[#d1cfc5] px-3 py-2 text-sm font-semibold text-[#4d4c48] transition hover:border-[#c96442] hover:bg-[#f5f4ed] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#30302e] dark:text-[#f1ede4] dark:hover:bg-[#1d1c1a]"
+          disabled={busy || !canCheckout}
+          onClick={() => onCheckout(source)}
+          title={source.dirty ? '存在本地改动，请先在终端处理' : undefined}
+          type="button"
+        >
+          分支
         </button>
         <button
           className="rounded-[12px] border border-[#e1c1bf] px-3 py-2 text-sm font-semibold text-[#9d3328] transition hover:bg-[#fbf1f0] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#7a3b3b] dark:text-[#efb3b3] dark:hover:bg-[#362020]"
