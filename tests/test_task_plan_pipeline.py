@@ -176,8 +176,10 @@ class DesignPipelineTest(unittest.TestCase):
 
             index, fallback, selection, selected_ids = build_design_skills_bundle(prepared, settings)
 
-            self.assertEqual(selected_ids, ["auction-pop-card"])
-            self.assertEqual(selection["selected_skill_ids"], ["auction-pop-card"])
+            self.assertEqual(selected_ids, ["local/auction-pop-card"])
+            self.assertEqual(selection["selected_skill_ids"], ["local/auction-pop-card"])
+            self.assertEqual(selection["selected_skill_sources"][0]["source_id"], "local")
+            self.assertEqual(selection["selected_skill_sources"][0]["package_id"], "auction-pop-card")
             self.assertIn("Design Skills Index", index)
             self.assertIn("SKILL.md", index)
             self.assertIn("references/change-workflows.md", index)
@@ -216,9 +218,9 @@ class DesignPipelineTest(unittest.TestCase):
 
             _index, _fallback, selection, selected_ids = build_design_skills_bundle(prepared, settings)
 
-            self.assertEqual(selected_ids, ["auction-pop-card"])
+            self.assertEqual(selected_ids, ["local/auction-pop-card"])
             self.assertEqual(selection["selector"]["source"], "program")
-            self.assertIn("auction-live-bag", [item["id"] for item in selection["candidates"]])
+            self.assertIn("local/auction-live-bag", [item["id"] for item in selection["candidates"]])
 
     def test_plan_skills_builds_index_with_full_file_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -244,7 +246,7 @@ class DesignPipelineTest(unittest.TestCase):
                 repo_scopes=[RepoScope(repo_id="live_pack", repo_path="/repo/live_pack")],
             )
 
-            self.assertEqual(selected_ids, ["auction-pop-card"])
+            self.assertEqual(selected_ids, ["local/auction-pop-card"])
             self.assertIn("Plan Skills Index", index)
             self.assertIn("SKILL.md", index)
             self.assertIn("references/main-flow.md", index)
@@ -293,9 +295,11 @@ class DesignPipelineTest(unittest.TestCase):
 
             index, fallback, selection, selected_ids = build_plan_skills_bundle(prepared, settings)
 
-            self.assertEqual(selected_ids, ["auction-pop-card"])
+            self.assertEqual(selected_ids, ["local/auction-pop-card"])
             self.assertEqual(selection["source"], "design")
             self.assertEqual(selection["inherited_from"], "design-skills.json")
+            self.assertEqual(selection["selected_skill_sources"][0]["source_id"], "local")
+            self.assertEqual(selection["selected_skill_sources"][0]["package_id"], "auction-pop-card")
             self.assertNotIn("auction-live-bag", selected_ids)
             self.assertIn("inherited_from_design=true", index)
             self.assertIn("不能扩大 design.md", fallback)

@@ -78,8 +78,55 @@ class SkillStoreTest(unittest.TestCase):
 
             self.assertEqual(updated_path, "auction-popcard/SKILL.md")
             self.assertIn("description: updated", content)
-            saved = store.read_file("auction-popcard/SKILL.md")
-            self.assertIn("description: updated", saved[1])
+            _source_id, _path, saved = store.read_file("auction-popcard/SKILL.md")
+            self.assertIn("description: updated", saved)
+
+    def test_list_packages_uses_namespaced_skill_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = make_settings(Path(temp_dir))
+            store = SkillStore(settings)
+            store.create_package("auction-popcard")
+
+            packages = store.list_packages()
+
+            self.assertEqual([package.id for package in packages], ["local/auction-popcard"])
+            self.assertEqual(packages[0].source_id, "local")
+            self.assertEqual(packages[0].package_id, "auction-popcard")
+
+    def test_add_git_source_persists_not_cloned_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = make_settings(Path(temp_dir))
+            store = SkillStore(settings)
+
+            source = store.add_git_source(
+                name="Live Team Skills",
+                url="git@gitlab.example.com:team/coco-flow-skills.git",
+                branch="main",
+            )
+
+            self.assertEqual(source["id"], "live-team-skills")
+            self.assertEqual(source["status"], "not_cloned")
+            sources = store.list_sources()
+            self.assertEqual([item["id"] for item in sources], ["local", "live-team-skills"])
+            self.assertEqual(sources[1]["localPath"], str(settings.config_root / "skills-sources" / "live-team-skills"))
+
+    def test_remove_sources_hides_git_and_local_without_deleting_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = make_settings(Path(temp_dir))
+            store = SkillStore(settings)
+            store.create_package("auction-popcard")
+            store.add_git_source(name="Live Team Skills", url="git@gitlab.example.com:team/coco-flow-skills.git")
+
+            git_local_path = settings.config_root / "skills-sources" / "live-team-skills"
+            git_local_path.mkdir(parents=True)
+            removed_git = store.remove_source("live-team-skills")
+            removed_local = store.remove_source("local")
+
+            self.assertFalse(removed_git["enabled"])
+            self.assertFalse(removed_local["enabled"])
+            self.assertTrue(git_local_path.is_dir())
+            self.assertEqual(store.list_sources(), [])
+            self.assertEqual(store.list_packages(), [])
 
 
 if __name__ == "__main__":

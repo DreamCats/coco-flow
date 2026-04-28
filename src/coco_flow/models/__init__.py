@@ -1,10 +1,11 @@
 from .skills import (
-    CreateSkillPackageRequest,
+    CreateSkillSourceRequest,
     SkillFileResponse,
-    SkillPackageResponse,
+    SkillSourceActionResponse,
+    SkillSourcesResponse,
+    SkillSourceStatus,
     SkillTreeNode,
     SkillTreeResponse,
-    UpdateSkillFileRequest,
 )
 from .task import (
     ArtifactContentResponse,
@@ -25,7 +26,7 @@ from .task import (
 )
 
 __all__ = [
-    "CreateSkillPackageRequest",
+    "CreateSkillSourceRequest",
     "ArtifactContentResponse",
     "ArtifactItem",
     "CreateTaskRequest",
@@ -33,7 +34,9 @@ __all__ = [
     "DiagnosisSummary",
     "RepoBinding",
     "SkillFileResponse",
-    "SkillPackageResponse",
+    "SkillSourceActionResponse",
+    "SkillSourcesResponse",
+    "SkillSourceStatus",
     "SkillTreeNode",
     "SkillTreeResponse",
     "TaskActionResponse",
@@ -41,7 +44,6 @@ __all__ = [
     "TaskListResponse",
     "TaskSummary",
     "TimelineItem",
-    "UpdateSkillFileRequest",
     "UpdateTaskReposRequest",
     "UpdateArtifactRequest",
     "UpdateArtifactResponse",

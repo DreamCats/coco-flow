@@ -301,8 +301,11 @@ def render_plan_skills_index(documents: list[SkillSourceDocument], sources: list
 
 
 def _plan_skill_source_payload(document: SkillSourceDocument, score_payload: dict[str, object]) -> dict[str, object]:
+    source_id, package_id = _split_skill_document_id(document.id)
     return {
         "id": document.id,
+        "source_id": source_id,
+        "package_id": package_id,
         "title": document.title,
         "kind": document.kind,
         "domain": document.domain_name or document.domain_id,
@@ -324,8 +327,11 @@ def _inherited_plan_skill_source_payload(
         if isinstance(source, dict)
     }
     design_source = design_source_by_id.get(document.id, {})
+    source_id, package_id = _split_skill_document_id(document.id)
     return {
         "id": document.id,
+        "source_id": str(design_source.get("source_id") or source_id),
+        "package_id": str(design_source.get("package_id") or package_id),
         "title": document.title,
         "kind": document.kind,
         "domain": document.domain_name or document.domain_id,
@@ -390,3 +396,10 @@ def _dedupe_terms(items: list[str]) -> list[str]:
         seen.add(lowered)
         result.append(item)
     return result
+
+
+def _split_skill_document_id(skill_id: str) -> tuple[str, str]:
+    if "/" not in skill_id:
+        return "", skill_id
+    source_id, package_id = skill_id.split("/", 1)
+    return source_id, package_id

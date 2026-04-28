@@ -11,16 +11,16 @@ from fastapi.staticfiles import StaticFiles
 
 from coco_flow.models import (
     ArtifactContentResponse,
-    CreateSkillPackageRequest,
+    CreateSkillSourceRequest,
     CreateTaskRequest,
     CreateTaskResponse,
     SkillFileResponse,
-    SkillPackageResponse,
+    SkillSourceActionResponse,
+    SkillSourcesResponse,
     SkillTreeResponse,
     TaskDetail,
     TaskActionResponse,
     TaskListResponse,
-    UpdateSkillFileRequest,
     UpdateTaskReposRequest,
     UpdateArtifactRequest,
     UpdateArtifactResponse,
@@ -99,45 +99,58 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         return {"tasks": items}
 
     @app.get("/api/skills/tree", response_model=SkillTreeResponse)
-    def skills_tree() -> SkillTreeResponse:
-        root, nodes = skill_store.list_tree()
-        return SkillTreeResponse(rootPath=str(root), nodes=nodes)
+    def skills_tree(source: str = "local") -> SkillTreeResponse:
+        try:
+            skill_source, nodes = skill_store.list_tree_for_source(source)
+            return SkillTreeResponse(rootPath=str(skill_source.local_path), sourceId=skill_source.id, nodes=nodes)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/api/skills/file", response_model=SkillFileResponse)
-    def read_skill_file(path: str) -> SkillFileResponse:
+    def read_skill_file(path: str, source: str = "local") -> SkillFileResponse:
         try:
-            resolved_path, content = skill_store.read_file(path)
-            return SkillFileResponse(path=resolved_path, content=content)
+            source_id, resolved_path, content = skill_store.read_file(path, source_id=source)
+            return SkillFileResponse(path=resolved_path, sourceId=source_id, content=content)
         except ValueError as error:
             message = str(error)
             status_code = 404 if "not found" in message else 400
             raise HTTPException(status_code=status_code, detail=message) from error
 
-    @app.put("/api/skills/file", response_model=SkillFileResponse)
-    def update_skill_file(path: str, payload: UpdateSkillFileRequest) -> SkillFileResponse:
-        try:
-            resolved_path, content = skill_store.write_file(path, payload.content)
-            return SkillFileResponse(path=resolved_path, content=content)
-        except ValueError as error:
-            message = str(error)
-            status_code = 404 if "not found" in message else 400
-            raise HTTPException(status_code=status_code, detail=message) from error
+    @app.get("/api/skills/sources", response_model=SkillSourcesResponse)
+    def skills_sources() -> SkillSourcesResponse:
+        return SkillSourcesResponse(sources=skill_store.list_sources())
 
-    @app.post("/api/skills/package", response_model=SkillPackageResponse, status_code=201)
-    def create_skill_package(payload: CreateSkillPackageRequest) -> SkillPackageResponse:
+    @app.post("/api/skills/sources", response_model=SkillSourceActionResponse, status_code=201)
+    def add_skill_source(payload: CreateSkillSourceRequest) -> SkillSourceActionResponse:
         try:
-            name, root_path, skill_path = skill_store.create_package(
-                payload.name,
-                description=payload.description,
-                domain=payload.domain,
-            )
-            return SkillPackageResponse(
-                name=name,
-                rootPath=str(root_path),
-                skillPath=skill_path,
-            )
+            source = skill_store.add_git_source(name=payload.name, url=payload.url, branch=payload.branch)
+            return SkillSourceActionResponse(source=source)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.post("/api/skills/sources/{source_id}/clone", response_model=SkillSourceActionResponse)
+    def clone_skill_source(source_id: str) -> SkillSourceActionResponse:
+        try:
+            source, output = skill_store.clone_source(source_id)
+            return SkillSourceActionResponse(source=source, output=output)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/skills/sources/{source_id}/pull", response_model=SkillSourceActionResponse)
+    def pull_skill_source(source_id: str) -> SkillSourceActionResponse:
+        try:
+            source, output = skill_store.pull_source(source_id)
+            return SkillSourceActionResponse(source=source, output=output)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.delete("/api/skills/sources/{source_id}", response_model=SkillSourceActionResponse)
+    def remove_skill_source(source_id: str) -> SkillSourceActionResponse:
+        try:
+            source = skill_store.remove_source(source_id)
+            return SkillSourceActionResponse(source=source)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.post("/api/tasks", response_model=CreateTaskResponse, status_code=202)
     def create_task_handler(payload: CreateTaskRequest) -> CreateTaskResponse:

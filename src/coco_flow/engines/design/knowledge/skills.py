@@ -293,9 +293,15 @@ def _metadata_hits(document: _SkillDocument, terms: list[str]) -> list[str]:
 def _skill_source_payload(document: _SkillDocument, score_payload: dict[str, object]) -> dict[str, object]:
     return {
         "id": document.package.id,
+        "source_id": document.package.source_id,
+        "package_id": document.package.package_id,
         "title": document.package.name,
         "domain": document.package.domain,
         "description": document.package.description,
+        "source_type": document.package.source_type,
+        "source_url": document.package.source_url,
+        "root_path": str(document.package.root_path),
+        "skill_path": str(document.package.skill_path),
         "score": score_payload.get("score"),
         "keyword_hits": score_payload.get("keyword_hits") or [],
         "repo_hits": score_payload.get("repo_hits") or [],
