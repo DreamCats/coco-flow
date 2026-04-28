@@ -26,7 +26,7 @@ def write_doc_only_design_markdown(
     draft = build_local_doc_only_design_markdown(prepared, research_summary_payload)
     if native_ok:
         try:
-            return run_agent_markdown_with_new_session(
+            generated = run_agent_markdown_with_new_session(
                 prepared,
                 settings,
                 draft,
@@ -44,6 +44,9 @@ def write_doc_only_design_markdown(
                 stage="writer_doc_only",
                 on_log=on_log,
             )
+            if _design_markdown_is_actionable(generated):
+                return generated
+            on_log("design_writer_fallback: shallow_design_markdown")
         except Exception as error:
             on_log(f"design_writer_fallback: {error}")
     return draft
@@ -51,6 +54,9 @@ def write_doc_only_design_markdown(
 
 def build_local_doc_only_design_markdown(prepared: DesignInputBundle, research_summary_payload: dict[str, object]) -> str:
     candidate_files = _research_candidate_files(research_summary_payload)
+    repos_by_id = _research_repos_by_id(research_summary_payload)
+    acceptance = prepared.sections.acceptance_criteria
+    non_goals = prepared.sections.non_goals
     lines = [
         f"# {prepared.title} Design",
         "",
@@ -64,12 +70,27 @@ def build_local_doc_only_design_markdown(prepared: DesignInputBundle, research_s
     lines.extend(["", "## 分仓库方案"])
     for scope in prepared.repo_scopes:
         files = candidate_files.get(scope.repo_id, [])
+        repo_payload = repos_by_id.get(scope.repo_id, {})
         lines.extend(["", f"### {scope.repo_id}", f"- 仓库路径：{scope.repo_path}"])
+        work_hypothesis = str(repo_payload.get("work_hypothesis") or "").strip()
+        if work_hypothesis:
+            lines.append(f"- 职责判断：{_work_hypothesis_label(work_hypothesis)}")
         if files:
             lines.append("- 代码线索：")
             lines.extend(f"  - `{item['path']}`：{item['reason']}" for item in files[:8])
         else:
             lines.append("- 代码线索：以本仓库上下文和 Skills/SOP 继续收敛。")
+        lines.append("- 改造方案：")
+        lines.extend(f"  - {item}" for item in _repo_solution_points(files, prepared))
+        repo_boundaries = as_str_list(repo_payload.get("boundaries"))
+        if repo_boundaries or non_goals:
+            lines.append("- 边界：")
+            lines.extend(f"  - {item}" for item in [*repo_boundaries[:3], *non_goals[:6]])
+    lines.extend(["", "## 验收与验证"])
+    if acceptance:
+        lines.extend(f"- {item}" for item in acceptance[:10])
+    else:
+        lines.append("- 按 prd-refined.md 的验收标准做最小验证。")
     if prepared.design_skills_fallback_markdown.strip():
         lines.extend(["", "## SOP 与业务规则", prepared.design_skills_fallback_markdown.strip()])
     lines.extend(["", "## 风险与待确认"])
@@ -112,6 +133,25 @@ def render_research_summary_markdown(payload: dict[str, object]) -> str:
     return "\n".join(lines).rstrip()
 
 
+def _design_markdown_is_actionable(markdown: str) -> bool:
+    normalized = markdown.strip()
+    if not normalized:
+        return False
+    has_solution = any(keyword in normalized for keyword in ("改造方案", "技术方案", "方案落点", "实现方案"))
+    has_validation = any(keyword in normalized for keyword in ("验收与验证", "验证方案", "验证关注", "验收标准"))
+    has_repo_section = "## 分仓库方案" in normalized or "## 仓库方案" in normalized
+    return has_solution and has_validation and has_repo_section
+
+
+def _research_repos_by_id(payload: dict[str, object]) -> dict[str, dict[str, object]]:
+    result: dict[str, dict[str, object]] = {}
+    for repo in dict_list(payload.get("repos")):
+        repo_id = str(repo.get("repo_id") or "").strip()
+        if repo_id:
+            result[repo_id] = repo
+    return result
+
+
 def _research_candidate_files(payload: dict[str, object]) -> dict[str, list[dict[str, str]]]:
     result: dict[str, list[dict[str, str]]] = {}
     raw = payload.get("repos")
@@ -151,6 +191,20 @@ def _candidate_reason(item: dict[str, object]) -> str:
     if reason:
         return reason
     return "代码调研命中该文件。"
+
+
+def _repo_solution_points(files: list[dict[str, str]], prepared: DesignInputBundle) -> list[str]:
+    change_scope = prepared.sections.change_scope or [prepared.title]
+    points: list[str] = []
+    if files:
+        file_names = "、".join(f"`{item['path']}`" for item in files[:3])
+        points.append(f"以 {file_names} 为优先落点，定位现有标题、文案、配置或 DTO/converter 组装逻辑。")
+    else:
+        points.append("先按代码调研线索补充定位核心落点；证据不足时不要直接扩大为代码改造。")
+    points.extend(f"落实需求点：{item}" for item in change_scope[:4])
+    if prepared.sections.acceptance_criteria:
+        points.append("实现时保留验收标准中的实验命中、异常回退、未命中不变等行为约束。")
+    return points
 
 
 def _work_hypothesis_label(value: str) -> str:

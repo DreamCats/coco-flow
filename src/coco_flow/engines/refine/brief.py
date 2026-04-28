@@ -41,11 +41,17 @@ def build_refine_brief(prepared: RefinePreparedInput, manual_extract: ManualExtr
     target_surface = _infer_target_surface(prepared, manual_extract)
     goal = _derive_goal(prepared, manual_extract)
     in_scope = manual_extract.change_points[:12]
-    out_of_scope = manual_extract.out_of_scope[:8] or ["不扩大到人工提炼范围之外的 UI、动效、交互或相邻系统改动。"]
+    source_non_goals = _derive_source_non_goals(prepared)
+    out_of_scope = _unique([*manual_extract.out_of_scope, *source_non_goals])[:10] or ["不扩大到人工提炼范围之外的 UI、动效、交互或相邻系统改动。"]
     gating_conditions = manual_extract.gating_conditions[:6]
     edge_cases = _derive_edge_cases(prepared, manual_extract)
     open_questions = _unique([*manual_extract.open_questions, *_derive_open_questions(prepared, manual_extract)])[:8]
-    acceptance_criteria = _derive_acceptance_criteria(in_scope, gating_conditions, out_of_scope)
+    acceptance_criteria = _unique(
+        [
+            *_derive_source_acceptance_criteria(prepared),
+            *_derive_acceptance_criteria(in_scope, gating_conditions, out_of_scope),
+        ]
+    )[:12]
     return RefineBrief(
         target_surface=target_surface,
         goal=goal,
@@ -121,6 +127,14 @@ def _derive_acceptance_criteria(in_scope: list[str], gating_conditions: list[str
         else:
             criteria.append(f"{item}正确生效。")
     return _unique(criteria)[:10]
+
+
+def _derive_source_acceptance_criteria(prepared: RefinePreparedInput) -> list[str]:
+    return _extract_source_section_entries(prepared, ("验收标准", "验收条件", "Acceptance Criteria"))[:12]
+
+
+def _derive_source_non_goals(prepared: RefinePreparedInput) -> list[str]:
+    return _extract_source_section_entries(prepared, ("非目标", "明确不做", "不做范围", "Non Goals", "Non-goals"))[:8]
 
 
 def _derive_edge_cases(prepared: RefinePreparedInput, manual_extract: ManualExtract) -> list[str]:
@@ -271,6 +285,32 @@ def _extract_bullet_section(markdown: str, title: str) -> list[str]:
             continue
         items.append(current)
     return _unique(items)
+
+
+def _extract_source_section_entries(prepared: RefinePreparedInput, titles: tuple[str, ...]) -> list[str]:
+    source = _source_markdown_without_manual(prepared)
+    entries: list[str] = []
+    for title in titles:
+        section = _extract_any_heading_section(source, title)
+        if section:
+            entries.extend(_normalize_simple_entries(section))
+    return _unique(entries)
+
+
+def _source_markdown_without_manual(prepared: RefinePreparedInput) -> str:
+    source_markdown = str(getattr(prepared, "source_markdown", "") or "")
+    source_content = str(getattr(prepared, "source_content", "") or "")
+    source = source_markdown or source_content
+    for marker in ("## 人工提炼范围", "## 研发补充说明"):
+        if marker in source:
+            source = source.split(marker, 1)[0]
+    return source
+
+
+def _extract_any_heading_section(markdown: str, title: str) -> str:
+    pattern = rf"(?ms)^#{{1,6}}\s+{re.escape(title)}\s*\n(.*?)(?=^#{{1,6}}\s+|\Z)"
+    matched = re.search(pattern, markdown)
+    return matched.group(1).strip() if matched else ""
 
 
 def _unique(items: list[str]) -> list[str]:
