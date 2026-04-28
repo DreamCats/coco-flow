@@ -52,10 +52,10 @@ export function DesignStage({
   const blocker = buildDesignBlocker(task)
 
   useEffect(() => {
-    if (openRepoBindingToken > 0) {
+    if (openRepoBindingToken > 0 && task.repos.length === 0) {
       setBindingRepos(true)
     }
-  }, [openRepoBindingToken])
+  }, [openRepoBindingToken, task.repos.length])
 
   function openEditor(nextTab: 'artifact' | 'notes') {
     setDraft(nextTab === 'artifact' ? currentDesign : task.artifacts['design.notes.md'] || '')
