@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import YAML from 'yaml'
 import { addSkillSource, cloneSkillSource, getSkillFile, getSkillSources, getSkillsTree, pullSkillSource, removeSkillSource } from '../api'
+import { ConfirmationModal } from '../components/confirmation-modal'
 import { PanelMessage } from '../components/ui-primitives'
 import type { SkillFile, SkillSourceStatus, SkillTreeNode } from '../skills/types'
 
@@ -26,6 +27,8 @@ export function SkillsPage() {
   const [newSourceUrl, setNewSourceUrl] = useState('')
   const [newSourceBranch, setNewSourceBranch] = useState('')
   const [addingSource, setAddingSource] = useState(false)
+  const [removeTarget, setRemoveTarget] = useState<SkillSourceStatus | null>(null)
+  const [removeError, setRemoveError] = useState('')
   const [error, setError] = useState('')
 
   const selectedSource = sources.find((source) => source.id === selectedSourceId) || null
@@ -186,13 +189,14 @@ export function SkillsPage() {
     }
   }
 
-  async function removeSource(source: SkillSourceStatus) {
-    const confirmed = window.confirm(`移除 skills source「${source.name}」？\n\n只会从 coco-flow 配置中移除，不会删除本地目录。`)
-    if (!confirmed) {
+  async function confirmRemoveSource() {
+    if (!removeTarget) {
       return
     }
+    const source = removeTarget
     try {
       setActionSourceId(source.id)
+      setRemoveError('')
       await removeSkillSource(source.id)
       await loadSources()
       if (source.id === selectedSourceId) {
@@ -201,9 +205,10 @@ export function SkillsPage() {
         setSelectedPath('')
         setSelectedFile(null)
       }
+      setRemoveTarget(null)
       setError('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '移除 skills source 失败')
+      setRemoveError(err instanceof Error ? err.message : '移除 skills source 失败')
     } finally {
       setActionSourceId('')
     }
@@ -214,7 +219,8 @@ export function SkillsPage() {
   }
 
   return (
-    <div className="grid min-h-[760px] gap-4 lg:grid-cols-[260px_300px_minmax(0,1fr)]">
+    <>
+      <div className="grid min-h-[760px] gap-4 lg:grid-cols-[260px_300px_minmax(0,1fr)]">
       <aside className="rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-2.5 shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#1d1c1a]">
         <div className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-3 dark:border-[#30302e] dark:bg-[#232220]">
           <div className="flex items-start justify-between gap-3">
@@ -270,7 +276,10 @@ export function SkillsPage() {
                 busy={actionSourceId === source.id}
                 key={source.id}
                 onAction={runSourceAction}
-                onRemove={removeSource}
+                onRemove={(nextSource) => {
+                  setRemoveError('')
+                  setRemoveTarget(nextSource)
+                }}
                 onSelect={setSelectedSourceId}
                 selected={source.id === selectedSourceId}
                 source={source}
@@ -359,7 +368,35 @@ export function SkillsPage() {
           </section>
         )}
       </main>
-    </div>
+      </div>
+
+      <ConfirmationModal
+        busy={Boolean(removeTarget && actionSourceId === removeTarget.id)}
+        confirmLabel="移除 source"
+        description={removeTarget ? `移除后，coco-flow 不再从「${removeTarget.name}」加载 skills。` : ''}
+        error={removeError}
+        eyebrow="Skills Source"
+        impacts={
+          removeTarget
+            ? [
+                '只会从 coco-flow 配置中移除该 source',
+                '不会删除本地缓存目录或 Git 仓库内容',
+                '已生成的 Design / Plan 产物不会被自动改写',
+              ]
+            : []
+        }
+        onClose={() => {
+          if (!actionSourceId) {
+            setRemoveTarget(null)
+            setRemoveError('')
+          }
+        }}
+        onConfirm={() => void confirmRemoveSource()}
+        open={Boolean(removeTarget)}
+        title={removeTarget ? `移除 ${removeTarget.name}` : ''}
+        tone="danger"
+      />
+    </>
   )
 }
 
@@ -376,7 +413,7 @@ function SourceCard({
   busy: boolean
   onSelect: (sourceId: string) => void
   onAction: (source: SkillSourceStatus) => Promise<void>
-  onRemove: (source: SkillSourceStatus) => Promise<void>
+  onRemove: (source: SkillSourceStatus) => void
 }) {
   const canSync = source.sourceType === 'git' && source.status !== 'dirty' && source.status !== 'not_git'
   const actionLabel = source.status === 'not_cloned' ? '初始化' : '更新'
@@ -411,7 +448,7 @@ function SourceCard({
         <button
           className="rounded-[12px] border border-[#e1c1bf] px-3 py-2 text-sm font-semibold text-[#9d3328] transition hover:bg-[#fbf1f0] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#7a3b3b] dark:text-[#efb3b3] dark:hover:bg-[#362020]"
           disabled={busy}
-          onClick={() => void onRemove(source)}
+          onClick={() => onRemove(source)}
           type="button"
         >
           移除

@@ -165,7 +165,22 @@ export function useTaskDetail(taskId: string, onAfterAction: () => Promise<void>
       }
       return runAction('design', async () => void (await startDesign(taskId)))
     },
-    startPlanAction: () => runAction('plan', async () => void (await startPlan(taskId))),
+    startPlanAction: () => {
+      if (task?.status === 'planned') {
+        setPendingConfirmation({
+          eyebrow: 'Plan Restart',
+          title: '重新生成 Plan',
+          description: '当前 Plan 会被覆盖，任务拆分、执行图和仓库计划会重新生成。',
+          impacts: ['会覆盖当前 plan.md', '会重建 plan-work-items、执行图和验证清单', '会覆盖 plan-repos 下的仓库级计划'],
+          confirmLabel: '重新生成 Plan',
+          tone: 'warning',
+          actionKey: 'plan',
+          run: async () => void (await startPlan(taskId)),
+        })
+        return Promise.resolve()
+      }
+      return runAction('plan', async () => void (await startPlan(taskId)))
+    },
     startCodeAction: (repoId?: string) => runAction('code', async () => void (await startCode(taskId, repoId))),
     resetCodeAction: (repoId?: string) => runAction('reset', async () => void (await resetCode(taskId, repoId))),
     archiveAction: (repoId?: string) => runAction('archive', async () => void (await archiveCode(taskId, repoId))),
