@@ -127,7 +127,7 @@ export function SkillsPage() {
       startTransition(() => {
         setRootPath(tree.rootPath)
         setNodes(tree.nodes)
-        setExpandedPaths(collectDirectoryPaths(tree.nodes))
+        setExpandedPaths([])
       })
       setError('')
     } catch (err) {
@@ -722,17 +722,6 @@ function flattenFiles(nodes: SkillTreeNode[]): SkillTreeNode[] {
 function pickDefaultFile(files: SkillTreeNode[]) {
   const skillFile = files.find((node) => node.name === 'SKILL.md')
   return skillFile || files[0] || null
-}
-
-function collectDirectoryPaths(nodes: SkillTreeNode[]): string[] {
-  const paths: string[] = []
-  for (const node of nodes) {
-    if (node.nodeType === 'directory') {
-      paths.push(node.path)
-      paths.push(...collectDirectoryPaths(node.children))
-    }
-  }
-  return paths
 }
 
 function PlusIcon() {
