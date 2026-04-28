@@ -41,6 +41,7 @@ export type TaskArtifactName =
   | 'plan-validation.json'
   | 'plan-sync.json'
   | 'plan-result.json'
+  | 'plan-readiness-score.json'
   | 'plan.log'
   | 'code-result.json'
   | 'code.log'
@@ -198,6 +199,30 @@ export type ArtifactResponse = {
   repo_id?: string
   name: string
   content: string
+}
+
+export type PlanReadinessMetric = {
+  id: string
+  label: string
+  weight: number
+  score: number
+  reason: string
+}
+
+export type PlanReadinessSection = PlanReadinessMetric & {
+  children: PlanReadinessMetric[]
+}
+
+export type PlanReadinessScore = {
+  task_id: string
+  generated_at: string
+  score: number
+  status: 'ready' | 'review' | 'revise' | string
+  formula: string
+  inputs: Record<string, number>
+  sections: PlanReadinessSection[]
+  recommendations: string[]
+  notes: string[]
 }
 
 export type UpdateArtifactResponse = {
@@ -444,6 +469,17 @@ export async function syncPlan(taskId: string) {
     throw new Error(body?.detail || body?.error || '同步 Plan 失败')
   }
   return response.json() as Promise<{ task_id: string; status: string }>
+}
+
+export async function evaluatePlanReadiness(taskId: string) {
+  const response = await fetch(`/api/tasks/${taskId}/plan/readiness`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null
+    throw new Error(body?.detail || body?.error || '评测 Plan 质量失败')
+  }
+  return response.json() as Promise<PlanReadinessScore>
 }
 
 export async function syncDesign(taskId: string) {

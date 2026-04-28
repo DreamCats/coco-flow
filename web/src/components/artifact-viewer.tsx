@@ -472,6 +472,8 @@ export function artifactLabel(name: TaskArtifactName) {
       return 'Plan'
     case 'plan.log':
       return 'Plan Log'
+    case 'plan-readiness-score.json':
+      return 'Readiness Score'
     case 'code-result.json':
       return 'Code Result'
     case 'code.log':
