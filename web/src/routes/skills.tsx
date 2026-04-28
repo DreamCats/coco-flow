@@ -221,7 +221,7 @@ export function SkillsPage() {
             <div className="min-w-0">
               <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Skills</div>
               <h2 className="mt-2 text-[26px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">Skills Sources</h2>
-              <div className="mt-2 text-sm text-[#87867f] dark:text-[#b0aea5]">管理 GitLab / local 来源，只读加载知识库。</div>
+              <div className="mt-2 text-sm text-[#87867f] dark:text-[#b0aea5]">管理 GitLab 来源，只读加载知识库。</div>
             </div>
             <button
               className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] border border-[#c96442] bg-[#c96442] text-[#faf9f5] transition hover:bg-[#d97757]"
@@ -399,7 +399,6 @@ function SourceCard({
         </div>
       </button>
       <div className="mt-3 flex gap-2">
-      {source.sourceType === 'git' ? (
         <button
           className="flex-1 rounded-[12px] border border-[#d1cfc5] bg-[#f5f4ed] px-3 py-2 text-sm font-semibold text-[#141413] transition hover:border-[#c96442] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#faf9f5]"
           disabled={busy || !canSync}
@@ -409,7 +408,6 @@ function SourceCard({
         >
           {busy ? '执行中...' : actionLabel}
         </button>
-      ) : null}
         <button
           className="rounded-[12px] border border-[#e1c1bf] px-3 py-2 text-sm font-semibold text-[#9d3328] transition hover:bg-[#fbf1f0] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#7a3b3b] dark:text-[#efb3b3] dark:hover:bg-[#362020]"
           disabled={busy}

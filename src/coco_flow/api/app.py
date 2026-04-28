@@ -99,7 +99,7 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
         return {"tasks": items}
 
     @app.get("/api/skills/tree", response_model=SkillTreeResponse)
-    def skills_tree(source: str = "local") -> SkillTreeResponse:
+    def skills_tree(source: str) -> SkillTreeResponse:
         try:
             skill_source, nodes = skill_store.list_tree_for_source(source)
             return SkillTreeResponse(rootPath=str(skill_source.local_path), sourceId=skill_source.id, nodes=nodes)
@@ -107,7 +107,7 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/api/skills/file", response_model=SkillFileResponse)
-    def read_skill_file(path: str, source: str = "local") -> SkillFileResponse:
+    def read_skill_file(path: str, source: str) -> SkillFileResponse:
         try:
             source_id, resolved_path, content = skill_store.read_file(path, source_id=source)
             return SkillFileResponse(path=resolved_path, sourceId=source_id, content=content)

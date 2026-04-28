@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import json
-import os
 import re
 import subprocess
 
@@ -12,11 +11,9 @@ import yaml
 from coco_flow.config import Settings
 from coco_flow.models.skills import SkillTreeNode
 
-_PACKAGE_NAME_RE = re.compile(r"[^a-z0-9_-]+")
 _SOURCE_ID_RE = re.compile(r"[^a-z0-9_-]+")
 _SOURCES_CONFIG_NAME = "skills-sources.json"
 _SKILLS_SOURCES_DIR = "skills-sources"
-_LOCAL_SOURCE_ID = "local"
 
 
 @dataclass(frozen=True)
@@ -51,11 +48,6 @@ class SkillStore:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
-    def ensure_root(self) -> Path:
-        root = skills_root_path(self.settings)
-        root.mkdir(parents=True, exist_ok=True)
-        return root
-
     def list_sources(self) -> list[dict[str, object]]:
         return [self._source_status(source) for source in self._source_configs()]
 
@@ -66,8 +58,8 @@ class SkillStore:
         source_id = slugify_skill_source_id(name or _repo_slug_from_url(clean_url))
         if not source_id:
             raise ValueError("source name 不能为空")
-        sources, local_enabled = self._configured_sources_with_local_flag()
-        if source_id == _LOCAL_SOURCE_ID or any(item.id == source_id for item in self._source_configs()):
+        sources = self._configured_sources()
+        if any(item.id == source_id for item in sources):
             raise ValueError(f"skill source already exists: {source_id}")
         local_path = self.settings.config_root / _SKILLS_SOURCES_DIR / source_id
         sources.append(
@@ -82,7 +74,7 @@ class SkillStore:
                 managed=True,
             )
         )
-        self._write_configured_sources(sources, local_enabled=local_enabled)
+        self._write_configured_sources(sources)
         return self._source_status(self._source_by_id(source_id))
 
     def clone_source(self, source_id: str) -> tuple[dict[str, object], str]:
@@ -111,14 +103,10 @@ class SkillStore:
 
     def remove_source(self, source_id: str) -> dict[str, object]:
         normalized = slugify_skill_source_id(source_id)
-        if normalized == _LOCAL_SOURCE_ID:
-            sources, _local_enabled = self._configured_sources_with_local_flag()
-            self._write_configured_sources(sources, local_enabled=False)
-            return self._source_status(self._legacy_local_source(enabled=False))
         sources = self._configured_sources()
         if not any(source.id == normalized for source in sources):
             raise ValueError(f"skill source not found: {source_id}")
-        self._write_configured_sources([source for source in sources if source.id != normalized], local_enabled=self._local_source_enabled())
+        self._write_configured_sources([source for source in sources if source.id != normalized])
         return self._source_status(
             SkillSourceConfig(
                 id=normalized,
@@ -130,16 +118,9 @@ class SkillStore:
             )
         )
 
-    def list_tree(self) -> tuple[Path, list[SkillTreeNode]]:
-        root = self.ensure_root()
-        nodes = [self._build_tree_node(path, root=root) for path in _iter_children(root)]
-        return root, nodes
-
-    def list_tree_for_source(self, source_id: str | None = None) -> tuple[SkillSourceConfig, list[SkillTreeNode]]:
-        source = self._source_by_id(source_id or _LOCAL_SOURCE_ID)
+    def list_tree_for_source(self, source_id: str) -> tuple[SkillSourceConfig, list[SkillTreeNode]]:
+        source = self._source_by_id(source_id)
         root = source.local_path
-        if source.id == _LOCAL_SOURCE_ID:
-            root.mkdir(parents=True, exist_ok=True)
         if not root.is_dir():
             return source, []
         nodes = [self._build_tree_node(path, root=root) for path in _iter_children(root)]
@@ -164,62 +145,22 @@ class SkillStore:
         if not normalized:
             return None
         source_id, local_package_id = self._split_skill_id(normalized)
-        if source_id:
-            try:
-                source = self._source_by_id(source_id)
-            except ValueError:
-                return None
-            package_root = source.local_path / local_package_id
-            skill_path = package_root / "SKILL.md"
-            if not skill_path.is_file():
-                return None
-            return read_skill_package(package_root, source=source)
-        matches = [package for package in self.list_packages() if package.package_id == local_package_id]
-        if len(matches) == 1:
-            return matches[0]
-        legacy_source = self._source_by_id(_LOCAL_SOURCE_ID)
-        package_root = legacy_source.local_path / local_package_id
+        if not source_id or not local_package_id:
+            return None
+        try:
+            source = self._source_by_id(source_id)
+        except ValueError:
+            return None
+        package_root = source.local_path / local_package_id
         skill_path = package_root / "SKILL.md"
         if not skill_path.is_file():
             return None
-        return read_skill_package(package_root, source=legacy_source)
+        return read_skill_package(package_root, source=source)
 
-    def read_file(self, relative_path: str, *, source_id: str | None = None) -> tuple[str, str, str]:
-        source = self._source_by_id(source_id or _LOCAL_SOURCE_ID)
+    def read_file(self, relative_path: str, *, source_id: str) -> tuple[str, str, str]:
+        source = self._source_by_id(source_id)
         path = self._resolve_path(relative_path, source=source, expect_file=True)
         return source.id, self._relative_path(path, root=source.local_path), path.read_text(encoding="utf-8")
-
-    def write_file(self, relative_path: str, content: str) -> tuple[str, str]:
-        source = self._source_by_id(_LOCAL_SOURCE_ID)
-        path = self._resolve_path(relative_path, source=source, expect_file=True)
-        path.write_text(content, encoding="utf-8")
-        return self._relative_path(path, root=source.local_path), content
-
-    def create_package(self, name: str, description: str = "", domain: str = "") -> tuple[str, Path, str]:
-        normalized_name = slugify_skill_package_name(name)
-        if not normalized_name:
-            raise ValueError("skill package name 不能为空")
-
-        root = self.ensure_root()
-        package_root = root / normalized_name
-        if package_root.exists():
-            raise ValueError(f"skill package already exists: {normalized_name}")
-
-        references_dir = package_root / "references"
-        references_dir.mkdir(parents=True, exist_ok=True)
-        skill_path = package_root / "SKILL.md"
-        skill_path.write_text(
-            render_skill_markdown(
-                name=normalized_name,
-                description=description.strip(),
-                domain=domain.strip(),
-            ),
-            encoding="utf-8",
-        )
-        (references_dir / "domain.md").write_text("# Domain\n\n", encoding="utf-8")
-        (references_dir / "main-flow.md").write_text("# Main Flow\n\n", encoding="utf-8")
-        (references_dir / "change-workflows.md").write_text("# Change Workflows\n\n", encoding="utf-8")
-        return normalized_name, package_root, self._relative_path(skill_path, root=root)
 
     def _build_tree_node(self, path: Path, *, root: Path) -> SkillTreeNode:
         if path.is_dir():
@@ -253,43 +194,34 @@ class SkillStore:
         return candidate
 
     def _relative_path(self, path: Path, *, root: Path | None = None) -> str:
-        base = root or self.ensure_root()
+        base = root or path.parent
         return str(path.resolve().relative_to(base.resolve()))
 
     def _source_configs(self) -> list[SkillSourceConfig]:
-        sources = [self._legacy_local_source()] if self._local_source_enabled() else []
-        sources.extend(self._configured_sources())
-        return sources
+        return self._configured_sources()
 
     def _configured_sources(self) -> list[SkillSourceConfig]:
-        sources, _local_enabled = self._configured_sources_with_local_flag()
-        return sources
-
-    def _configured_sources_with_local_flag(self) -> tuple[list[SkillSourceConfig], bool]:
         path = self._sources_config_path()
         if not path.is_file():
-            return [], True
+            return []
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            return [], True
-        local_enabled = True
-        if isinstance(payload, dict) and "local_enabled" in payload:
-            local_enabled = bool(payload.get("local_enabled"))
+            return []
         raw_sources = payload.get("sources") if isinstance(payload, dict) else []
         if not isinstance(raw_sources, list):
-            return [], local_enabled
+            return []
         sources: list[SkillSourceConfig] = []
         for item in raw_sources:
             if not isinstance(item, dict):
                 continue
             source_id = slugify_skill_source_id(str(item.get("id") or item.get("name") or ""))
-            if not source_id or source_id == _LOCAL_SOURCE_ID:
+            if not source_id:
                 continue
             local_path = Path(str(item.get("local_path") or self.settings.config_root / _SKILLS_SOURCES_DIR / source_id)).expanduser()
             source_type = str(item.get("type") or item.get("source_type") or "git").strip().lower()
-            if source_type not in {"git", "local"}:
-                source_type = "git"
+            if source_type != "git":
+                continue
             sources.append(
                 SkillSourceConfig(
                     id=source_id,
@@ -302,13 +234,12 @@ class SkillStore:
                     managed=True,
                 )
             )
-        return sources, local_enabled
+        return sources
 
-    def _write_configured_sources(self, sources: list[SkillSourceConfig], *, local_enabled: bool = True) -> None:
+    def _write_configured_sources(self, sources: list[SkillSourceConfig]) -> None:
         path = self._sources_config_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "local_enabled": local_enabled,
             "sources": [
                 {
                     "id": source.id,
@@ -325,22 +256,8 @@ class SkillStore:
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    def _local_source_enabled(self) -> bool:
-        _sources, local_enabled = self._configured_sources_with_local_flag()
-        return local_enabled
-
     def _sources_config_path(self) -> Path:
         return self.settings.config_root / _SOURCES_CONFIG_NAME
-
-    def _legacy_local_source(self, *, enabled: bool = True) -> SkillSourceConfig:
-        return SkillSourceConfig(
-            id=_LOCAL_SOURCE_ID,
-            name="Local Skills",
-            source_type="local",
-            local_path=skills_root_path(self.settings),
-            enabled=enabled,
-            managed=False,
-        )
 
     def _source_by_id(self, source_id: str) -> SkillSourceConfig:
         normalized = slugify_skill_source_id(source_id)
@@ -359,8 +276,6 @@ class SkillStore:
 
     def _source_status(self, source: SkillSourceConfig) -> dict[str, object]:
         local_path = source.local_path
-        if source.id == _LOCAL_SOURCE_ID:
-            local_path.mkdir(parents=True, exist_ok=True)
         status = "ready"
         message = ""
         git_info = _read_git_info(local_path)
@@ -411,18 +326,8 @@ class SkillStore:
         return source_id.strip(), package_id.strip()
 
 
-def skills_root_path(settings: Settings) -> Path:
-    configured = os.getenv("COCO_FLOW_SKILLS_ROOT", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return settings.config_root / "skills"
-
-
-def slugify_skill_package_name(name: str) -> str:
-    lowered = name.strip().lower().replace(" ", "-")
-    normalized = _PACKAGE_NAME_RE.sub("-", lowered)
-    normalized = re.sub(r"-{2,}", "-", normalized)
-    return normalized.strip("-_")
+def skills_sources_root_path(settings: Settings) -> Path:
+    return settings.config_root / _SKILLS_SOURCES_DIR
 
 
 def slugify_skill_source_id(name: str) -> str:
@@ -430,23 +335,6 @@ def slugify_skill_source_id(name: str) -> str:
     normalized = _SOURCE_ID_RE.sub("-", lowered)
     normalized = re.sub(r"-{2,}", "-", normalized)
     return normalized.strip("-_")
-
-
-def render_skill_markdown(*, name: str, description: str, domain: str) -> str:
-    frontmatter = yaml.safe_dump(
-        {
-            "name": name,
-            "description": description,
-            "domain": domain,
-        },
-        allow_unicode=True,
-        sort_keys=False,
-    ).strip()
-    return (
-        f"---\n{frontmatter}\n---\n\n"
-        "# Overview\n\n"
-        "Describe when this skill should be used.\n"
-    )
 
 
 def read_skill_package(package_root: Path, *, source: SkillSourceConfig) -> SkillPackage:

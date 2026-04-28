@@ -299,7 +299,6 @@ uv run python -m unittest discover -s tests -v
 - worktree 根目录：`<repo-parent>/.coco-flow-worktree/`
 - 同步到 worktree 的 task 目录：`.coco-flow/tasks/<task_id>/`
 - context 目录：`.livecoding/context/`
-- skills legacy root：`~/.config/coco-flow/skills/`，可通过 `COCO_FLOW_SKILLS_ROOT` 指向本地 skills 仓库
 - skills Git source cache：`~/.config/coco-flow/skills-sources/<source_id>/`
 - skills source 配置：`~/.config/coco-flow/skills-sources.json`
 

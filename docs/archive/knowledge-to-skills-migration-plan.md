@@ -60,7 +60,9 @@
 
 ### 根目录
 
-新增 skill 根目录：
+已归档说明：当前实现已不再使用单一本地 `skills_root`，Skills 只从 `skills-sources.json` 配置的 Git source 读取，并缓存到 `~/.config/coco-flow/skills-sources/<source_id>/`。
+
+历史迁移计划曾提出 skill 根目录：
 
 ```text
 ~/.config/coco-flow/skills/
@@ -70,7 +72,7 @@
 
 - 新增 `skills_root`
 - 废弃并删除 `knowledge_root`
-- 环境变量从 `COCO_FLOW_KNOWLEDGE_ROOT` 改为 `COCO_FLOW_SKILLS_ROOT`
+- 该方案已废弃，不再提供 skills root 环境变量
 
 本次迁移不保留兼容别名。
 

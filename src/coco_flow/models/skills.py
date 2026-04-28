@@ -17,20 +17,20 @@ SkillTreeNode.model_rebuild()
 
 class SkillTreeResponse(BaseModel):
     rootPath: str
-    sourceId: str = "local"
+    sourceId: str
     nodes: list[SkillTreeNode]
 
 
 class SkillFileResponse(BaseModel):
     path: str
-    sourceId: str = "local"
+    sourceId: str
     content: str
 
 
 class SkillSourceStatus(BaseModel):
     id: str
     name: str
-    sourceType: Literal["local", "git"]
+    sourceType: Literal["git"]
     enabled: bool = True
     url: str = ""
     branch: str = ""

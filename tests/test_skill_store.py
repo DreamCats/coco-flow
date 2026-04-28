@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -27,71 +28,121 @@ def make_settings(root: Path) -> Settings:
     )
 
 
+def write_sources_config(settings: Settings, *source_ids: str) -> None:
+    payload = {
+        "sources": [
+            {
+                "id": source_id,
+                "name": source_id,
+                "type": "git",
+                "url": f"git@gitlab.example.com:team/{source_id}.git",
+                "branch": "main",
+                "local_path": str(settings.config_root / "skills-sources" / source_id),
+                "enabled": True,
+            }
+            for source_id in source_ids
+        ]
+    }
+    settings.config_root.mkdir(parents=True, exist_ok=True)
+    (settings.config_root / "skills-sources.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def write_skill(settings: Settings, source_id: str, package_id: str, *, description: str = "demo") -> Path:
+    package_root = settings.config_root / "skills-sources" / source_id / package_id
+    references = package_root / "references"
+    references.mkdir(parents=True, exist_ok=True)
+    (package_root / "SKILL.md").write_text(
+        f"---\nname: {package_id}\ndescription: {description}\ndomain: auction_pop_card\n---\n\n# Overview\n\n{description}\n",
+        encoding="utf-8",
+    )
+    (references / "main-flow.md").write_text("# Main Flow\n\n- live_pack consumes live_common.\n", encoding="utf-8")
+    return package_root
+
+
 class SkillStoreTest(unittest.TestCase):
-    def test_create_package_writes_skill_skeleton(self) -> None:
+    def test_no_sources_config_means_no_default_local_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = make_settings(Path(temp_dir))
             store = SkillStore(settings)
 
-            name, package_root, skill_path = store.create_package(
-                "Auction Popcard",
-                description="处理竞拍讲解卡相关需求。",
-                domain="auction_pop_card",
-            )
+            self.assertEqual(store.list_sources(), [])
+            self.assertEqual(store.list_packages(), [])
 
-            self.assertEqual(name, "auction-popcard")
-            self.assertEqual(skill_path, "auction-popcard/SKILL.md")
-            self.assertTrue((package_root / "SKILL.md").is_file())
-            self.assertTrue((package_root / "references" / "domain.md").is_file())
-            self.assertTrue((package_root / "references" / "main-flow.md").is_file())
-            self.assertTrue((package_root / "references" / "change-workflows.md").is_file())
-
-            content = (package_root / "SKILL.md").read_text(encoding="utf-8")
-            self.assertIn("name: auction-popcard", content)
-            self.assertIn("description: 处理竞拍讲解卡相关需求。", content)
-            self.assertIn("domain: auction_pop_card", content)
-
-    def test_list_tree_returns_directory_and_skill_file(self) -> None:
+    def test_legacy_local_source_config_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = make_settings(Path(temp_dir))
+            payload = {
+                "sources": [
+                    {
+                        "id": "local",
+                        "name": "Local Skills",
+                        "type": "local",
+                        "local_path": str(settings.config_root / "skills"),
+                        "enabled": True,
+                    }
+                ]
+            }
+            settings.config_root.mkdir(parents=True, exist_ok=True)
+            (settings.config_root / "skills-sources.json").write_text(json.dumps(payload), encoding="utf-8")
+            write_skill(settings, "local", "auction-popcard")
             store = SkillStore(settings)
-            store.create_package("auction-popcard")
 
-            _root, nodes = store.list_tree()
+            self.assertEqual(store.list_sources(), [])
+            self.assertEqual(store.list_packages(), [])
+            self.assertIsNone(store.get_package("local/auction-popcard"))
 
+    def test_list_tree_returns_source_directory_and_skill_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = make_settings(Path(temp_dir))
+            write_sources_config(settings, "live-ai-skills")
+            write_skill(settings, "live-ai-skills", "auction-popcard")
+            store = SkillStore(settings)
+
+            source, nodes = store.list_tree_for_source("live-ai-skills")
+
+            self.assertEqual(source.id, "live-ai-skills")
             self.assertEqual(len(nodes), 1)
             self.assertEqual(nodes[0].name, "auction-popcard")
             self.assertEqual(nodes[0].nodeType, "directory")
+            self.assertEqual(nodes[0].path, "auction-popcard")
             self.assertEqual(nodes[0].children[0].name, "references")
             self.assertEqual(nodes[0].children[1].name, "SKILL.md")
 
-    def test_write_file_updates_skill_content(self) -> None:
+    def test_read_file_requires_explicit_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = make_settings(Path(temp_dir))
+            write_sources_config(settings, "live-ai-skills")
+            write_skill(settings, "live-ai-skills", "auction-popcard", description="updated")
             store = SkillStore(settings)
-            store.create_package("auction-popcard")
 
-            updated_path, content = store.write_file(
-                "auction-popcard/SKILL.md",
-                "---\nname: auction-popcard\ndescription: updated\ndomain: auction_pop_card\n---\n",
-            )
+            source_id, path, content = store.read_file("auction-popcard/SKILL.md", source_id="live-ai-skills")
 
-            self.assertEqual(updated_path, "auction-popcard/SKILL.md")
+            self.assertEqual(source_id, "live-ai-skills")
+            self.assertEqual(path, "auction-popcard/SKILL.md")
             self.assertIn("description: updated", content)
-            _source_id, _path, saved = store.read_file("auction-popcard/SKILL.md")
-            self.assertIn("description: updated", saved)
 
     def test_list_packages_uses_namespaced_skill_ids(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = make_settings(Path(temp_dir))
+            write_sources_config(settings, "live-ai-skills")
+            write_skill(settings, "live-ai-skills", "auction-popcard")
             store = SkillStore(settings)
-            store.create_package("auction-popcard")
 
             packages = store.list_packages()
 
-            self.assertEqual([package.id for package in packages], ["local/auction-popcard"])
-            self.assertEqual(packages[0].source_id, "local")
+            self.assertEqual([package.id for package in packages], ["live-ai-skills/auction-popcard"])
+            self.assertEqual(packages[0].source_id, "live-ai-skills")
             self.assertEqual(packages[0].package_id, "auction-popcard")
+
+    def test_get_package_rejects_non_namespaced_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = make_settings(Path(temp_dir))
+            write_sources_config(settings, "live-ai-skills")
+            write_skill(settings, "live-ai-skills", "auction-popcard")
+            store = SkillStore(settings)
+
+            self.assertIsNone(store.get_package("auction-popcard"))
+            self.assertIsNotNone(store.get_package("live-ai-skills/auction-popcard"))
 
     def test_add_git_source_persists_not_cloned_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -107,23 +158,19 @@ class SkillStoreTest(unittest.TestCase):
             self.assertEqual(source["id"], "live-team-skills")
             self.assertEqual(source["status"], "not_cloned")
             sources = store.list_sources()
-            self.assertEqual([item["id"] for item in sources], ["local", "live-team-skills"])
-            self.assertEqual(sources[1]["localPath"], str(settings.config_root / "skills-sources" / "live-team-skills"))
+            self.assertEqual([item["id"] for item in sources], ["live-team-skills"])
+            self.assertEqual(sources[0]["localPath"], str(settings.config_root / "skills-sources" / "live-team-skills"))
 
-    def test_remove_sources_hides_git_and_local_without_deleting_dirs(self) -> None:
+    def test_remove_source_hides_git_source_without_deleting_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = make_settings(Path(temp_dir))
+            write_sources_config(settings, "live-team-skills")
+            git_local_path = write_skill(settings, "live-team-skills", "auction-popcard")
             store = SkillStore(settings)
-            store.create_package("auction-popcard")
-            store.add_git_source(name="Live Team Skills", url="git@gitlab.example.com:team/coco-flow-skills.git")
 
-            git_local_path = settings.config_root / "skills-sources" / "live-team-skills"
-            git_local_path.mkdir(parents=True)
-            removed_git = store.remove_source("live-team-skills")
-            removed_local = store.remove_source("local")
+            removed = store.remove_source("live-team-skills")
 
-            self.assertFalse(removed_git["enabled"])
-            self.assertFalse(removed_local["enabled"])
+            self.assertFalse(removed["enabled"])
             self.assertTrue(git_local_path.is_dir())
             self.assertEqual(store.list_sources(), [])
             self.assertEqual(store.list_packages(), [])

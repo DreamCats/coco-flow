@@ -20,7 +20,7 @@ export type SkillFile = {
 export type SkillSourceStatus = {
   id: string
   name: string
-  sourceType: 'local' | 'git'
+  sourceType: 'git'
   enabled: boolean
   url: string
   branch: string
