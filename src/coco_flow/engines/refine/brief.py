@@ -46,12 +46,8 @@ def build_refine_brief(prepared: RefinePreparedInput, manual_extract: ManualExtr
     gating_conditions = manual_extract.gating_conditions[:6]
     edge_cases = _derive_edge_cases(prepared, manual_extract)
     open_questions = _unique([*manual_extract.open_questions, *_derive_open_questions(prepared, manual_extract)])[:8]
-    acceptance_criteria = _unique(
-        [
-            *_derive_source_acceptance_criteria(prepared),
-            *_derive_acceptance_criteria(in_scope, gating_conditions, out_of_scope),
-        ]
-    )[:12]
+    source_acceptance = _derive_source_acceptance_criteria(prepared)
+    acceptance_criteria = (source_acceptance or _derive_acceptance_criteria(in_scope, gating_conditions, out_of_scope))[:12]
     return RefineBrief(
         target_surface=target_surface,
         goal=goal,
@@ -140,7 +136,7 @@ def _derive_source_non_goals(prepared: RefinePreparedInput) -> list[str]:
 def _derive_edge_cases(prepared: RefinePreparedInput, manual_extract: ManualExtract) -> list[str]:
     keywords = _keyword_terms([*manual_extract.change_points, *manual_extract.gating_conditions])
     extracted: list[str] = []
-    for raw_line in prepared.source_content.splitlines():
+    for raw_line in _source_markdown_without_sections(prepared, ("验收标准", "验收条件", "Acceptance Criteria")).splitlines():
         line = raw_line.strip()
         if not line or any(hint in line for hint in _SOURCE_SKIP_HINTS):
             continue
@@ -151,7 +147,7 @@ def _derive_edge_cases(prepared: RefinePreparedInput, manual_extract: ManualExtr
         extracted.append(line[:160])
     if extracted:
         return _unique(extracted)[:5]
-    return ["未在人工提炼范围中点名的状态与链路默认不改，若需调整应回到 Input 阶段补充。"]
+    return []
 
 
 def _derive_open_questions(prepared: RefinePreparedInput, manual_extract: ManualExtract) -> list[str]:
@@ -304,6 +300,14 @@ def _source_markdown_without_manual(prepared: RefinePreparedInput) -> str:
     for marker in ("## 人工提炼范围", "## 研发补充说明"):
         if marker in source:
             source = source.split(marker, 1)[0]
+    return source
+
+
+def _source_markdown_without_sections(prepared: RefinePreparedInput, titles: tuple[str, ...]) -> str:
+    source = _source_markdown_without_manual(prepared)
+    for title in titles:
+        pattern = rf"(?ms)^#{{1,6}}\s+{re.escape(title)}\s*\n.*?(?=^#{{1,6}}\s+|\Z)"
+        source = re.sub(pattern, "", source)
     return source
 
 

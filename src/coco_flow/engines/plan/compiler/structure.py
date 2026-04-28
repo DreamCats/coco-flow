@@ -505,8 +505,8 @@ def _extract_repo_markdown_blockers(repo_markdowns: dict[str, str]) -> list[str]
                 capture = any(token in stripped for token in ("待确认", "阻塞", "Open Questions"))
                 continue
             if capture and stripped.startswith(("-", "*")):
-                text = stripped.lstrip("-* ").strip()
-                if text and not _is_noop_question(text):
+                text = _clean_markdown_inline(stripped.lstrip("-* ").strip())
+                if text and not _is_noop_question(text) and not _is_confirmed_question(text):
                     blockers.append(text)
     return _dedupe(blockers)
 
@@ -601,7 +601,11 @@ def _contracts_by_pair(prepared: PlanPreparedInput) -> dict[tuple[str, str], dic
 
 def _extract_blockers(prepared: PlanPreparedInput) -> list[str]:
     candidates: list[str] = []
-    candidates.extend(_clean_markdown_inline(item) for item in prepared.refined_sections.open_questions if not _is_noop_question(item))
+    candidates.extend(
+        _clean_markdown_inline(item)
+        for item in prepared.refined_sections.open_questions
+        if not _is_noop_question(item) and not _is_confirmed_question(item)
+    )
     capture = False
     for line in prepared.design_markdown.splitlines():
         stripped = line.strip()
@@ -611,7 +615,7 @@ def _extract_blockers(prepared: PlanPreparedInput) -> list[str]:
         if not capture or not stripped.startswith(("-", "*")):
             continue
         text = _clean_markdown_inline(stripped.lstrip("-* ").strip())
-        if text and not _is_noop_question(text) and ("确认" in text or "待确认" in text or "是否" in text):
+        if text and not _is_noop_question(text) and not _is_confirmed_question(text) and ("确认" in text or "待确认" in text or "是否" in text):
             candidates.append(text)
     return _dedupe(candidates)[:8]
 
@@ -622,6 +626,20 @@ def _is_empty_label(text: str) -> bool:
 
 def _is_noop_question(text: str) -> bool:
     return any(token in text for token in ("当前无", "无额外", "暂无", "没有额外"))
+
+
+def _is_confirmed_question(text: str) -> bool:
+    normalized = _clean_markdown_inline(text).lstrip("：: ")
+    return normalized.startswith(
+        (
+            "已确认",
+            "确认结论",
+            "结论已确认",
+            "无需确认",
+            "不阻塞",
+            "非阻塞",
+        )
+    )
 
 
 def _clean_markdown_inline(text: str) -> str:

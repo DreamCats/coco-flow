@@ -153,6 +153,8 @@ class RefineTaskTest(unittest.TestCase):
         self.assertIn("不改价格", refined)
         self.assertIn("不改按钮", refined)
         self.assertIn("不改购物袋标题", refined)
+        self.assertNotIn("正确生效", _extract_markdown_section(refined, "验收标准"))
+        self.assertNotIn("边界检查", _extract_markdown_section(refined, "边界与非目标"))
 
     def test_render_refined_markdown_writes_gating_condition_in_change_scope(self) -> None:
         brief = build_refine_brief(
