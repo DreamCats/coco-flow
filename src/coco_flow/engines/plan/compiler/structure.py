@@ -281,7 +281,7 @@ def _extract_files(section: str, repo_id: str = "") -> list[str]:
         if repo_id and normalized.startswith(f"{repo_id}/"):
             normalized = normalized[len(repo_id) + 1 :]
         files.append(normalized)
-    return _dedupe(files)[:12]
+    return _dedupe_file_paths(files)[:12]
 
 
 def _extract_steps(section: str) -> list[str]:
@@ -320,6 +320,8 @@ def _should_skip_step_line(line: str) -> bool:
 def _should_skip_step_text(text: str) -> bool:
     if not text or _is_empty_label(text):
         return True
+    if text.rstrip().endswith(("：", ":")) and _FILE_RE.search(text):
+        return True
     return text.startswith(
         (
             "仓库路径",
@@ -342,7 +344,32 @@ def _should_skip_step_text(text: str) -> bool:
 def _is_non_task_label(text: str) -> bool:
     if not _is_empty_label(text):
         return False
-    return text.rstrip("：:").strip() in {"关键证据", "主要风险", "参考依据", "风险", "证据"}
+    return text.rstrip("：:").strip() in {
+        "关键证据",
+        "主要风险",
+        "参考依据",
+        "风险",
+        "证据",
+        "代码证据",
+        "代码线索",
+        "代码线索与关键位置",
+        "边界",
+    }
+
+
+def _dedupe_file_paths(paths: list[str]) -> list[str]:
+    deduped = _dedupe(paths)
+    basenames_with_full_path = {
+        Path(path).name
+        for path in deduped
+        if "/" in path and Path(path).name
+    }
+    result: list[str] = []
+    for path in deduped:
+        if "/" not in path and path in basenames_with_full_path:
+            continue
+        result.append(path)
+    return result
 
 
 def _parse_repo_task_markdown(

@@ -415,6 +415,56 @@ class DesignPipelineTest(unittest.TestCase):
         self.assertIn("## 输入契约", repo_markdowns["live_pack"])
         self.assertEqual(result_payload["blockers"], ["待确认项 1：实验字段枚举值"])
 
+    def test_plan_compiler_filters_evidence_sentences_from_tasks(self) -> None:
+        prepared = PlanPreparedInput(
+            task_dir=Path("/tmp/task"),
+            task_id="task",
+            title="竞拍讲解卡标题实验",
+            design_markdown=(
+                "# Design\n\n"
+                "## 分仓库方案\n"
+                "### live_pack\n"
+                "- 代码证据：\n"
+                "  - `entities/converters/auction_converters/regular_auction_converter.go`：明确包含 `getAuctionTitle` 方法，当前直接返回商品标题，是本次改造的核心落点\n"
+                "- 改造方案：\n"
+                "  - 在 `regular_auction_converter.go` 中：\n"
+                "    - 读取实验字段 `rc.GetAbParam().TTECContent.RegularAuctionTitleAuctionLabelEnabled`\n"
+                "    - 命中实验时，在原标题前拼接本地化 Auction 标识\n"
+                "    - 若本地化标识取值为空，回退为原标题\n\n"
+                "### live_common\n"
+                "- 改造方案：\n"
+                "  - 在 `abtest/struct.go` 中新增 `RegularAuctionTitleAuctionLabelEnabled bool` 字段\n"
+            ),
+            refined_markdown="# PRD",
+            input_meta={},
+            task_meta={},
+            repos_meta={},
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            repo_ids={"live_pack", "live_common"},
+            refined_sections=RefinedSections(
+                change_scope=["regular auction 标题拼接 Auction 标识"],
+                non_goals=[],
+                key_constraints=[],
+                acceptance_criteria=["命中实验时标题前增加 Auction 标识"],
+                open_questions=[],
+                raw="",
+            ),
+        )
+
+        work_items_payload, _graph_payload, _validation_payload, _result_payload, _repo_markdowns = build_structured_plan_artifacts(prepared)
+
+        live_pack_item = next(item for item in work_items_payload["work_items"] if item["repo_id"] == "live_pack")
+        steps_text = "\n".join(live_pack_item["specific_steps"])
+        self.assertEqual(live_pack_item["change_scope"], ["entities/converters/auction_converters/regular_auction_converter.go"])
+        self.assertNotIn("明确包含", steps_text)
+        self.assertNotIn("当前直接返回商品标题", steps_text)
+        self.assertNotIn("在 regular_auction_converter.go 中", steps_text)
+        self.assertIn("读取实验字段 rc.GetAbParam().TTECContent.RegularAuctionTitleAuctionLabelEnabled", steps_text)
+        self.assertIn("命中实验时，在原标题前拼接本地化 Auction 标识", steps_text)
+
     def test_plan_compiler_adds_go_module_upgrade_for_cross_repo_ab_dependency(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
