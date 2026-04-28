@@ -11,6 +11,7 @@ from coco_flow.engines.refine import STATUS_REFINING
 from coco_flow.services.tasks.code import code_task
 from coco_flow.services.queries.task_detail import read_json_file
 from coco_flow.services.tasks.design import design_task
+from coco_flow.services.tasks.error_format import format_exception_log_lines
 from coco_flow.services.tasks.input import input_task
 from coco_flow.services.tasks.plan import mark_task_failed, plan_task
 from coco_flow.services.tasks.refine import refine_task
@@ -82,7 +83,8 @@ def _run_background_input(task_id: str, settings: Settings) -> None:
         )
         _append_named_log_line(task_dir, INPUT_LOG_NAME, f"status: {status}")
     except Exception as error:
-        _append_named_log_line(task_dir, INPUT_LOG_NAME, f"error: {error}")
+        for line in format_exception_log_lines(error):
+            _append_named_log_line(task_dir, INPUT_LOG_NAME, line)
         _mark_task_status(task_dir, STATUS_INPUT_FAILED)
         _append_named_log_line(task_dir, INPUT_LOG_NAME, f"status: {STATUS_INPUT_FAILED}")
     finally:
@@ -106,7 +108,8 @@ def _run_background_refine(task_id: str, settings: Settings) -> None:
         )
         _append_log_line(task_dir, f"status: {status}")
     except Exception as error:
-        _append_log_line(task_dir, f"error: {error}")
+        for line in format_exception_log_lines(error):
+            _append_log_line(task_dir, line)
         _mark_task_failed(task_dir)
         _append_log_line(task_dir, f"status: {STATUS_FAILED}")
     finally:
@@ -130,7 +133,8 @@ def _run_background_design(task_id: str, settings: Settings) -> None:
             on_log=lambda line: _append_named_log_line(task_dir, "design.log", line),
         )
     except Exception as error:
-        _append_named_log_line(task_dir, "design.log", f"error: {error}")
+        for line in format_exception_log_lines(error):
+            _append_named_log_line(task_dir, "design.log", line)
         mark_task_failed(task_id, settings=settings)
         _append_named_log_line(task_dir, "design.log", f"status: {STATUS_FAILED}")
     finally:
@@ -155,7 +159,8 @@ def _run_background_plan(task_id: str, settings: Settings) -> None:
         )
         _append_named_log_line(task_dir, "plan.log", f"status: {status}")
     except Exception as error:
-        _append_named_log_line(task_dir, "plan.log", f"error: {error}")
+        for line in format_exception_log_lines(error):
+            _append_named_log_line(task_dir, "plan.log", line)
         mark_task_failed(task_id, settings=settings)
         _append_named_log_line(task_dir, "plan.log", f"status: {STATUS_FAILED}")
     finally:
@@ -187,7 +192,8 @@ def _run_background_code(task_id: str, settings: Settings, repo_id: str, all_rep
         )
         _append_named_log_line(task_dir, "code.log", f"status: {status}")
     except Exception as error:
-        _append_named_log_line(task_dir, "code.log", f"error: {error}")
+        for line in format_exception_log_lines(error):
+            _append_named_log_line(task_dir, "code.log", line)
         _mark_task_failed(task_dir)
         _append_named_log_line(task_dir, "code.log", f"status: {STATUS_FAILED}")
     finally:
