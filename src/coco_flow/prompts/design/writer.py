@@ -50,6 +50,31 @@ def build_doc_only_design_prompt(
     )
 
 
+def build_doc_only_design_repair_prompt(
+    *,
+    title: str,
+    refined_markdown: str,
+    research_summary_markdown: str,
+    current_design_markdown: str,
+    repair_instructions: list[str],
+    template_path: str,
+) -> str:
+    instructions = "\n".join(f"- {item}" for item in repair_instructions if item.strip()) or "- 保持原设计事实源，补齐缺失结构。"
+    return (
+        "你在做 coco-flow Design 阶段的有界修复。请只编辑指定 Markdown 文件，不要创建其他文件。\n\n"
+        f"需要编辑的模板文件：{template_path}\n"
+        "目标：根据 Supervisor / quality critique 修复 design.md，使其可给研发评审和后续 Plan 使用。\n"
+        "不得新增 refined PRD、repo research 或 Skills/SOP 中不存在的需求、仓库、文件和确定性结论。\n"
+        "如果证据不足，必须写成待确认或职责待确认，不要包装成确定落点。\n\n"
+        f"## 任务标题\n{title}\n\n"
+        f"## Refined PRD\n{refined_markdown.strip()}\n\n"
+        f"## Repo research summary\n{research_summary_markdown.strip() or '- 暂无代码调研摘要。'}\n\n"
+        f"## Repair instructions\n{instructions}\n\n"
+        f"## Current design.md\n{current_design_markdown.strip()}\n\n"
+        "完成后只需简短回复已完成。"
+    )
+
+
 def build_writer_prompt(
     *,
     title: str,

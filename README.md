@@ -176,7 +176,8 @@ Notes:
 ### Design And Plan
 
 - `design` is a standalone stage exposed in both CLI and API.
-- Design now follows a doc-only MVP flow: refined PRD, repo research, and Skills/SOP are collapsed directly into `design.md`.
+- Design now follows a doc-first flow: refined PRD, repo research, and Skills/SOP produce a `design.md` draft, then deterministic quality checks and a Supervisor review decide whether to pass, repair, or degrade it.
+- Design persists lightweight review sidecars: `design-research-summary.json`, `design-quality.json`, `design-supervisor-review.json`, and, when a native writer draft is rejected, `design-writer-rejected.md`.
 - Design no longer persists adjudication, review, debate, decision, repo-binding, sections, verify, diagnosis, or result JSON.
 - `plan` supports `native` and `local`.
 - Plan writes a human-readable `plan.md` plus Code-consumable sidecars: `plan-work-items.json`, `plan-execution-graph.json`, `plan-validation.json`, `plan-sync.json`, and `plan-result.json`.

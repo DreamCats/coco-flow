@@ -1,4 +1,4 @@
-"""Lightweight Design quality inference."""
+"""Infer blocking open questions from refined PRD sections."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from coco_flow.engines.shared.models import RefinedSections
 
 
 def infer_design_open_questions(sections: RefinedSections) -> list[str]:
-    """Infer implementation-blocking questions from refined PRD text."""
     questions: list[str] = []
     text = _section_text(sections)
     preserved_decimal = _find_preserved_decimal_example(text)

@@ -6,12 +6,18 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 
 from coco_flow.config import Settings
-from coco_flow.prompts.design import build_doc_only_design_prompt
+from coco_flow.prompts.design import build_doc_only_design_prompt, build_doc_only_design_repair_prompt
 
-from coco_flow.engines.design.quality import ensure_inferred_open_questions, infer_design_open_questions, merge_open_questions
+from coco_flow.engines.design.quality import (
+    design_markdown_is_actionable,
+    infer_design_open_questions,
+    merge_open_questions,
+    repair_low_risk_design_quality,
+)
 from coco_flow.engines.design.runtime import run_agent_markdown_with_new_session
 from coco_flow.engines.design.support import as_str_list, dict_list, first_non_empty
 from coco_flow.engines.design.types import DesignInputBundle
@@ -25,6 +31,14 @@ _FIELD_DEFINITION_PATH_MARKERS = (
 )
 
 
+@dataclass
+class DesignWriterDraft:
+    markdown: str
+    local_draft_markdown: str
+    native_markdown: str = ""
+    source: str = "local"
+
+
 def write_doc_only_design_markdown(
     prepared: DesignInputBundle,
     research_summary_payload: dict[str, object],
@@ -33,6 +47,21 @@ def write_doc_only_design_markdown(
     native_ok: bool,
     on_log,
 ) -> str:
+    result = write_doc_only_design_draft(prepared, research_summary_payload, settings, native_ok=native_ok, on_log=on_log)
+    if result.source == "native" and not design_markdown_is_actionable(result.markdown):
+        on_log("design_writer_fallback: shallow_design_markdown")
+        return _ensure_design_quality(prepared, result.local_draft_markdown, on_log)
+    return result.markdown
+
+
+def write_doc_only_design_draft(
+    prepared: DesignInputBundle,
+    research_summary_payload: dict[str, object],
+    settings: Settings,
+    *,
+    native_ok: bool,
+    on_log,
+) -> DesignWriterDraft:
     research_summary_markdown = render_research_summary_markdown(research_summary_payload)
     draft = build_local_doc_only_design_markdown(prepared, research_summary_payload)
     if native_ok:
@@ -55,12 +84,57 @@ def write_doc_only_design_markdown(
                 stage="writer_doc_only",
                 on_log=on_log,
             )
-            if _design_markdown_is_actionable(generated):
-                return _ensure_design_quality(prepared, generated, on_log)
-            on_log("design_writer_fallback: shallow_design_markdown")
+            return DesignWriterDraft(
+                markdown=_ensure_design_quality(prepared, generated, on_log),
+                local_draft_markdown=draft,
+                native_markdown=generated,
+                source="native",
+            )
         except Exception as error:
             on_log(f"design_writer_fallback: {error}")
-    return _ensure_design_quality(prepared, draft, on_log)
+    return DesignWriterDraft(
+        markdown=_ensure_design_quality(prepared, draft, on_log),
+        local_draft_markdown=draft,
+        source="local",
+    )
+
+
+def repair_doc_only_design_markdown(
+    prepared: DesignInputBundle,
+    research_summary_payload: dict[str, object],
+    current_markdown: str,
+    repair_instructions: list[str],
+    settings: Settings,
+    *,
+    native_ok: bool,
+    on_log,
+) -> str:
+    if not native_ok or not repair_instructions:
+        return current_markdown
+    try:
+        research_summary_markdown = render_research_summary_markdown(research_summary_payload)
+        repaired = run_agent_markdown_with_new_session(
+            prepared,
+            settings,
+            current_markdown,
+            lambda template_path: build_doc_only_design_repair_prompt(
+                title=prepared.title,
+                refined_markdown=prepared.refined_markdown,
+                research_summary_markdown=research_summary_markdown,
+                current_design_markdown=current_markdown,
+                repair_instructions=repair_instructions,
+                template_path=template_path,
+            ),
+            ".design-writer-repair-",
+            role="design_writer",
+            stage="writer_repair",
+            on_log=on_log,
+        )
+        on_log("design_writer_repair_ok: true")
+        return _ensure_design_quality(prepared, repaired, on_log)
+    except Exception as error:
+        on_log(f"design_writer_repair_failed: {error}")
+        return current_markdown
 
 
 def build_local_doc_only_design_markdown(prepared: DesignInputBundle, research_summary_payload: dict[str, object]) -> str:
@@ -122,10 +196,7 @@ def build_local_doc_only_design_markdown(prepared: DesignInputBundle, research_s
 
 
 def _ensure_design_quality(prepared: DesignInputBundle, markdown: str, on_log) -> str:
-    repaired, added_count = ensure_inferred_open_questions(markdown, prepared.sections)
-    if added_count:
-        on_log(f"design_quality_repair: inferred_open_questions_added={added_count}")
-    return repaired
+    return repair_low_risk_design_quality(markdown, prepared.sections, on_log)
 
 
 def render_research_summary_markdown(payload: dict[str, object]) -> str:
@@ -160,16 +231,6 @@ def render_research_summary_markdown(payload: dict[str, object]) -> str:
             lines.extend(f"  - {item}" for item in unknowns[:5])
         lines.append("")
     return "\n".join(lines).rstrip()
-
-
-def _design_markdown_is_actionable(markdown: str) -> bool:
-    normalized = markdown.strip()
-    if not normalized:
-        return False
-    has_solution = any(keyword in normalized for keyword in ("改造方案", "技术方案", "方案落点", "实现方案"))
-    has_validation = any(keyword in normalized for keyword in ("验收与验证", "验证方案", "验证关注", "验收标准"))
-    has_repo_section = any(section in normalized for section in ("## 分仓库职责", "## 分仓库方案", "## 仓库方案"))
-    return has_solution and has_validation and has_repo_section
 
 
 def _research_repos_by_id(payload: dict[str, object]) -> dict[str, dict[str, object]]:
