@@ -36,6 +36,9 @@ def supervisor_review_design(
                     template_path=template_path,
                 ),
                 ".design-supervisor-review-",
+                role="design_supervisor",
+                stage="design_review",
+                on_log=on_log,
             )
             review = _normalize_supervisor_payload(payload, source="native")
             on_log(f"design_supervisor_review_ok: decision={review.decision} passed={str(review.passed).lower()}")

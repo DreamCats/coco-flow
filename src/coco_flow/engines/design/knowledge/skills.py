@@ -70,7 +70,7 @@ def build_design_skills_bundle(
     selected = _program_selected_skills(recalled)
     selector_payload: dict[str, object] = {"source": "program"}
     _log_design_skill_candidates(on_log, "design_skills_candidates", recalled)
-    if native_ok and recalled:
+    if native_ok and recalled and not _program_selection_is_decisive(recalled, selected):
         agent_selection = _select_design_skills_with_agent(prepared, settings, recalled, on_log)
         if agent_selection is not None:
             selected_ids = as_str_list(agent_selection.get("selected_skill_ids"))[:_MAX_SELECTED_SKILLS]
@@ -79,6 +79,8 @@ def build_design_skills_bundle(
             if agent_selected:
                 selected = agent_selected
                 selector_payload = {"source": "native", **agent_selection}
+    elif native_ok and recalled and on_log:
+        on_log("design_skills_selector_skipped: reason=program_decisive")
     selected_documents = [item[2] for item in selected]
     selection_payload = {
         "selected_skill_ids": [item[2].package.id for item in selected],
@@ -105,6 +107,19 @@ def _program_selected_skills(
     if top_score >= second_score * 3 or top_score - second_score >= 6:
         return recalled[:1]
     return recalled[:_MAX_SELECTED_SKILLS]
+
+
+def _program_selection_is_decisive(
+    recalled: list[tuple[int, dict[str, object], _SkillDocument]],
+    selected: list[tuple[int, dict[str, object], _SkillDocument]],
+) -> bool:
+    """分数已经明显单边胜出时，不再花一次 native agent 做重复判断。"""
+
+    if len(recalled) < 2 or len(selected) != 1:
+        return True
+    top_score = int(recalled[0][1].get("score") or 0)
+    second_score = int(recalled[1][1].get("score") or 0)
+    return top_score >= second_score * 3 or top_score - second_score >= 6
 
 
 def _log_design_skill_candidates(on_log, event: str, items: list[tuple[int, dict[str, object], _SkillDocument]]) -> None:

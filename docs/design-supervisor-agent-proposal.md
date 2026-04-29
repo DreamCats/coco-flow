@@ -189,9 +189,11 @@ prepare_design_input
 
 ## 第一阶段最小实现
 
-当前分支已开始落地第一阶段：`quality/` 拆成独立程序规则层，`supervisor/` 新增 `supervisor_review_design()`，
+当前分支已开始落地第一阶段：`quality/` 拆成独立程序规则层，`supervisor/` 新增 `supervisor_review_design()`；
+随后 native Design 主链路已开始切到 Research Agent + Research Supervisor，旧程序化 repo research 只保留给 local executor；
+native Research Agent 失败会显式写入 research gate，不能偷偷回落成旧 research 后通过。
 Design 主流程会写 `design-quality.json`、`design-supervisor-review.json`、`design-research-summary.json`，
-并在 native writer 草稿被退回时保留 `design-writer-rejected.md`。后续仍可继续扩展 research review 闭环。
+并在 native writer 草稿被退回时保留 `design-writer-rejected.md`。
 
 第一阶段不需要重写整个引擎，只加一个 Supervisor review 点：
 

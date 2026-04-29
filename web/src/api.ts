@@ -120,6 +120,8 @@ export type TaskDiagnosis = {
   nextAction: string
   reason: string
   issueCount: number
+  issues: string[]
+  instructions: string[]
 }
 
 export type TaskListItem = {
@@ -664,6 +666,8 @@ function normalizeDiagnosis(raw: unknown): TaskDiagnosis | undefined {
     nextAction,
     reason: asString(current.reason),
     issueCount: asNumber(current.issueCount) || asNumber(current.issue_count) || 0,
+    issues: asStringArray(current.issues),
+    instructions: asStringArray(current.instructions),
   }
 }
 
@@ -1448,6 +1452,10 @@ function asRecord(raw: unknown): Record<string, unknown> {
 
 function asString(raw: unknown) {
   return typeof raw === 'string' ? raw : ''
+}
+
+function asStringArray(raw: unknown) {
+  return Array.isArray(raw) ? raw.map((item) => asString(item)).filter(Boolean) : []
 }
 
 function asNumber(raw: unknown) {

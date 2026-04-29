@@ -56,6 +56,8 @@ class DiagnosisSummary(BaseModel):
     next_action: str
     reason: str = ""
     issue_count: int = 0
+    issues: list[str] = Field(default_factory=list)
+    instructions: list[str] = Field(default_factory=list)
 
 
 class ArtifactItem(BaseModel):

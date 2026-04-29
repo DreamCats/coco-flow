@@ -52,6 +52,8 @@ def task_detail_item(detail: TaskDetail) -> dict[str, object]:
                 "nextAction": detail.diagnosis.next_action,
                 "reason": detail.diagnosis.reason,
                 "issueCount": detail.diagnosis.issue_count,
+                "issues": detail.diagnosis.issues,
+                "instructions": detail.diagnosis.instructions,
             }
             if detail.diagnosis
             else None

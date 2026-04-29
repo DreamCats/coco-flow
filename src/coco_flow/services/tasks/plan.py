@@ -101,6 +101,91 @@ def _ensure_design_allows_plan(task_dir: Path) -> None:
             "Design Markdown 已保存，但结构化设计契约未同步。"
             "请先同步 Design 契约，系统会保留当前 design.md，只刷新 design-contracts.json。"
         )
+    unresolved_items = _unresolved_design_items(task_dir)
+    block_reason = _design_quality_block_reason(read_json_file(task_dir / "design-quality.json"))
+    block_reason = block_reason or _design_supervisor_block_reason(read_json_file(task_dir / "design-supervisor-review.json"))
+    if unresolved_items:
+        block_reason = block_reason or "Design 文档仍包含待确认项。"
+        raise ValueError(_format_design_block_reason(block_reason, unresolved_items))
+
+
+def _design_quality_block_reason(payload: dict[str, object]) -> str:
+    if not payload:
+        return ""
+    research_gate = payload.get("research_gate")
+    if isinstance(research_gate, dict) and research_gate.get("passed") is False:
+        reason = str(research_gate.get("reason") or "").strip()
+        return "Design Research Gate 曾未通过。" + (f" 原因：{reason}" if reason else "")
+    quality_status = str(payload.get("quality_status") or "").strip()
+    if quality_status == "degraded":
+        return "Design 产物曾处于 degraded 状态。"
+    return ""
+
+
+def _design_supervisor_block_reason(payload: dict[str, object]) -> str:
+    if not payload:
+        return ""
+    decision = str(payload.get("decision") or "").strip()
+    if decision not in {"degrade_design", "needs_human", "fail", "redo_research"}:
+        return ""
+    reason = str(payload.get("reason") or "").strip()
+    return f"Design Supervisor 曾决策为 {decision}。" + (f" 原因：{reason}" if reason else "")
+
+
+def _format_design_block_reason(block_reason: str, unresolved_items: list[str]) -> str:
+    preview = "；".join(unresolved_items[:3])
+    return f"{block_reason} design.md 仍有未确认内容，不能进入 Plan。请直接编辑 design.md 补齐为明确结论并同步 Design。未确认项：{preview}"
+
+
+def _unresolved_design_items(task_dir: Path) -> list[str]:
+    try:
+        markdown = (task_dir / "design.md").read_text(encoding="utf-8")
+    except OSError:
+        return ["design.md 读取失败"]
+    return _unresolved_markdown_items(markdown)
+
+
+def _unresolved_markdown_items(markdown: str) -> list[str]:
+    hard_markers = (
+        "当前不能进入 Plan",
+        "不能进入 Plan",
+        "代码证据不足",
+        "证据不足",
+        "无法支撑完整",
+        "Research 未通过",
+        "Research Gate 未通过",
+        "当前代码证据不足",
+        "补充 repo research",
+        "补充代码证据",
+        "下一步补证",
+    )
+    soft_markers = ("待确认", "需要确认", "需确认", "未确认", "缺少")
+    resolved_markers = ("已确认", "决策", "结论", "最终方案", "无需", "不需要", "不涉及", "不改", "确认不")
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip().lstrip("-*0123456789.、 ").strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            continue
+        if any(marker in line for marker in resolved_markers):
+            continue
+        if _is_resolved_conditional_design_line(line):
+            continue
+        if any(marker in line for marker in hard_markers) or any(marker in line for marker in soft_markers):
+            if line in seen:
+                continue
+            seen.add(line)
+            result.append(line)
+    return result[:10]
+
+
+def _is_resolved_conditional_design_line(line: str) -> bool:
+    """把“仅当缺少 X 才改动”视为已确认条件，不当作待确认项。"""
+    conditional_markers = ("仅当", "只有当", "只有在", "如缺少", "如果缺少")
+    action_markers = ("才需要改动", "才改动", "才需要修改", "才修改", "才需要新增", "才新增")
+    return any(marker in line for marker in conditional_markers) and any(marker in line for marker in action_markers)
 
 
 def _write_plan_outputs(task_dir: Path, result) -> None:

@@ -250,7 +250,9 @@ function renderDiagnosisSummary(diagnosis: NonNullable<TaskRecord['diagnosis']>)
   const failure = diagnosis.failureType ? `，失败类型：${diagnosis.failureType}` : ''
   const issueText = diagnosis.issueCount > 0 ? `，问题数：${diagnosis.issueCount}` : ''
   const reason = diagnosis.reason ? `。${diagnosis.reason}` : ''
-  return `诊断：${stage} / ${severity} / ${nextAction}${failure}${issueText}${reason}`
+  const issues = diagnosis.issues?.length ? `。主要缺口：${diagnosis.issues.slice(0, 3).join('；')}` : ''
+  const instructions = diagnosis.instructions?.length ? `。下一步：${diagnosis.instructions.slice(0, 2).join('；')}` : ''
+  return `诊断：${stage} / ${severity} / ${nextAction}${failure}${issueText}${reason}${issues}${instructions}`
 }
 
 function StageField({ label, value }: { label: string; value: string }) {

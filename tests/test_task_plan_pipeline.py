@@ -9,12 +9,24 @@ from unittest.mock import patch
 
 from coco_flow.clients import AgentSessionHandle
 from coco_flow.config import Settings
-from coco_flow.engines.design.evidence import build_research_plan, research_single_repo
+from coco_flow.engines.design.evidence import build_research_plan, normalize_agent_research_payload, research_single_repo, run_agent_repo_research
+from coco_flow.engines.design.evidence.repo_index import build_repo_context_package, load_or_build_repo_index
+from coco_flow.engines.design.evidence.agent_research import (
+    _apply_experiment_gate_repo_policy,
+    _merge_repo_research_payload,
+    _normalize_research_review,
+    _normalize_research_instructions,
+    _research_instructions_by_repo,
+    _retry_instructions_for_repo,
+)
 from coco_flow.engines.design.knowledge import build_design_skills_bundle
+from coco_flow.engines.design.pipeline import _build_degraded_design_markdown
+from coco_flow.engines.design.runtime.agent import _repair_common_agent_json, run_agent_json
 from coco_flow.engines.design.types import DesignInputBundle
 from coco_flow.engines.design.writer.markdown import (
     build_local_doc_only_design_markdown,
     render_research_summary_markdown,
+    sanitize_design_markdown_paths,
     write_doc_only_design_markdown,
 )
 from coco_flow.engines.plan.compiler import build_structured_plan_artifacts, render_plan_markdown
@@ -75,6 +87,599 @@ class DesignPipelineTest(unittest.TestCase):
         self.assertNotIn("requires_code_change", rendered)
         self.assertNotIn("{'path'", rendered)
         self.assertNotIn("core_evidence", rendered)
+
+    def test_design_research_summary_markdown_renders_repo_relative_paths(self) -> None:
+        rendered = render_research_summary_markdown(
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "repo_path": "/repo/live_pack",
+                        "work_hypothesis": "required",
+                        "claims": [
+                            {
+                                "claim": "标题在 getAuctionTitle 生成",
+                                "status": "supported",
+                                "files": [
+                                    {
+                                        "path": "/repo/live_pack/entities/converters/auction_converters/regular_auction_converter.go",
+                                        "line": 594,
+                                        "symbol": "getAuctionTitle",
+                                    }
+                                ],
+                            }
+                        ],
+                        "candidate_files": [
+                            {
+                                "path": "/repo/live_pack/entities/converters/auction_converters/regular_auction_converter.go",
+                                "reason": "核心落点。",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        self.assertIn("entities/converters/auction_converters/regular_auction_converter.go", rendered)
+        self.assertNotIn("/repo/live_pack", rendered)
+
+    def test_agent_research_payload_normalizes_to_design_research_summary(self) -> None:
+        payload = normalize_agent_research_payload(
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "repo_path": "/repo/live_pack",
+                        "work_hypothesis": "required",
+                        "confidence": "high",
+                        "skill_usage": {
+                            "read_files": ["/skills/auction/SKILL.md"],
+                            "applied_rules": ["讲解卡标题只改 converter 层"],
+                            "derived_search_hints": ["AuctionTitle", "bagGetRegularTitle"],
+                        },
+                        "claims": [{"claim": "标题在 converter 组装", "status": "supported", "files": []}],
+                        "candidate_files": [
+                            {
+                                "path": "entities/converters/auction_converters/converter_helpers.go",
+                                "symbol": "bagGetRegularTitle",
+                                "reason": "直接给 AuctionTitle 赋值。",
+                                "confidence": "high",
+                            }
+                        ],
+                        "rejected_candidates": [{"path": "pin_card.go", "reason": "PRD 明确不改讲解卡。"}],
+                    }
+                ],
+                "summary": "Research Agent completed.",
+            }
+        )
+
+        self.assertEqual(payload["source"], "agent")
+        self.assertEqual(payload["candidate_file_count"], 1)
+        self.assertEqual(payload["research_status"], "ok")
+        self.assertEqual(payload["repos"][0]["work_hypothesis"], "required")
+        self.assertEqual(payload["repos"][0]["skill_usage"]["read_files"], ["/skills/auction/SKILL.md"])
+        self.assertEqual(payload["repos"][0]["candidate_files"][0]["symbol"], "bagGetRegularTitle")
+        self.assertEqual(payload["repos"][0]["rejected_candidates"][0]["path"], "pin_card.go")
+
+    def test_agent_research_payload_accepts_common_agent_field_aliases(self) -> None:
+        payload = normalize_agent_research_payload(
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "repo_path": "/repo/live_pack",
+                        "work_hypothesis": "required",
+                        "confidence": "high",
+                        "candidate_files": [
+                            {
+                                "file_path": "/repo/live_pack/entities/converters/auction_converters/regular_auction_converter.go",
+                                "line_start": 594,
+                                "reason": "getAuctionTitle 组装标题。",
+                                "confidence": "high",
+                            }
+                        ],
+                        "related_files": ["/repo/live_pack/engines/live_bag_auction_list.go"],
+                        "boundaries": [{"description": "不修改 temporary listing。"}],
+                        "unknowns": [{"question": "AB key 未确认", "next_steps": "确认实验参数名"}],
+                    }
+                ]
+            }
+        )
+
+        repo = payload["repos"][0]
+        self.assertEqual(repo["candidate_files"][0]["path"], "/repo/live_pack/entities/converters/auction_converters/regular_auction_converter.go")
+        self.assertEqual(repo["candidate_files"][0]["line"], 594)
+        self.assertEqual(repo["related_files"][0]["path"], "/repo/live_pack/engines/live_bag_auction_list.go")
+        self.assertEqual(repo["boundaries"], ["不修改 temporary listing。"])
+        self.assertEqual(repo["unknowns"], ["AB key 未确认；下一步：确认实验参数名"])
+        self.assertIn("live_pack: AB key 未确认", payload["unknowns"][0])
+
+    def test_agent_research_payload_accepts_string_candidate_files(self) -> None:
+        payload = normalize_agent_research_payload(
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "repo_path": "/repo/live_pack",
+                        "candidate_files": [
+                            "/repo/live_pack/entities/converters/auction_converters/regular_auction_converter.go",
+                            "constdef/component.go",
+                        ],
+                    }
+                ]
+            }
+        )
+
+        repo = payload["repos"][0]
+        self.assertEqual(payload["candidate_file_count"], 2)
+        self.assertEqual(repo["candidate_files"][0]["path"], "/repo/live_pack/entities/converters/auction_converters/regular_auction_converter.go")
+        self.assertEqual(repo["candidate_files"][1]["path"], "constdef/component.go")
+
+    def test_agent_json_preserves_failed_raw_template_for_diagnosis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            prepared = self._design_bundle(repo_scopes=[RepoScope(repo_id="demo", repo_path=str(root / "repo"))])
+            prepared.task_dir = root / "task"
+            prepared.task_dir.mkdir()
+            with patch(
+                "coco_flow.engines.design.runtime.agent._run_agent_template",
+                return_value='{"repo_id": "__FILL__"}',
+            ):
+                with self.assertRaisesRegex(ValueError, "failed_output="):
+                    run_agent_json(prepared, settings, "{}", lambda path: path, ".design-research-agent-demo-")
+
+            failed_files = list(prepared.task_dir.glob(".design-research-agent-demo-*-failed.json"))
+            self.assertEqual(len(failed_files), 1)
+            self.assertIn("__FILL__", failed_files[0].read_text(encoding="utf-8"))
+
+    def test_agent_json_writes_transcript_with_duration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            prepared = self._design_bundle(repo_scopes=[RepoScope(repo_id="demo", repo_path=str(root / "repo"))])
+            prepared.task_dir = root / "task"
+            prepared.task_dir.mkdir()
+
+            def fake_run_agent(prompt: str, *_args, **_kwargs) -> str:
+                Path(prompt).write_text('{"ok": true}\n', encoding="utf-8")
+                return "done"
+
+            logs: list[str] = []
+            with patch("coco_flow.engines.design.runtime.agent.CocoACPClient.run_agent", side_effect=fake_run_agent):
+                payload = run_agent_json(
+                    prepared,
+                    settings,
+                    "{}",
+                    lambda path: path,
+                    ".design-research-agent-demo-",
+                    role="design_research:demo",
+                    stage="repo_research",
+                    on_log=logs.append,
+                )
+
+            self.assertEqual(payload, {"ok": True})
+            transcript = (prepared.task_dir / "design-agent-transcript.jsonl").read_text(encoding="utf-8")
+            row = json.loads(transcript)
+            self.assertEqual(row["role"], "design_research:demo")
+            self.assertEqual(row["stage"], "repo_research")
+            self.assertEqual(row["status"], "ok")
+            self.assertEqual(row["response"], '{"ok": true}\n')
+            self.assertIsInstance(row["duration_ms"], int)
+            self.assertTrue(any("duration_ms=" in item for item in logs))
+
+    def test_agent_json_repair_quotes_line_number_ranges(self) -> None:
+        repaired = _repair_common_agent_json('{"file": "abtest/struct.go", "line": 983-1017, "claim": "ok"}')
+
+        self.assertEqual(json.loads(repaired)["line"], "983-1017")
+
+    def test_agent_json_repair_escapes_control_chars_inside_strings(self) -> None:
+        repaired = _repair_common_agent_json('{"evidence": "line 1:\tvalue\nline 2"}')
+
+        self.assertEqual(json.loads(repaired)["evidence"], "line 1:\tvalue\nline 2")
+
+    def test_agent_research_payload_marks_failed_repo_as_failed_summary(self) -> None:
+        payload = normalize_agent_research_payload(
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "repo_path": "/repo/live_pack",
+                        "research_status": "failed",
+                        "research_error": "Internal error",
+                        "unknowns": ["Research Agent failed for repo live_pack: Internal error"],
+                    }
+                ],
+                "summary": "Research Agent failed.",
+            }
+        )
+
+        self.assertEqual(payload["research_status"], "failed")
+        self.assertEqual(payload["candidate_file_count"], 0)
+        self.assertIn("live_pack: Research Agent failed", payload["unknowns"][0])
+
+    def test_research_review_pass_is_overridden_when_repo_failed(self) -> None:
+        review = _normalize_research_review(
+            {
+                "passed": True,
+                "decision": "pass",
+                "confidence": "high",
+                "blocking_issues": [],
+                "research_instructions": [],
+                "reason": "core repo evidence is enough",
+            },
+            {
+                "repos": [
+                    {"repo_id": "live_pack", "research_status": "ok"},
+                    {"repo_id": "live_common", "research_status": "failed"},
+                ]
+            },
+        )
+
+        self.assertFalse(review["passed"])
+        self.assertEqual(review["decision"], "redo_research")
+        self.assertIn("live_common", review["research_instructions"][0])
+        self.assertIn("failed", review["blocking_issues"][0]["summary"])
+
+    def test_research_review_redo_becomes_pass_when_design_starting_point_exists(self) -> None:
+        review = _normalize_research_review(
+            {
+                "passed": False,
+                "decision": "redo_research",
+                "confidence": "medium",
+                "blocking_issues": ["缺少配置 key 细节"],
+                "research_instructions": [{"repo_id": "live_pack", "instructions": ["继续补查配置 key"]}],
+                "reason": "还缺实现细节。",
+            },
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "research_status": "ok",
+                        "work_hypothesis": "required",
+                        "confidence": "high",
+                        "skill_usage": {"read_files": ["/repo/live_pack/entities/converters/auction_converters/converter_helpers.go"]},
+                        "claims": [{"claim": "核心函数已定位"}],
+                        "candidate_files": [{"path": "entities/converters/auction_converters/converter_helpers.go"}],
+                    },
+                    {
+                        "repo_id": "live_common",
+                        "research_status": "ok",
+                        "work_hypothesis": "conditional",
+                        "confidence": "high",
+                        "claims": [{"claim": "配置结构已定位"}],
+                        "candidate_files": [{"path": "abtest/struct.go"}],
+                    },
+                ]
+            },
+        )
+
+        self.assertTrue(review["passed"])
+        self.assertEqual(review["decision"], "pass")
+        self.assertEqual(review["research_instructions"], [])
+        self.assertIn("remaining gaps", review["reason"])
+
+    def test_research_review_redo_is_not_overridden_when_candidate_file_was_not_read(self) -> None:
+        review = _normalize_research_review(
+            {
+                "passed": False,
+                "decision": "redo_research",
+                "confidence": "medium",
+                "blocking_issues": [],
+                "research_instructions": ["读取候选文件"],
+                "reason": "候选文件未读。",
+            },
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "research_status": "ok",
+                        "work_hypothesis": "required",
+                        "confidence": "high",
+                        "skill_usage": {"read_files": ["/skills/auction/SKILL.md"]},
+                        "claims": [{"claim": "核心函数已定位"}],
+                        "candidate_files": [{"path": "entities/converters/auction_converters/regular_auction_converter.go"}],
+                    }
+                ]
+            },
+        )
+
+        self.assertFalse(review["passed"])
+        self.assertEqual(review["decision"], "redo_research")
+        self.assertEqual(review["research_instructions"], ["读取候选文件"])
+
+    def test_experiment_gate_keeps_shared_config_repo_conditional_without_explicit_key(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            title="实验组竞拍购物袋标题增加 Auction 标识",
+            refined_markdown="命中实验时，regular auction 标题前增加 Auction 标识。未命中实验时保持不变。",
+        )
+        payload = {
+            "repos": [
+                {
+                    "repo_id": "live_common",
+                    "repo_path": "/repo/live_common",
+                    "research_status": "ok",
+                    "work_hypothesis": "not_needed",
+                    "confidence": "high",
+                    "skill_usage": {
+                        "read_files": ["/repo/live_common/abtest/struct.go"],
+                        "applied_rules": ["live_common 提供公共 AB 实验配置"],
+                        "derived_search_hints": ["确认是否需要新增 AB 参数"],
+                    },
+                    "claims": [{"claim": "live_common 是公共实验配置仓"}],
+                    "candidate_files": [],
+                }
+            ],
+            "summary": "Research Agent completed.",
+        }
+
+        adjusted = _apply_experiment_gate_repo_policy(prepared, payload)
+        repo = adjusted["repos"][0]
+
+        self.assertEqual(repo["work_hypothesis"], "conditional")
+        self.assertEqual(repo["confidence"], "medium")
+        self.assertIn("未指定实验 key", repo["unknowns"][0])
+
+    def test_experiment_gate_allows_not_needed_when_refined_names_experiment_key(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[RepoScope(repo_id="live_common", repo_path="/repo/live_common")],
+            title="实验组竞拍购物袋标题增加 Auction 标识",
+            refined_markdown="命中实验 key `RegularAuctionTitleAuctionLabelEnabled` 时，标题前增加 Auction 标识。",
+        )
+        payload = {
+            "repos": [
+                {
+                    "repo_id": "live_common",
+                    "repo_path": "/repo/live_common",
+                    "research_status": "ok",
+                    "work_hypothesis": "not_needed",
+                    "confidence": "high",
+                    "skill_usage": {"applied_rules": ["live_common 提供公共 AB 实验配置"]},
+                    "claims": [],
+                    "candidate_files": [],
+                }
+            ],
+            "summary": "Research Agent completed.",
+        }
+
+        adjusted = _apply_experiment_gate_repo_policy(prepared, payload)
+
+        self.assertEqual(adjusted["repos"][0]["work_hypothesis"], "not_needed")
+
+    def test_research_review_instruction_objects_keep_repo_scope(self) -> None:
+        instructions = _normalize_research_instructions(
+            [
+                {
+                    "repo_id": "live_pack",
+                    "instructions": ["查看 converter_helpers.go", "确认 AB 参数"],
+                },
+                {
+                    "repo_id": "live_common",
+                    "instructions": ["查看 abtest/struct.go"],
+                },
+            ]
+        )
+
+        self.assertEqual(
+            instructions,
+            [
+                "live_pack: 查看 converter_helpers.go",
+                "live_pack: 确认 AB 参数",
+                "live_common: 查看 abtest/struct.go",
+            ],
+        )
+
+    def test_agent_research_preserves_repo_evidence_when_research_supervisor_fails(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[RepoScope(repo_id="live_pack", repo_path="/repo/live_pack")],
+            title="竞拍标题增加 Auction 标识",
+            refined_markdown="regular auction 标题需要增加 Auction 前缀。",
+        )
+        repo_payload = {
+            "repo_id": "live_pack",
+            "repo_path": "/repo/live_pack",
+            "research_status": "ok",
+            "work_hypothesis": "required",
+            "confidence": "high",
+            "skill_usage": {
+                "read_files": ["/skills/auction/SKILL.md"],
+                "applied_rules": ["regular auction title workflow"],
+                "derived_search_hints": ["getAuctionTitle"],
+            },
+            "claims": [{"claim": "标题在 getAuctionTitle 生成", "evidence": ["regular_auction_converter.go:594"]}],
+            "candidate_files": [
+                {
+                    "path": "entities/converters/auction_converters/regular_auction_converter.go",
+                    "symbol": "getAuctionTitle",
+                    "evidence": ["函数返回 regular auction 标题"],
+                }
+            ],
+        }
+        logs: list[str] = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp))
+            with (
+                patch("coco_flow.engines.design.evidence.agent_research._run_repo_research_agents", return_value=[repo_payload]),
+                patch(
+                    "coco_flow.engines.design.evidence.agent_research._review_research_payload",
+                    side_effect=RuntimeError("design_agent_template_unfilled"),
+                ),
+            ):
+                payload = run_agent_repo_research(prepared, settings, on_log=logs.append)
+
+        self.assertEqual(payload["candidate_file_count"], 1)
+        self.assertEqual(payload["repos"][0]["research_status"], "ok")
+        self.assertEqual(payload["repos"][0]["candidate_files"][0]["path"], "entities/converters/auction_converters/regular_auction_converter.go")
+        self.assertEqual(payload["research_review"]["decision"], "needs_human")
+        self.assertEqual(payload["research_review"]["blocking_issues"][0]["type"], "research_supervisor_failed")
+        self.assertTrue(any("design_research_supervisor_failed" in item for item in logs))
+
+    def test_agent_research_retry_failure_does_not_overwrite_previous_repo_evidence(self) -> None:
+        previous = {
+            "repo_id": "live_pack",
+            "repo_path": "/repo/live_pack",
+            "research_status": "ok",
+            "work_hypothesis": "required",
+            "confidence": "high",
+            "candidate_files": ["entities/converters/auction_converters/converter_helpers.go"],
+            "unknowns": ["AB key 待确认"],
+        }
+        failed_retry = {
+            "repo_id": "live_pack",
+            "repo_path": "/repo/live_pack",
+            "research_status": "failed",
+            "research_error": "acp session/prompt failed: Internal error",
+            "candidate_files": [],
+            "unknowns": ["Research Agent failed for repo live_pack"],
+        }
+
+        merged = _merge_repo_research_payload(previous, failed_retry)
+
+        self.assertEqual(merged["research_status"], "ok")
+        self.assertEqual(merged["candidate_files"], ["entities/converters/auction_converters/converter_helpers.go"])
+        self.assertIn("AB key 待确认", merged["unknowns"])
+        self.assertIn("Supplemental Research Agent retry failed", merged["unknowns"][-1])
+        self.assertEqual(merged["retry_errors"], ["acp session/prompt failed: Internal error"])
+
+    def test_agent_research_retry_instructions_merge_global_and_repo_specific_items(self) -> None:
+        retry = _retry_instructions_for_repo(
+            {
+                "*": ["搜索 Starling key", "查看 git history"],
+                "live_pack": ["检查 bagGetRegularTitle 调用点", "搜索 Starling key"],
+            },
+            "live_pack",
+        )
+
+        self.assertEqual(retry, ["搜索 Starling key", "查看 git history", "检查 bagGetRegularTitle 调用点"])
+
+    def test_agent_research_retry_freezes_high_confidence_not_needed_repo(self) -> None:
+        retry_by_repo = _research_instructions_by_repo(
+            [
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            {"research_instructions": ["补充 Starling key 获取方式", "live_common: 确认是否需要新增 AB 参数"]},
+            {
+                "repos": [
+                    {"repo_id": "live_pack", "research_status": "ok", "work_hypothesis": "required", "confidence": "high"},
+                    {"repo_id": "live_common", "research_status": "ok", "work_hypothesis": "not_needed", "confidence": "high"},
+                ]
+            },
+        )
+
+        self.assertEqual(retry_by_repo["live_pack"], ["补充 Starling key 获取方式"])
+        self.assertEqual(retry_by_repo["live_common"], ["live_common: 确认是否需要新增 AB 参数"])
+
+    def test_research_summary_markdown_renders_agent_claims_and_review(self) -> None:
+        rendered = render_research_summary_markdown(
+            {
+                "research_review": {
+                    "passed": False,
+                    "decision": "redo_research",
+                    "reason": "缺少标题赋值链路。",
+                    "blocking_issues": [{"summary": "candidate 未证明能改标题。"}],
+                },
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "work_hypothesis": "required",
+                        "skill_usage": {
+                            "read_files": ["/skills/auction/SKILL.md"],
+                            "applied_rules": ["讲解卡标题只改 converter 层"],
+                            "derived_search_hints": ["AuctionTitle"],
+                        },
+                        "claims": [
+                            {
+                                "claim": "标题在 converter 组装",
+                                "status": "supported",
+                                "files": [
+                                    {
+                                        "path": "entities/converters/auction_converters/converter_helpers.go",
+                                        "line": 241,
+                                        "symbol": "AuctionTitle",
+                                    }
+                                ],
+                            }
+                        ],
+                        "candidate_files": [
+                            {
+                                "path": "entities/converters/auction_converters/converter_helpers.go",
+                                "reason": "直接给 AuctionTitle 赋值。",
+                            }
+                        ],
+                        "rejected_candidates": [{"path": "pin_card.go", "reason": "PRD 明确不改讲解卡。"}],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("Research Supervisor", rendered)
+        self.assertIn("redo_research", rendered)
+        self.assertIn("标题在 converter 组装", rendered)
+        self.assertIn("Skill/SOP 使用", rendered)
+        self.assertIn("/skills/auction/SKILL.md", rendered)
+        self.assertIn("讲解卡标题只改 converter 层", rendered)
+        self.assertIn("converter_helpers.go:241", rendered)
+        self.assertIn("已拒绝候选", rendered)
+        self.assertIn("pin_card.go", rendered)
+
+    def test_degraded_design_markdown_surfaces_research_blockers_and_next_steps(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[RepoScope(repo_id="live_pack", repo_path="/repo/live_pack")],
+            title="实验组竞拍购物袋标题增加 Auction 标识",
+            refined_markdown="命中实验时标题加 Auction。",
+        )
+
+        markdown = _build_degraded_design_markdown(
+            prepared,
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "work_hypothesis": "required",
+                        "claims": [{"claim": "标题在 getAuctionTitle 生成", "status": "supported"}],
+                        "candidate_files": [{"path": "/repo/live_pack/entities/converters/auction_converters/regular_auction_converter.go", "symbol": "getAuctionTitle"}],
+                    }
+                ],
+                "research_review": {
+                    "blocking_issues": [{"summary": "缺少实验开关名称。"}],
+                    "research_instructions": ["确认 live_common AB 参数命名。"],
+                },
+            },
+            {"blocking_issues": [{"summary": "Research Gate 未通过。"}]},
+        )
+
+        self.assertIn("## 设计状态", markdown)
+        self.assertIn("人工确认版设计草稿", markdown)
+        self.assertIn("## 已确认设计基础", markdown)
+        self.assertIn("标题在 getAuctionTitle 生成", markdown)
+        self.assertIn("regular_auction_converter.go / getAuctionTitle", markdown)
+        self.assertIn("## 待确认设计决策", markdown)
+        self.assertIn("待确认：缺少实验开关名称", markdown)
+        self.assertIn("## 补齐建议", markdown)
+        self.assertIn("确认 live_common AB 参数命名", markdown)
+        self.assertNotIn("/repo/live_pack", markdown)
+
+    def test_design_markdown_sanitizer_renders_repo_relative_paths(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[RepoScope(repo_id="live_pack", repo_path="/repo/live_pack")],
+            title="实验组竞拍购物袋标题增加 Auction 标识",
+            refined_markdown="命中实验时 regular auction 标题拼接 Auction 标识。",
+        )
+        markdown = sanitize_design_markdown_paths(
+            prepared,
+            "- 仓库路径：/repo/live_pack\n"
+            "- 文件：`/repo/live_pack/entities/converters/auction_converters/regular_auction_converter.go`\n",
+        )
+
+        self.assertIn("仓库：live_pack", markdown)
+        self.assertIn("`entities/converters/auction_converters/regular_auction_converter.go`", markdown)
+        self.assertNotIn("/repo/live_pack", markdown)
 
     def test_local_design_markdown_includes_actionable_solution_and_validation(self) -> None:
         prepared = self._design_bundle(
@@ -190,6 +795,76 @@ class DesignPipelineTest(unittest.TestCase):
             self.assertTrue(git_evidence)
             self.assertTrue(any(item["path"] == "auction_config.go" for item in git_evidence))
             self.assertGreaterEqual(payload["budget_used"]["git_commands"], 1)
+
+    def test_repo_index_persists_files_symbols_and_git_without_livecoding_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            repo_dir = root / "repo"
+            repo_dir.mkdir()
+            self._run(repo_dir, "git", "init")
+            self._run(repo_dir, "git", "config", "user.email", "test@example.com")
+            self._run(repo_dir, "git", "config", "user.name", "Test User")
+            (repo_dir / "regular_auction_converter.go").write_text(
+                "package demo\n\nfunc getAuctionTitle() string { return \"Auction title\" }\n",
+                encoding="utf-8",
+            )
+            (repo_dir / ".livecoding" / "context").mkdir(parents=True)
+            (repo_dir / ".livecoding" / "context" / "auction_context.go").write_text(
+                "package hidden\n\nfunc HiddenAuctionContext() {}\n",
+                encoding="utf-8",
+            )
+            self._run(repo_dir, "git", "add", "regular_auction_converter.go")
+            self._run(repo_dir, "git", "commit", "-m", "add auction title converter")
+
+            repo = RepoScope(repo_id="demo", repo_path=str(repo_dir))
+            first = load_or_build_repo_index(repo, settings)
+            second = load_or_build_repo_index(repo, settings)
+
+            self.assertEqual(first["index_status"], "rebuilt")
+            self.assertEqual(second["index_status"], "cache_hit")
+            paths = [item["path"] for item in second["files"]]
+            symbols = [item["name"] for item in second["symbols"]]
+            self.assertIn("regular_auction_converter.go", paths)
+            self.assertIn("getAuctionTitle", symbols)
+            self.assertNotIn(".livecoding/context/auction_context.go", paths)
+            self.assertTrue((settings.config_root / "repo-index").is_dir())
+
+            (repo_dir / "regular_auction_converter.go").write_text(
+                "package demo\n\nfunc getAuctionTitle() string { return \"Auction title v2\" }\n",
+                encoding="utf-8",
+            )
+            dirty = load_or_build_repo_index(repo, settings)
+            self.assertEqual(dirty["index_status"], "rebuilt")
+
+    def test_repo_context_package_ranks_index_clues_for_research_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            repo_dir = root / "repo"
+            repo_dir.mkdir()
+            self._run(repo_dir, "git", "init")
+            self._run(repo_dir, "git", "config", "user.email", "test@example.com")
+            self._run(repo_dir, "git", "config", "user.name", "Test User")
+            (repo_dir / "regular_auction_converter.go").write_text(
+                "package demo\n\nfunc getAuctionTitle() string { return \"Auction title\" }\n",
+                encoding="utf-8",
+            )
+            self._run(repo_dir, "git", "add", ".")
+            self._run(repo_dir, "git", "commit", "-m", "add auction title converter")
+            prepared = self._design_bundle(
+                repo_scopes=[RepoScope(repo_id="demo", repo_path=str(repo_dir))],
+                title="竞拍标题增加 Auction 标识",
+                refined_markdown="regular auction title 需要改 getAuctionTitle。",
+            )
+
+            logs: list[str] = []
+            package = build_repo_context_package(prepared, settings, prepared.repo_scopes[0], on_log=logs.append)
+
+            self.assertEqual(package["source"], "local_repo_index")
+            self.assertTrue(any(item["path"] == "regular_auction_converter.go" for item in package["top_files"]))
+            self.assertTrue(any(item["name"] == "getAuctionTitle" for item in package["top_symbols"]))
+            self.assertTrue(any("design_repo_index_ok" in item for item in logs))
 
     def test_research_plan_consumes_search_hints(self) -> None:
         prepared = DesignInputBundle(
@@ -572,6 +1247,38 @@ class DesignPipelineTest(unittest.TestCase):
             self.assertEqual(selected_ids, ["test-skills/auction-pop-card"])
             self.assertEqual(selection["selector"]["source"], "program")
             self.assertIn("test-skills/auction-live-bag", [item["id"] for item in selection["candidates"]])
+
+    def test_design_skills_skips_native_selector_when_program_score_is_decisive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(root)
+            self._write_skill(
+                settings.config_root / "skills-sources" / "test-skills" / "auction-live-bag",
+                skill_body="Auction 竞拍 购物 购物袋 live_pack live_common 实验 标题 标识 拍购 " * 3,
+                references={},
+            )
+            self._write_skill(
+                settings.config_root / "skills-sources" / "test-skills" / "auction-pop-card",
+                skill_body="竞拍讲解卡 pop card。",
+                references={},
+            )
+            prepared = self._design_bundle(
+                repo_scopes=[
+                    RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                    RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+                ],
+                title="实验组竞拍购物袋标题增加 Auction 标识",
+                refined_markdown="命中实验时，regular auction 竞拍购物袋标题前增加 Auction 标识。",
+            )
+            logs: list[str] = []
+
+            with patch("coco_flow.engines.design.knowledge.skills._select_design_skills_with_agent") as selector:
+                _index, _fallback, selection, selected_ids = build_design_skills_bundle(prepared, settings, native_ok=True, on_log=logs.append)
+
+            selector.assert_not_called()
+            self.assertEqual(selected_ids, ["test-skills/auction-live-bag"])
+            self.assertEqual(selection["selector"]["source"], "program")
+            self.assertTrue(any("design_skills_selector_skipped" in item for item in logs))
 
     def test_plan_skills_builds_index_with_full_file_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -168,7 +168,9 @@ uv run python -m unittest discover -s tests -v
 - `design` 当前采用 doc-first + Supervisor review：
   - prepare input
   - select Skills/SOP
-  - repo research
+  - 构建或复用本地 repo index，给 Research Agent 提供文件、符号和近期 git 线索；该索引不依赖 embedding / LLM API，也不读取 `.livecoding/context`
+  - native 模式由 Research Agent 自己做 repo research，并由 Research Supervisor 审查证据是否足够
+  - local executor 才走旧程序化 repo research；native Research Agent 失败会显式降级/阻断，不再偷偷用旧 research 伪装通过
   - writer 生成 `design.md` 草稿
   - quality 执行确定性 actionability gate
   - Supervisor review 判断通过、修复、降级或人工介入
@@ -177,12 +179,18 @@ uv run python -m unittest discover -s tests -v
   - `design-skills.json`：记录本次 Design 选中的业务 Skills/SOP，供 Plan 继承；不作为旧 schema gate。
   - `design-contracts.json`：从当前 `design.md` 提取跨仓字段、接口或配置契约，供 Plan 生成依赖图和仓库任务。
   - `design-research-summary.json`：记录 repo research 汇总，便于回放证据。
+  - `design-agent-transcript.jsonl`：记录 Design native agent 的 prompt、最终 response、耗时和错误，便于追溯。
   - `design-quality.json`：记录程序质量 gate、质量状态和 Supervisor 决策。
   - `design-supervisor-review.json`：解释 Supervisor 为什么通过、退回、降级或需要人工介入。
   - `design-writer-rejected.md`：native writer 草稿被退回时保留原文，便于诊断。
   - `design-sync.json`：记录 `design.md` 与结构化设计契约是否同步。
 - 编辑 `design.md` 后会把 `design-sync.json` 标记为未同步；需要执行 Sync Design 后才能进入 Plan，且不会覆盖用户编辑后的 Markdown。
 - Plan 是否可执行由 `design.md`、任务状态和 `design-sync.json` 判断，不再依赖 `design-result.json` gate。
+- `design-quality.json` 中 `research_gate.passed=false` 或 `design-supervisor-review.json` 降级/阻断时，
+  只有在 `design.md` 仍保留待确认/缺证据项时才阻止进入 Plan；用户把待确认项改成明确结论并 Sync Design 后，
+  不需要重跑 Design，可直接进入 Plan。
+- Design 降级/阻断原因必须在用户可见层表达：任务详情只突出“还缺什么 / 补齐建议”，
+  降级版 `design.md` 要把已确认证据、待确认设计决策和补齐建议润色成完整设计文档，不能只让用户看 JSON sidecar。
 
 ### plan
 
