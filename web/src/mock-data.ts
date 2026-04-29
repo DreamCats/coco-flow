@@ -19,6 +19,7 @@ export type TaskArtifactName =
   | 'refine.log'
   | 'design.md'
   | 'plan.md'
+  | 'plan-readiness-score.json'
   | 'plan.log'
   | 'code-result.json'
 
@@ -172,6 +173,7 @@ export const tasks: TaskRecord[] = [
 2026-04-11 10:32:15 duration: 5s
 2026-04-11 10:32:15 === PLAN END ===
 `,
+      'plan-readiness-score.json': '',
       'code-result.json': `{
   "status": "partially_coded",
   "task_id": "20260411-103200-auction-observability-multi-repo",
@@ -261,6 +263,7 @@ export const tasks: TaskRecord[] = [
 2026-04-11 09:42:38 duration: 7s
 2026-04-11 09:42:38 === PLAN END ===
 `,
+      'plan-readiness-score.json': '',
       'code-result.json': `{
   "status": "planned"
 }`,
@@ -302,6 +305,7 @@ export const tasks: TaskRecord[] = [
       'design.md': '# Design\n\n已归档 task，设计文档略。',
       'plan.md': '# Plan\n\n已归档 task，实施计划略。',
       'plan.log': '2026-04-10 22:10:39 === PLAN START ===\n2026-04-10 22:10:46 status: planned\n2026-04-10 22:10:46 === PLAN END ===\n',
+      'plan-readiness-score.json': '',
       'code-result.json': `{
   "status": "success",
   "task_id": "20260410-221030-review-trigger-cleanup",

@@ -111,6 +111,51 @@ class RefineTaskTest(unittest.TestCase):
         self.assertIn("不改横滑和震感。", brief.out_of_scope)
         self.assertEqual(len(brief.acceptance_criteria), 2)
 
+    def test_build_refine_brief_preserves_source_acceptance_and_non_goals(self) -> None:
+        source_markdown = (
+            "# PRD Source\n\n"
+            "## 验收标准\n"
+            "1. 命中实验时，regular auction 标题前增加本地化的 `Auction` 标识。\n"
+            "2. 标题前缀与原标题之间有稳定分隔，整体可读性不受影响。\n"
+            "3. 如果本地化标识取值异常为空，则回退为原标题，不出现空前缀或异常连接符。\n"
+            "4. 未命中实验时，标题保持现有线上逻辑不变。\n\n"
+            "## 非目标\n"
+            "- 不改价格\n"
+            "- 不改按钮\n"
+            "- 不改购物袋标题\n"
+        )
+        manual = parse_manual_extract(
+            "## 本次范围\n"
+            "- 仅 regular auction 讲解卡标题\n\n"
+            "## 人工提炼改动点\n"
+            "- 命中实验， regular auction 讲解卡标题拼接 `Auction` 标识\n\n"
+            "## 明确不做\n"
+            "- 不改 surprise set 和 temporary listing\n"
+        )
+        prepared = type(
+            "Prepared",
+            (),
+            {
+                "title": "实验组竞拍讲解卡标题增加 Auction 标识",
+                "supplement": "",
+                "source_markdown": source_markdown,
+                "source_content": source_markdown,
+            },
+        )()
+
+        brief = build_refine_brief(prepared, manual)
+        refined = render_refined_markdown(brief)
+
+        self.assertIn("本地化的 `Auction` 标识", refined)
+        self.assertIn("稳定分隔", refined)
+        self.assertIn("回退为原标题", refined)
+        self.assertIn("未命中实验时，标题保持现有线上逻辑不变", refined)
+        self.assertIn("不改价格", refined)
+        self.assertIn("不改按钮", refined)
+        self.assertIn("不改购物袋标题", refined)
+        self.assertNotIn("正确生效", _extract_markdown_section(refined, "验收标准"))
+        self.assertNotIn("边界检查", _extract_markdown_section(refined, "边界与非目标"))
+
     def test_render_refined_markdown_writes_gating_condition_in_change_scope(self) -> None:
         brief = build_refine_brief(
             type(

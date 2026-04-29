@@ -271,6 +271,9 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("live_pack", rendered)
         self.assertIn("Repo research summary", rendered)
         self.assertIn("不要复制 Python dict", rendered)
+        self.assertIn("不能只复述核心改造点或搜索结果", rendered)
+        self.assertIn("候选文件、函数名、搜索命中原因", rendered)
+        self.assertIn("实验命中条件、本地化取值、空值回退", rendered)
 
     def test_design_role_prompts_are_task_prompts(self) -> None:
         prompts = [

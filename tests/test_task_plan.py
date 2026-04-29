@@ -120,6 +120,29 @@ class PlanTaskBuilderTest(unittest.TestCase):
             self.assertTrue(result.repo_task_markdowns.get("live_common"))
             self.assertTrue(result.repo_task_markdowns.get("live_pack"))
 
+    def test_plan_gate_ignores_confirmed_design_questions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            task_dir = self._create_cross_repo_plan_ready_task(settings.task_root, root)
+            design = (task_dir / "design.md").read_text(encoding="utf-8")
+            (task_dir / "design.md").write_text(
+                design.replace(
+                    "- 确认新增的 AB 字段名称与实验配置保持一致",
+                    "- 已确认：实验字段用 bool 即可\n"
+                    "- 已确认：本地化 Auction 标识可以暂时用字符串占位符\n"
+                    "- 已确认：标题前缀与原标题之间使用空格分隔",
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_plan_engine(task_dir, {"title": "竞拍讲解卡文案"}, settings, lambda _line: None)
+
+            self.assertTrue(result.plan_result_payload.get("code_allowed"))
+            self.assertEqual(result.plan_result_payload.get("gate_status"), "passed")
+            self.assertEqual(result.plan_result_payload.get("blockers"), [])
+            self.assertIn("code_allowed: true", result.plan_markdown)
+
     def test_plan_task_persists_structured_sidecars_and_repo_markdowns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

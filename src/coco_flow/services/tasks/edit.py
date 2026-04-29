@@ -29,6 +29,7 @@ PLAN_V2_ARTIFACTS = [
     "plan-work-items.json",
     "plan-execution-graph.json",
     "plan-validation.json",
+    "plan-readiness-score.json",
     "plan-sync.json",
     "plan-review.json",
     "plan-debate.json",

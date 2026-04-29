@@ -20,6 +20,7 @@ PLAN_V2_PRIMARY_ARTIFACTS = [
     "plan-validation.json",
     "plan-sync.json",
     "plan-result.json",
+    "plan-readiness-score.json",
 ]
 
 PLAN_V2_INTERMEDIATE_ARTIFACTS = []

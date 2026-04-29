@@ -162,6 +162,7 @@ def _reset_plan_outputs(task_dir: Path) -> None:
         "plan-work-items.json",
         "plan-execution-graph.json",
         "plan-validation.json",
+        "plan-readiness-score.json",
         "plan-sync.json",
         "plan-review.json",
         "plan-debate.json",

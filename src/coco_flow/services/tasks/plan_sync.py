@@ -39,6 +39,9 @@ def sync_plan_task(task_id: str, settings: Settings | None = None) -> str:
     _write_json(task_dir / "plan-execution-graph.json", graph_payload)
     _write_json(task_dir / "plan-validation.json", validation_payload)
     _write_json(task_dir / "plan-result.json", result_payload)
+    readiness_path = task_dir / "plan-readiness-score.json"
+    if readiness_path.exists():
+        readiness_path.unlink()
     _write_json(
         task_dir / "plan-sync.json",
         {

@@ -281,7 +281,7 @@ def _extract_files(section: str, repo_id: str = "") -> list[str]:
         if repo_id and normalized.startswith(f"{repo_id}/"):
             normalized = normalized[len(repo_id) + 1 :]
         files.append(normalized)
-    return _dedupe(files)[:12]
+    return _dedupe_file_paths(files)[:12]
 
 
 def _extract_steps(section: str) -> list[str]:
@@ -320,6 +320,8 @@ def _should_skip_step_line(line: str) -> bool:
 def _should_skip_step_text(text: str) -> bool:
     if not text or _is_empty_label(text):
         return True
+    if text.rstrip().endswith(("：", ":")) and _FILE_RE.search(text):
+        return True
     return text.startswith(
         (
             "仓库路径",
@@ -342,7 +344,32 @@ def _should_skip_step_text(text: str) -> bool:
 def _is_non_task_label(text: str) -> bool:
     if not _is_empty_label(text):
         return False
-    return text.rstrip("：:").strip() in {"关键证据", "主要风险", "参考依据", "风险", "证据"}
+    return text.rstrip("：:").strip() in {
+        "关键证据",
+        "主要风险",
+        "参考依据",
+        "风险",
+        "证据",
+        "代码证据",
+        "代码线索",
+        "代码线索与关键位置",
+        "边界",
+    }
+
+
+def _dedupe_file_paths(paths: list[str]) -> list[str]:
+    deduped = _dedupe(paths)
+    basenames_with_full_path = {
+        Path(path).name
+        for path in deduped
+        if "/" in path and Path(path).name
+    }
+    result: list[str] = []
+    for path in deduped:
+        if "/" not in path and path in basenames_with_full_path:
+            continue
+        result.append(path)
+    return result
 
 
 def _parse_repo_task_markdown(
@@ -505,8 +532,8 @@ def _extract_repo_markdown_blockers(repo_markdowns: dict[str, str]) -> list[str]
                 capture = any(token in stripped for token in ("待确认", "阻塞", "Open Questions"))
                 continue
             if capture and stripped.startswith(("-", "*")):
-                text = stripped.lstrip("-* ").strip()
-                if text and not _is_noop_question(text):
+                text = _clean_markdown_inline(stripped.lstrip("-* ").strip())
+                if text and not _is_noop_question(text) and not _is_confirmed_question(text):
                     blockers.append(text)
     return _dedupe(blockers)
 
@@ -601,7 +628,11 @@ def _contracts_by_pair(prepared: PlanPreparedInput) -> dict[tuple[str, str], dic
 
 def _extract_blockers(prepared: PlanPreparedInput) -> list[str]:
     candidates: list[str] = []
-    candidates.extend(_clean_markdown_inline(item) for item in prepared.refined_sections.open_questions if not _is_noop_question(item))
+    candidates.extend(
+        _clean_markdown_inline(item)
+        for item in prepared.refined_sections.open_questions
+        if not _is_noop_question(item) and not _is_confirmed_question(item)
+    )
     capture = False
     for line in prepared.design_markdown.splitlines():
         stripped = line.strip()
@@ -611,7 +642,7 @@ def _extract_blockers(prepared: PlanPreparedInput) -> list[str]:
         if not capture or not stripped.startswith(("-", "*")):
             continue
         text = _clean_markdown_inline(stripped.lstrip("-* ").strip())
-        if text and not _is_noop_question(text) and ("确认" in text or "待确认" in text or "是否" in text):
+        if text and not _is_noop_question(text) and not _is_confirmed_question(text) and ("确认" in text or "待确认" in text or "是否" in text):
             candidates.append(text)
     return _dedupe(candidates)[:8]
 
@@ -622,6 +653,20 @@ def _is_empty_label(text: str) -> bool:
 
 def _is_noop_question(text: str) -> bool:
     return any(token in text for token in ("当前无", "无额外", "暂无", "没有额外"))
+
+
+def _is_confirmed_question(text: str) -> bool:
+    normalized = _clean_markdown_inline(text).lstrip("：: ")
+    return normalized.startswith(
+        (
+            "已确认",
+            "确认结论",
+            "结论已确认",
+            "无需确认",
+            "不阻塞",
+            "非阻塞",
+        )
+    )
 
 
 def _clean_markdown_inline(text: str) -> str:

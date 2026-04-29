@@ -22,6 +22,7 @@ from coco_flow.engines.refine import (
     run_refine_engine,
 )
 from coco_flow.services.queries.task_detail import read_json_file
+from coco_flow.services.tasks.error_format import format_exception_log_lines
 
 
 def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandler | None = None) -> str:
@@ -57,7 +58,8 @@ def refine_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
         return result.status
     except Exception as error:
         if owns_log_lifecycle:
-            logger(f"error: {error}")
+            for line in format_exception_log_lines(error):
+                logger(line)
             logger(f"status: {status}")
         raise
     finally:

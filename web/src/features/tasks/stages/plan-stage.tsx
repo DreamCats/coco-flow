@@ -1,5 +1,5 @@
-import type { TaskRecord } from '../../../api'
-import { getTaskArtifact, syncPlan, updateTaskArtifact } from '../../../api'
+import type { PlanReadinessScore, TaskRecord } from '../../../api'
+import { evaluatePlanReadiness, getTaskArtifact, syncPlan, updateTaskArtifact } from '../../../api'
 import { useEffect, useMemo, useState } from 'react'
 import { hasArtifact } from '../model'
 import { TaskStageEditorModal } from '../task-stage-editor-modal'
@@ -58,9 +58,15 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
   const [syncError, setSyncError] = useState('')
   const [repoPlans, setRepoPlans] = useState<Record<string, string>>({})
   const [repoPlanLoading, setRepoPlanLoading] = useState(false)
+  const [readinessOverride, setReadinessOverride] = useState<PlanReadinessScore | null>(null)
+  const [readinessOpen, setReadinessOpen] = useState(false)
+  const [readinessBusy, setReadinessBusy] = useState(false)
+  const [readinessError, setReadinessError] = useState('')
   const steps = useMemo(() => buildPlanProgress(task), [task])
   const progressPercent = useMemo(() => buildPlanProgressPercent(task, steps), [task, steps])
   const plan = useMemo(() => buildStructuredPlan(task), [task])
+  const cachedReadiness = useMemo(() => normalizePlanReadiness(parseJSON(task.artifacts['plan-readiness-score.json'])), [task.artifacts])
+  const readiness = readinessOverride || cachedReadiness
   const activeLabel = steps.find((step) => step.current)?.label ?? (task.status === 'planned' ? '计划完成' : '等待开始')
   const progressTone =
     task.status === 'planning'
@@ -73,6 +79,12 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
   const activeRepoId = tab.startsWith('repo:') ? tab.slice('repo:'.length) : ''
   const editingCurrentValue = editingTab === 'repo' ? repoPlans[editingRepoId] || '' : planMarkdown
   const canSave = draft.trim().length > 0 && draft.trim() !== editingCurrentValue.trim()
+  const canEvaluate = hasArtifact(task.artifacts['design.md']) && hasArtifact(task.artifacts['plan.md'])
+
+  useEffect(() => {
+    setReadinessOverride(null)
+    setReadinessError('')
+  }, [task.id])
 
   useEffect(() => {
     if (!tab.startsWith('repo:')) {
@@ -167,10 +179,32 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
     }
   }
 
+  async function handleEvaluateReadiness() {
+    try {
+      setReadinessBusy(true)
+      setReadinessError('')
+      const result = await evaluatePlanReadiness(task.id)
+      setReadinessOverride(result)
+      await onTaskUpdated()
+    } catch (error) {
+      setReadinessError(error instanceof Error ? error.message : '评测失败')
+    } finally {
+      setReadinessBusy(false)
+    }
+  }
+
   return (
     <>
       <SectionCard title="阶段详情">
         <PlanProgressCard activeLabel={activeLabel} progressPercent={progressPercent} progressTone={progressTone} steps={steps} />
+        <PlanReadinessCard
+          busy={readinessBusy}
+          canEvaluate={canEvaluate}
+          error={readinessError}
+          onEvaluate={() => void handleEvaluateReadiness()}
+          onOpenDetails={() => setReadinessOpen(true)}
+          readiness={readiness}
+        />
         <PlanGateNotice plan={plan} />
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
@@ -236,6 +270,7 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
         title={editTitle(editingTab, editingRepoId)}
         value={draft}
       />
+      <PlanReadinessDetails onClose={() => setReadinessOpen(false)} open={readinessOpen} readiness={readiness} />
     </>
   )
 }
@@ -307,6 +342,154 @@ function PlanSyncNotice({
         <ActionButton disabled={busy} onClick={onSync} tone="secondary">
           {busy ? '同步中...' : '同步执行契约'}
         </ActionButton>
+      </div>
+    </div>
+  )
+}
+
+function PlanReadinessCard({
+  busy,
+  canEvaluate,
+  error,
+  onEvaluate,
+  onOpenDetails,
+  readiness,
+}: {
+  busy: boolean
+  canEvaluate: boolean
+  error: string
+  onEvaluate: () => void
+  onOpenDetails: () => void
+  readiness: PlanReadinessScore | null
+}) {
+  const status = readinessStatus(readiness)
+  return (
+    <div className="mt-4 rounded-[18px] border border-[#ece6da] bg-[#fffdf9] px-4 py-4 dark:border-[#383632] dark:bg-[#151412]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.2em] text-[#87867f] dark:text-[#b0aea5]">Pre-Code Readiness Score</div>
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <div className="text-[32px] leading-none font-semibold text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">
+              {readiness ? readiness.score.toFixed(1) : '--'}
+            </div>
+            <div className="pb-1 text-sm text-[#5e5d59] dark:text-[#b0aea5]">/ 100</div>
+            <span className={`mb-0.5 rounded-full border px-3 py-1 text-xs ${status.className}`}>{status.label}</span>
+          </div>
+          <div className="mt-2 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">
+            {readiness ? `评测时间：${formatReadinessTime(readiness.generated_at)}` : '生成 Plan 后可评测 Design / Plan 是否足够支撑 Code。'}
+          </div>
+          {error ? <div className="mt-2 text-xs leading-5 text-[#b53333] dark:text-[#ffb4a8]">{error}</div> : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <ActionButton disabled={!canEvaluate || busy} onClick={onEvaluate} tone="secondary">
+            {busy ? '评测中...' : readiness ? '重新评测' : '评测质量'}
+          </ActionButton>
+          <ActionButton disabled={!readiness} onClick={onOpenDetails} tone="secondary">
+            查看得分依据
+          </ActionButton>
+        </div>
+      </div>
+      {readiness ? (
+        <div className="mt-4 grid gap-2 md:grid-cols-4">
+          {readiness.sections.map((section) => (
+            <div className="rounded-[14px] border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-3 dark:border-[#30302e] dark:bg-[#232220]" key={section.id}>
+              <div className="text-xs text-[#87867f] dark:text-[#8f8a82]">{section.label}</div>
+              <div className="mt-1 text-lg font-medium text-[#141413] dark:text-[#faf9f5]">{(section.score * 100).toFixed(1)}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function PlanReadinessDetails({
+  onClose,
+  open,
+  readiness,
+}: {
+  onClose: () => void
+  open: boolean
+  readiness: PlanReadinessScore | null
+}) {
+  if (!open || !readiness) {
+    return null
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-[1px]" role="dialog" aria-modal="true">
+      <button aria-label="关闭评测详情" className="flex-1 cursor-default" onClick={onClose} type="button" />
+      <div className="flex h-full w-full max-w-[760px] flex-col border-l border-[#e8e6dc] bg-[#fffdf9] shadow-2xl dark:border-[#30302e] dark:bg-[#151412]">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e8e6dc] px-6 py-5 dark:border-[#30302e]">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.45em] text-[#87867f] dark:text-[#b0aea5]">Readiness Detail</div>
+            <div className="mt-2 text-2xl font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">
+              PCRS {readiness.score.toFixed(1)} / 100
+            </div>
+            <div className="mt-2 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">{readiness.formula}</div>
+          </div>
+          <ActionButton onClick={onClose} tone="secondary">
+            关闭
+          </ActionButton>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {Object.entries(readiness.inputs).map(([key, value]) => (
+              <div className="rounded-[14px] border border-[#ece6da] bg-[#f5f4ed] px-3 py-3 dark:border-[#30302e] dark:bg-[#232220]" key={key}>
+                <div className="break-all text-xs text-[#87867f] dark:text-[#8f8a82]">{key}</div>
+                <div className="mt-1 text-lg font-medium text-[#141413] dark:text-[#faf9f5]">{value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {readiness.sections.map((section) => (
+              <div className="rounded-[18px] border border-[#ece6da] bg-[#fffdf9] px-4 py-4 dark:border-[#383632] dark:bg-[#191816]" key={section.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-[#141413] dark:text-[#faf9f5]">{section.label}</div>
+                    <div className="mt-1 text-xs leading-5 text-[#87867f] dark:text-[#8f8a82]">{section.reason}</div>
+                  </div>
+                  <div className="rounded-full border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-1 text-xs text-[#4d4c48] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#f1ede4]">
+                    {(section.score * 100).toFixed(1)}
+                  </div>
+                </div>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full border-collapse text-left text-sm">
+                    <thead className="text-xs text-[#87867f] dark:text-[#8f8a82]">
+                      <tr>
+                        <th className="border-b border-[#e8e6dc] py-2 pr-3 font-medium dark:border-[#30302e]">指标</th>
+                        <th className="border-b border-[#e8e6dc] py-2 pr-3 font-medium dark:border-[#30302e]">权重</th>
+                        <th className="border-b border-[#e8e6dc] py-2 pr-3 font-medium dark:border-[#30302e]">得分</th>
+                        <th className="border-b border-[#e8e6dc] py-2 font-medium dark:border-[#30302e]">依据</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {section.children.map((metric) => (
+                        <tr key={metric.id}>
+                          <td className="border-b border-[#f0eee6] py-2 pr-3 text-[#141413] dark:border-[#2a2927] dark:text-[#faf9f5]">{metric.label}</td>
+                          <td className="border-b border-[#f0eee6] py-2 pr-3 text-[#5e5d59] dark:border-[#2a2927] dark:text-[#b0aea5]">{metric.weight}</td>
+                          <td className="border-b border-[#f0eee6] py-2 pr-3 text-[#5e5d59] dark:border-[#2a2927] dark:text-[#b0aea5]">{(metric.score * 100).toFixed(1)}</td>
+                          <td className="border-b border-[#f0eee6] py-2 text-[#5e5d59] dark:border-[#2a2927] dark:text-[#b0aea5]">{metric.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {readiness.recommendations.length > 0 ? (
+            <div className="mt-5 rounded-[18px] border border-[#efc08a] bg-[#fff6e8] px-4 py-4 text-sm leading-6 text-[#8a5b18] dark:border-[#6f5330] dark:bg-[#2d2418] dark:text-[#f1c98c]">
+              <div className="font-medium">修正建议</div>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {readiness.recommendations.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   )
@@ -526,6 +709,117 @@ function buildStructuredPlan(task: TaskRecord): StructuredPlan {
   }
 }
 
+function normalizePlanReadiness(raw: Record<string, unknown>): PlanReadinessScore | null {
+  const score = asNumber(raw.score)
+  if (score === null) {
+    return null
+  }
+  return {
+    task_id: asString(raw.task_id),
+    generated_at: asString(raw.generated_at),
+    score,
+    status: asString(raw.status),
+    formula: asString(raw.formula),
+    inputs: normalizeNumberRecord(raw.inputs),
+    sections: normalizeReadinessSections(raw.sections),
+    recommendations: normalizeStringList(raw.recommendations),
+    notes: normalizeStringList(raw.notes),
+  }
+}
+
+function normalizeReadinessSections(raw: unknown): PlanReadinessScore['sections'] {
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  return raw.map(normalizeReadinessSection).filter((item): item is PlanReadinessScore['sections'][number] => Boolean(item))
+}
+
+function normalizeReadinessSection(raw: unknown): PlanReadinessScore['sections'][number] | null {
+  const current = asRecord(raw)
+  const id = asString(current.id)
+  if (!id) {
+    return null
+  }
+  return {
+    id,
+    label: asString(current.label) || id,
+    weight: asNumber(current.weight) ?? 0,
+    score: asNumber(current.score) ?? 0,
+    reason: asString(current.reason),
+    children: normalizeReadinessMetrics(current.children),
+  }
+}
+
+function normalizeReadinessMetrics(raw: unknown): PlanReadinessScore['sections'][number]['children'] {
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  return raw
+    .map((entry) => {
+      const current = asRecord(entry)
+      const id = asString(current.id)
+      if (!id) {
+        return null
+      }
+      return {
+        id,
+        label: asString(current.label) || id,
+        weight: asNumber(current.weight) ?? 0,
+        score: asNumber(current.score) ?? 0,
+        reason: asString(current.reason),
+      }
+    })
+    .filter((entry): entry is PlanReadinessScore['sections'][number]['children'][number] => Boolean(entry))
+}
+
+function normalizeNumberRecord(raw: unknown): Record<string, number> {
+  const current = asRecord(raw)
+  const result: Record<string, number> = {}
+  Object.entries(current).forEach(([key, value]) => {
+    const numberValue = asNumber(value)
+    if (numberValue !== null) {
+      result[key] = numberValue
+    }
+  })
+  return result
+}
+
+function readinessStatus(readiness: PlanReadinessScore | null) {
+  if (!readiness) {
+    return {
+      label: '未评测',
+      className: 'border-[#d1cfc5] bg-[#f5f4ed] text-[#5e5d59] dark:border-[#3a3937] dark:bg-[#232220] dark:text-[#b0aea5]',
+    }
+  }
+  if (readiness.status === 'ready' || readiness.score >= 85) {
+    return {
+      label: '可以进入 Code',
+      className: 'border-[#b8dfcf] bg-[#e3f6ee] text-[#1f6d53] dark:border-[#395d51] dark:bg-[#183229] dark:text-[#8cdabf]',
+    }
+  }
+  if (readiness.status === 'review' || readiness.score >= 70) {
+    return {
+      label: '建议人工 Review',
+      className: 'border-[#f0c38b] bg-[#fff1dd] text-[#9a5f16] dark:border-[#6f5330] dark:bg-[#3a2a18] dark:text-[#f1c98c]',
+    }
+  }
+  return {
+    label: '回到 Design / Plan 修正',
+    className: 'border-[#efb1a4] bg-[#fff1ed] text-[#9c3524] dark:border-[#7b3a31] dark:bg-[#321c18] dark:text-[#ffb4a8]',
+  }
+}
+
+function formatReadinessTime(value: string) {
+  if (!value) {
+    return '未知'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return date.toLocaleString()
+}
+
 function normalizePlanWorkItems(raw: unknown): PlanWorkItem[] {
   if (!Array.isArray(raw)) {
     return []
@@ -627,6 +921,17 @@ function asString(raw: unknown) {
     return String(raw)
   }
   return ''
+}
+
+function asNumber(raw: unknown) {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return raw
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
 }
 
 function editTitle(editingTab: PlanEditingTab, repoId: string) {

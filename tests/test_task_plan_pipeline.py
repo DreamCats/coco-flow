@@ -12,7 +12,11 @@ from coco_flow.config import Settings
 from coco_flow.engines.design.evidence import build_research_plan, research_single_repo
 from coco_flow.engines.design.knowledge import build_design_skills_bundle
 from coco_flow.engines.design.types import DesignInputBundle
-from coco_flow.engines.design.writer.markdown import render_research_summary_markdown
+from coco_flow.engines.design.writer.markdown import (
+    build_local_doc_only_design_markdown,
+    render_research_summary_markdown,
+    write_doc_only_design_markdown,
+)
 from coco_flow.engines.plan.compiler import build_structured_plan_artifacts, render_plan_markdown
 from coco_flow.engines.plan.knowledge import build_plan_skills_bundle
 from coco_flow.engines.plan.knowledge.selection import build_plan_skills_context
@@ -49,7 +53,7 @@ class DesignPipelineTest(unittest.TestCase):
                 "repos": [
                     {
                         "repo_id": "live_pack",
-                        "work_hypothesis": "requires_code_change",
+                        "work_hypothesis": "required",
                         "candidate_files": [
                             {
                                 "path": "entities/converters/auction_converters/regular_auction_converter.go",
@@ -65,12 +69,99 @@ class DesignPipelineTest(unittest.TestCase):
         )
 
         self.assertIn("### live_pack", rendered)
-        self.assertIn("需要代码改造", rendered)
+        self.assertIn("必改", rendered)
         self.assertIn("regular_auction_converter.go", rendered)
         self.assertIn("命中 预热态、竞拍中 相关代码证据", rendered)
         self.assertNotIn("requires_code_change", rendered)
         self.assertNotIn("{'path'", rendered)
         self.assertNotIn("core_evidence", rendered)
+
+    def test_local_design_markdown_includes_actionable_solution_and_validation(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[RepoScope(repo_id="live_pack", repo_path="/repo/live_pack")],
+            title="实验组竞拍讲解卡标题增加 Auction 标识",
+            refined_markdown="命中实验时 regular auction 标题拼接 Auction 标识。",
+        )
+        prepared.sections = RefinedSections(
+            change_scope=["命中实验， regular auction 讲解卡标题拼接 `Auction` 标识"],
+            non_goals=["不改 surprise set 和 temporary listing", "不改购物袋标题"],
+            key_constraints=[],
+            acceptance_criteria=[
+                "命中实验时，regular auction 标题前增加本地化的 `Auction` 标识。",
+                "如果本地化标识取值异常为空，则回退为原标题，不出现空前缀或异常连接符。",
+                "未命中实验时，标题保持现有线上逻辑不变。",
+            ],
+            open_questions=[],
+            raw="",
+        )
+
+        markdown = build_local_doc_only_design_markdown(
+            prepared,
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "repo_path": "/repo/live_pack",
+                        "work_hypothesis": "required",
+                        "candidate_files": [
+                            {
+                                "path": "entities/converters/auction_converters/regular_auction_converter.go",
+                                "matched_behavior": "regular auction、标题",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        self.assertIn("## 方案设计", markdown)
+        self.assertIn("## 分仓库职责", markdown)
+        self.assertIn("- 改造方案：", markdown)
+        self.assertIn("尚不足以确定精准文件落点", markdown)
+        self.assertNotIn("代码线索", markdown)
+        self.assertNotIn("core_evidence", markdown)
+        self.assertIn("用户可见变化", markdown)
+        self.assertIn("服务端策略", markdown)
+        self.assertIn("实验控制", markdown)
+        self.assertIn("实验命中、异常回退、未命中不变", markdown)
+        self.assertIn("## 验收与验证", markdown)
+        self.assertIn("回退为原标题", markdown)
+        self.assertIn("用户可见表达所需资源", markdown)
+        self.assertIn("不改购物袋标题", markdown)
+
+    def test_local_design_markdown_renders_conditional_repo_responsibility(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            title="实验组竞拍讲解卡整数金额隐藏尾部 `.00`",
+            refined_markdown="仅竞拍讲解卡价格展示变化。",
+        )
+        prepared.sections = RefinedSections(
+            change_scope=["仅竞拍讲解卡价格展示变化"],
+            non_goals=["不改购物袋价格展示"],
+            key_constraints=[],
+            acceptance_criteria=["未命中实验时保持现有线上逻辑不变。"],
+            open_questions=[],
+            raw="",
+        )
+
+        markdown = build_local_doc_only_design_markdown(
+            prepared,
+            {
+                "repos": [
+                    {"repo_id": "live_pack", "repo_path": "/repo/live_pack", "work_hypothesis": "required"},
+                    {"repo_id": "live_common", "repo_path": "/repo/live_common", "work_hypothesis": "conditional"},
+                ]
+            },
+        )
+
+        self.assertIn("### live_pack", markdown)
+        self.assertIn("职责判断：必改", markdown)
+        self.assertIn("### live_common", markdown)
+        self.assertIn("职责判断：条件改", markdown)
+        self.assertIn("仅当缺少公共字段、配置或协议能力时才需要改动", markdown)
 
     def test_repo_research_includes_git_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -140,6 +231,266 @@ class DesignPipelineTest(unittest.TestCase):
         self.assertEqual(repo_plan["likely_file_patterns"], ["bid_success"])
         self.assertEqual(repo_plan["negative_terms"], ["legacy"])
         self.assertEqual(repo_plan["search_hints_source"], "native")
+
+    def test_research_plan_derives_negative_terms_from_non_goals(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[RepoScope(repo_id="live_pack", repo_path="/tmp/repo")],
+            title="竞拍讲解卡价格展示",
+            refined_markdown="只改竞拍讲解卡，不改购物袋价格。",
+        )
+        prepared.sections = RefinedSections(
+            change_scope=["竞拍讲解卡整数金额隐藏尾部 `.00`"],
+            non_goals=["不改购物袋价格展示"],
+            key_constraints=[],
+            acceptance_criteria=[],
+            open_questions=[],
+            raw="",
+        )
+
+        payload = build_research_plan(prepared, {})
+
+        negative_terms = payload["repos"][0]["negative_terms"]
+        self.assertIn("购物袋", negative_terms)
+
+    def test_repo_research_excludes_non_goal_bag_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp) / "live_pack"
+            (repo_dir / "entities" / "converters" / "auction_converters").mkdir(parents=True)
+            (repo_dir / "entities" / "converters" / "auction_converters" / "regular_auction_converter.go").write_text(
+                "package demo\n\nfunc RegularAuctionPrice() string { return \"auction decimal price\" }\n",
+                encoding="utf-8",
+            )
+            (repo_dir / "entities" / "converters" / "auction_converters" / "converter_helpers.go").write_text(
+                "package demo\n\nfunc BagAuctionPrice() string { return \"shopping bag auction decimal price\" }\n",
+                encoding="utf-8",
+            )
+
+            payload = research_single_repo(
+                "live_pack",
+                str(repo_dir),
+                {
+                    "search_terms": ["auction", "decimal", "price"],
+                    "negative_terms": ["购物袋", "bag", "shopping bag", "converter_helpers"],
+                    "budget": {"max_files_read": 4, "max_search_commands": 3},
+                },
+            )
+
+            candidate_paths = [item["path"] for item in payload["candidate_files"]]
+            excluded_paths = [item["path"] for item in payload["excluded_files"]]
+            self.assertIn("entities/converters/auction_converters/regular_auction_converter.go", candidate_paths)
+            self.assertNotIn("entities/converters/auction_converters/converter_helpers.go", candidate_paths)
+            self.assertIn("entities/converters/auction_converters/converter_helpers.go", excluded_paths)
+
+    def test_repo_research_marks_shared_abtest_repo_as_conditional(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp) / "live_common"
+            (repo_dir / "abtest").mkdir(parents=True)
+            (repo_dir / "abtest" / "struct.go").write_text(
+                "package abtest\n\ntype TTECContent struct { UseAuctionPromotionLabel bool `json:\"use_auction_promotion_label\"` }\n",
+                encoding="utf-8",
+            )
+
+            payload = research_single_repo(
+                "live_common",
+                str(repo_dir),
+                {
+                    "search_terms": ["auction", "UseAuctionPromotionLabel"],
+                    "budget": {"max_files_read": 4, "max_search_commands": 2},
+                },
+            )
+
+            self.assertEqual(payload["work_hypothesis"], "conditional")
+            self.assertTrue(payload["candidate_files"])
+            self.assertTrue(payload["unknowns"])
+
+    def test_local_design_markdown_infers_trailing_zero_question(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[RepoScope(repo_id="live_pack", repo_path="/repo/live_pack")],
+            title="实验组竞拍讲解卡整数金额隐藏尾部 `.00`",
+            refined_markdown=(
+                "## 本次范围\n"
+                "- 12.50 保持原有格式不变。\n"
+                "## 验收标准\n"
+                "- 小数点后面的 0 都去掉。\n"
+            ),
+        )
+        prepared.sections = RefinedSections(
+            change_scope=["竞拍讲解卡整数金额隐藏尾部 `.00`"],
+            non_goals=[],
+            key_constraints=["12.50 保持原有格式不变"],
+            acceptance_criteria=["小数点后面的 0 都去掉"],
+            open_questions=[],
+            raw=prepared.refined_markdown,
+        )
+
+        markdown = build_local_doc_only_design_markdown(
+            prepared,
+            {"repos": [{"repo_id": "live_pack", "repo_path": "/repo/live_pack", "work_hypothesis": "required"}]},
+        )
+
+        self.assertIn("## 风险与待确认", markdown)
+        self.assertIn("12.50", markdown)
+        self.assertIn("12.5", markdown)
+        self.assertNotIn("当前无待确认项", markdown)
+
+    def test_design_writer_repairs_missing_inferred_open_question(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = make_settings(Path(tmp), plan_executor="native")
+            prepared = self._design_bundle(
+                repo_scopes=[RepoScope(repo_id="demo", repo_path="/repo/demo")],
+                title="格式展示调整",
+                refined_markdown=(
+                    "## 本次范围\n"
+                    "- 12.50 保持原有格式不变。\n"
+                    "## 验收标准\n"
+                    "- 小数点后面的 0 都去掉。\n"
+                ),
+            )
+            prepared.sections = RefinedSections(
+                change_scope=["格式展示调整"],
+                non_goals=[],
+                key_constraints=["12.50 保持原有格式不变"],
+                acceptance_criteria=["小数点后面的 0 都去掉"],
+                open_questions=[],
+                raw=prepared.refined_markdown,
+            )
+            logs: list[str] = []
+            generated = (
+                "# 格式展示调整 Design\n\n"
+                "## 方案设计\n"
+                "- 更新展示格式。\n\n"
+                "## 分仓库职责\n"
+                "### demo\n"
+                "- 改造方案：在展示层处理。\n\n"
+                "## 验收与验证\n"
+                "- 覆盖格式展示。\n\n"
+                "## 风险与待确认\n"
+                "- 当前无额外待确认项。\n\n"
+                "## 明确不做\n"
+                "- 无\n"
+            )
+
+            with patch("coco_flow.engines.design.writer.markdown.run_agent_markdown_with_new_session", return_value=generated):
+                markdown = write_doc_only_design_markdown(
+                    prepared,
+                    {"repos": [{"repo_id": "demo", "repo_path": "/repo/demo", "work_hypothesis": "required"}]},
+                    settings,
+                    native_ok=True,
+                    on_log=logs.append,
+                )
+
+            self.assertIn("格式规则存在冲突", markdown)
+            self.assertIn("12.50", markdown)
+            self.assertIn("12.5", markdown)
+            self.assertTrue(any("design_quality_repair: inferred_open_questions_added=1" in item for item in logs))
+
+    def test_local_design_markdown_adds_fallback_implementation_hints(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            title="实验组购物袋标题增加本地化标识",
+            refined_markdown="命中实验时，标题前增加本地化标识，未命中实验保持现状。",
+        )
+        prepared.sections = RefinedSections(
+            change_scope=["命中实验时，标题前增加本地化标识"],
+            non_goals=["不改讲解卡标题"],
+            key_constraints=[],
+            acceptance_criteria=[
+                "命中实验时，标题前增加本地化标识。",
+                "本地化标识为空时回退原标题。",
+                "未命中实验时保持现状。",
+            ],
+            open_questions=[],
+            raw=prepared.refined_markdown,
+        )
+
+        markdown = build_local_doc_only_design_markdown(
+            prepared,
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "repo_path": "/repo/live_pack",
+                        "work_hypothesis": "required",
+                        "candidate_files": [
+                            {
+                                "path": "entities/converters/live_bag/title_converter.go",
+                                "matched_behavior": "标题、本地化标识",
+                                "confidence": "high",
+                                "core_evidence": True,
+                            }
+                        ],
+                    },
+                    {
+                        "repo_id": "live_common",
+                        "repo_path": "/repo/live_common",
+                        "work_hypothesis": "conditional",
+                    },
+                ]
+            },
+        )
+
+        self.assertIn("实验控制", markdown)
+        self.assertIn("尚不足以确定精准文件落点", markdown)
+        self.assertIn("实验或配置字段是否已有可复用能力", markdown)
+        self.assertIn("用户可见表达所需资源", markdown)
+        self.assertNotIn("confidence", markdown)
+        self.assertNotIn("core_evidence", markdown)
+        self.assertNotIn("搜索命中", markdown)
+
+    def test_local_design_markdown_does_not_promote_weak_candidates_to_focus_files(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            title="实验组购物袋标题增加本地化标识",
+            refined_markdown="命中实验时，标题前增加本地化标识，未命中实验保持现状。",
+        )
+        prepared.sections = RefinedSections(
+            change_scope=["命中实验时，标题前增加本地化标识"],
+            non_goals=["不改讲解卡标题"],
+            key_constraints=[],
+            acceptance_criteria=["命中实验时，标题前增加本地化标识。"],
+            open_questions=[],
+            raw=prepared.refined_markdown,
+        )
+
+        markdown = build_local_doc_only_design_markdown(
+            prepared,
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "repo_path": "/repo/live_pack",
+                        "work_hypothesis": "required",
+                        "candidate_files": [
+                            {
+                                "path": "handlers/get_live_bag_data_handler.go",
+                                "matched_behavior": "Auction、实验、购物袋",
+                            }
+                        ],
+                    },
+                    {
+                        "repo_id": "live_common",
+                        "repo_path": "/repo/live_common",
+                        "work_hypothesis": "conditional",
+                        "candidate_files": [
+                            {
+                                "path": "abtest/test_sdk.go",
+                                "matched_behavior": "experiment、ab",
+                            }
+                        ],
+                    },
+                ]
+            },
+        )
+
+        self.assertNotIn("get_live_bag_data_handler.go`：", markdown)
+        self.assertNotIn("abtest/test_sdk.go`：", markdown)
+        self.assertIn("尚不足以确定精准文件落点", markdown)
 
     def test_design_skills_selects_auction_pop_card_and_builds_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -368,6 +719,56 @@ class DesignPipelineTest(unittest.TestCase):
         self.assertIn("## 输出契约", repo_markdowns["live_common"])
         self.assertIn("## 输入契约", repo_markdowns["live_pack"])
         self.assertEqual(result_payload["blockers"], ["待确认项 1：实验字段枚举值"])
+
+    def test_plan_compiler_filters_evidence_sentences_from_tasks(self) -> None:
+        prepared = PlanPreparedInput(
+            task_dir=Path("/tmp/task"),
+            task_id="task",
+            title="竞拍讲解卡标题实验",
+            design_markdown=(
+                "# Design\n\n"
+                "## 分仓库方案\n"
+                "### live_pack\n"
+                "- 代码证据：\n"
+                "  - `entities/converters/auction_converters/regular_auction_converter.go`：明确包含 `getAuctionTitle` 方法，当前直接返回商品标题，是本次改造的核心落点\n"
+                "- 改造方案：\n"
+                "  - 在 `regular_auction_converter.go` 中：\n"
+                "    - 读取实验字段 `rc.GetAbParam().TTECContent.RegularAuctionTitleAuctionLabelEnabled`\n"
+                "    - 命中实验时，在原标题前拼接本地化 Auction 标识\n"
+                "    - 若本地化标识取值为空，回退为原标题\n\n"
+                "### live_common\n"
+                "- 改造方案：\n"
+                "  - 在 `abtest/struct.go` 中新增 `RegularAuctionTitleAuctionLabelEnabled bool` 字段\n"
+            ),
+            refined_markdown="# PRD",
+            input_meta={},
+            task_meta={},
+            repos_meta={},
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            repo_ids={"live_pack", "live_common"},
+            refined_sections=RefinedSections(
+                change_scope=["regular auction 标题拼接 Auction 标识"],
+                non_goals=[],
+                key_constraints=[],
+                acceptance_criteria=["命中实验时标题前增加 Auction 标识"],
+                open_questions=[],
+                raw="",
+            ),
+        )
+
+        work_items_payload, _graph_payload, _validation_payload, _result_payload, _repo_markdowns = build_structured_plan_artifacts(prepared)
+
+        live_pack_item = next(item for item in work_items_payload["work_items"] if item["repo_id"] == "live_pack")
+        steps_text = "\n".join(live_pack_item["specific_steps"])
+        self.assertEqual(live_pack_item["change_scope"], ["entities/converters/auction_converters/regular_auction_converter.go"])
+        self.assertNotIn("明确包含", steps_text)
+        self.assertNotIn("当前直接返回商品标题", steps_text)
+        self.assertNotIn("在 regular_auction_converter.go 中", steps_text)
+        self.assertIn("读取实验字段 rc.GetAbParam().TTECContent.RegularAuctionTitleAuctionLabelEnabled", steps_text)
+        self.assertIn("命中实验时，在原标题前拼接本地化 Auction 标识", steps_text)
 
     def test_plan_compiler_adds_go_module_upgrade_for_cross_repo_ab_dependency(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
