@@ -117,13 +117,16 @@ class DesignPipelineTest(unittest.TestCase):
         self.assertIn("## 方案设计", markdown)
         self.assertIn("## 分仓库职责", markdown)
         self.assertIn("- 改造方案：", markdown)
-        self.assertNotIn("regular_auction_converter.go", markdown)
+        self.assertIn("尚不足以确定精准文件落点", markdown)
         self.assertNotIn("代码线索", markdown)
+        self.assertNotIn("core_evidence", markdown)
         self.assertIn("用户可见变化", markdown)
         self.assertIn("服务端策略", markdown)
+        self.assertIn("实验控制", markdown)
         self.assertIn("实验命中、异常回退、未命中不变", markdown)
         self.assertIn("## 验收与验证", markdown)
         self.assertIn("回退为原标题", markdown)
+        self.assertIn("用户可见表达所需资源", markdown)
         self.assertIn("不改购物袋标题", markdown)
 
     def test_local_design_markdown_renders_conditional_repo_responsibility(self) -> None:
@@ -380,6 +383,114 @@ class DesignPipelineTest(unittest.TestCase):
             self.assertIn("12.50", markdown)
             self.assertIn("12.5", markdown)
             self.assertTrue(any("design_quality_repair: inferred_open_questions_added=1" in item for item in logs))
+
+    def test_local_design_markdown_adds_fallback_implementation_hints(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            title="实验组购物袋标题增加本地化标识",
+            refined_markdown="命中实验时，标题前增加本地化标识，未命中实验保持现状。",
+        )
+        prepared.sections = RefinedSections(
+            change_scope=["命中实验时，标题前增加本地化标识"],
+            non_goals=["不改讲解卡标题"],
+            key_constraints=[],
+            acceptance_criteria=[
+                "命中实验时，标题前增加本地化标识。",
+                "本地化标识为空时回退原标题。",
+                "未命中实验时保持现状。",
+            ],
+            open_questions=[],
+            raw=prepared.refined_markdown,
+        )
+
+        markdown = build_local_doc_only_design_markdown(
+            prepared,
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "repo_path": "/repo/live_pack",
+                        "work_hypothesis": "required",
+                        "candidate_files": [
+                            {
+                                "path": "entities/converters/live_bag/title_converter.go",
+                                "matched_behavior": "标题、本地化标识",
+                                "confidence": "high",
+                                "core_evidence": True,
+                            }
+                        ],
+                    },
+                    {
+                        "repo_id": "live_common",
+                        "repo_path": "/repo/live_common",
+                        "work_hypothesis": "conditional",
+                    },
+                ]
+            },
+        )
+
+        self.assertIn("实验控制", markdown)
+        self.assertIn("尚不足以确定精准文件落点", markdown)
+        self.assertIn("实验或配置字段是否已有可复用能力", markdown)
+        self.assertIn("用户可见表达所需资源", markdown)
+        self.assertNotIn("confidence", markdown)
+        self.assertNotIn("core_evidence", markdown)
+        self.assertNotIn("搜索命中", markdown)
+
+    def test_local_design_markdown_does_not_promote_weak_candidates_to_focus_files(self) -> None:
+        prepared = self._design_bundle(
+            repo_scopes=[
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+            title="实验组购物袋标题增加本地化标识",
+            refined_markdown="命中实验时，标题前增加本地化标识，未命中实验保持现状。",
+        )
+        prepared.sections = RefinedSections(
+            change_scope=["命中实验时，标题前增加本地化标识"],
+            non_goals=["不改讲解卡标题"],
+            key_constraints=[],
+            acceptance_criteria=["命中实验时，标题前增加本地化标识。"],
+            open_questions=[],
+            raw=prepared.refined_markdown,
+        )
+
+        markdown = build_local_doc_only_design_markdown(
+            prepared,
+            {
+                "repos": [
+                    {
+                        "repo_id": "live_pack",
+                        "repo_path": "/repo/live_pack",
+                        "work_hypothesis": "required",
+                        "candidate_files": [
+                            {
+                                "path": "handlers/get_live_bag_data_handler.go",
+                                "matched_behavior": "Auction、实验、购物袋",
+                            }
+                        ],
+                    },
+                    {
+                        "repo_id": "live_common",
+                        "repo_path": "/repo/live_common",
+                        "work_hypothesis": "conditional",
+                        "candidate_files": [
+                            {
+                                "path": "abtest/test_sdk.go",
+                                "matched_behavior": "experiment、ab",
+                            }
+                        ],
+                    },
+                ]
+            },
+        )
+
+        self.assertNotIn("get_live_bag_data_handler.go`：", markdown)
+        self.assertNotIn("abtest/test_sdk.go`：", markdown)
+        self.assertIn("尚不足以确定精准文件落点", markdown)
 
     def test_design_skills_selects_auction_pop_card_and_builds_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -2,6 +2,8 @@
 
 目标：优化 Design 阶段产物质量，让 `design.md` 面向人类评审，机器所需的完整代码证据和候选文件进入 sidecar，避免后续 Plan/Code 被噪音和错误仓库归因误导。
 
+更长期的 Supervisor Agent 重构方向见：[`design-supervisor-agent-proposal.md`](design-supervisor-agent-proposal.md)。
+
 ## 当前问题
 
 - `design.md` 堆了大量代码搜索线索、搜索命中原因和机器证据，可读性差。
