@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 
+from coco_flow.engines.design.evidence.scope_guard import build_scope_guard_terms, exclusion_reason
 from coco_flow.engines.design.support import as_str_list, dedupe, dict_list, first_non_empty
 from coco_flow.engines.design.types import DesignInputBundle
 
@@ -44,7 +45,12 @@ def build_research_plan(prepared: DesignInputBundle, search_hints_payload: dict[
     ]
     terms = dedupe([*hint_terms, *_extract_search_terms(prepared)])[:16]
     file_patterns = as_str_list(search_hints_payload.get("likely_file_patterns"))[:10]
-    negative_terms = as_str_list(search_hints_payload.get("negative_terms"))[:8]
+    negative_terms = dedupe(
+        [
+            *as_str_list(search_hints_payload.get("negative_terms")),
+            *build_scope_guard_terms(prepared.sections.non_goals),
+        ]
+    )[:16]
     questions = _default_questions(prepared)
     return {
         "repos": [
@@ -114,8 +120,9 @@ def research_single_repo(repo_id: str, repo_path: str, repo_plan: dict[str, obje
     git_payload = build_git_evidence(root, terms, seen_files)
     max_files = int(_budget(repo_plan, "max_files_read", 12))
     ranked_files = _rank_candidate_files(seen_files, git_payload, as_str_list(repo_plan.get("negative_terms")))
-    candidate_files = [item for item in ranked_files if bool(item.get("core_evidence"))][:max_files]
-    related_files = [item for item in ranked_files if not bool(item.get("core_evidence"))][:max_files]
+    excluded_files = [item for item in ranked_files if bool(item.get("excluded"))][:max_files]
+    candidate_files = [item for item in ranked_files if bool(item.get("core_evidence")) and not bool(item.get("excluded"))][:max_files]
+    related_files = [item for item in ranked_files if not bool(item.get("core_evidence")) and not bool(item.get("excluded"))][:max_files]
     evidence: list[dict[str, object]] = []
     for item in candidate_files:
         first_match = seen_files.get(str(item["path"]), [{}])[0]
@@ -138,19 +145,21 @@ def research_single_repo(repo_id: str, repo_path: str, repo_plan: dict[str, obje
     if not candidate_files:
         boundaries.append("当前搜索预算内未定位到直接候选文件。")
 
+    responsibility = _repo_responsibility(repo_id, repo_path, candidate_files, related_files)
     confidence = "high" if len(candidate_files) >= 3 else "medium" if candidate_files else "low"
     return {
         "repo_id": repo_id,
         "repo_path": repo_path,
-        "work_hypothesis": "requires_code_change" if candidate_files else "needs_human_confirmation",
+        "work_hypothesis": responsibility,
         "confidence": confidence,
         "evidence": evidence,
         "candidate_files": candidate_files,
         "related_files": related_files,
+        "excluded_files": excluded_files,
         "git_evidence": git_payload.get("git_evidence", []),
         "cochange_files": git_payload.get("cochange_files", []),
         "boundaries": boundaries,
-        "unknowns": [] if candidate_files else ["需要人工确认该仓是否承担核心改造，或补充更明确的搜索术语。"],
+        "unknowns": _repo_unknowns(responsibility, candidate_files),
         "budget_used": {
             "search_commands": search_count,
             "path_pattern_scans": path_scan_count,
@@ -158,6 +167,52 @@ def research_single_repo(repo_id: str, repo_path: str, repo_plan: dict[str, obje
             "git_commands": int(git_payload.get("git_commands") or 0),
         },
     }
+
+
+def _repo_responsibility(
+    repo_id: str,
+    repo_path: str,
+    candidate_files: list[dict[str, object]],
+    related_files: list[dict[str, object]],
+) -> str:
+    if candidate_files and _looks_conditional_shared_repo(repo_id, repo_path, candidate_files):
+        return "conditional"
+    if candidate_files:
+        return "required"
+    if related_files:
+        return "reference_only"
+    return "unknown"
+
+
+def _looks_conditional_shared_repo(repo_id: str, repo_path: str, candidate_files: list[dict[str, object]]) -> bool:
+    repo_text = f"{repo_id} {repo_path}".lower()
+    if not any(token in repo_text for token in ("common", "shared", "schema", "idl", "config")):
+        return False
+    paths = [str(item.get("path") or "").lower() for item in candidate_files]
+    if not paths:
+        return False
+    conditional_markers = (
+        "abtest/",
+        "tcc",
+        "schema",
+        "config",
+        "confx",
+        ".proto",
+        ".thrift",
+        "constant",
+        "const",
+    )
+    return all(any(marker in path for marker in conditional_markers) for path in paths)
+
+
+def _repo_unknowns(responsibility: str, candidate_files: list[dict[str, object]]) -> list[str]:
+    if responsibility == "unknown":
+        return ["需要人工确认该仓是否承担核心改造，或补充更明确的搜索术语。"]
+    if responsibility == "conditional":
+        return ["该仓仅在缺少公共字段、配置或协议能力时需要改造；进入 Plan 前需确认是否已有可复用能力。"]
+    if responsibility == "reference_only" and not candidate_files:
+        return ["该仓当前只有参考信号，未证明需要代码改造。"]
+    return []
 
 
 def build_research_summary(repo_research_payloads: list[dict[str, object]]) -> dict[str, object]:
@@ -169,6 +224,7 @@ def build_research_summary(repo_research_payloads: list[dict[str, object]]) -> d
             for unknown in as_str_list(repo.get("unknowns"))
         ],
         "candidate_file_count": sum(len(dict_list(repo.get("candidate_files"))) for repo in repo_research_payloads),
+        "excluded_file_count": sum(len(dict_list(repo.get("excluded_files"))) for repo in repo_research_payloads),
         "git_evidence_count": sum(len(dict_list(repo.get("git_evidence"))) for repo in repo_research_payloads),
         "git_command_count": sum(int(dict(repo.get("budget_used") or {}).get("git_commands") or 0) for repo in repo_research_payloads),
     }
@@ -472,6 +528,8 @@ def _rank_candidate_files(
             "matched_behavior": _match_terms_text(seen_files.get(path, [])),
             "why_core": "当前代码命中和 git 历史信号共同支撑，适合作为核心候选。" if _is_core_candidate(path, seen_files.get(path, []), git_by_path, negative_terms) else "",
             "core_evidence": _is_core_candidate(path, seen_files.get(path, []), git_by_path, negative_terms),
+            "excluded": bool(exclusion_reason(path, seen_files.get(path, []), negative_terms)),
+            "exclude_reason": exclusion_reason(path, seen_files.get(path, []), negative_terms),
             "git_signal_count": len(git_by_path.get(path, [])),
         }
         for path in ranked
