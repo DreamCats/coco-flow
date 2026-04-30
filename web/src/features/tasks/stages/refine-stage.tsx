@@ -3,9 +3,8 @@ import { useMemo, useState } from 'react'
 import { updateTaskArtifact } from '../../../api'
 import { hasArtifact } from '../model'
 import { TaskStageEditorModal } from '../task-stage-editor-modal'
-import { ActionButton, ArtifactPanel, NotePanel, SectionCard, TabButton } from '../ui'
+import { ActionButton, MarkdownBody, NotePanel, SectionCard } from '../ui'
 
-type RefineTab = 'artifact' | 'notes' | 'log'
 type RefineProgressStep = {
   label: string
   done: boolean
@@ -13,7 +12,7 @@ type RefineProgressStep = {
 }
 
 export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpdated: () => Promise<void> | void }) {
-  const [tab, setTab] = useState<RefineTab>('artifact')
+  const [showNotes, setShowNotes] = useState(false)
   const [editingTab, setEditingTab] = useState<'artifact' | 'notes' | null>(null)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
@@ -30,6 +29,7 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
         : 'bg-[#cdbda6] dark:bg-[#4a4640]'
   const notesContent = task.artifacts['refine.notes.md'] || '当前没有额外补充说明。'
   const logContent = task.artifacts['refine.log'] || '当前没有 refine 日志。'
+  const isRunning = task.status === 'refining'
   const currentValue = editingTab === 'artifact' ? task.artifacts['prd-refined.md'] || '' : task.artifacts['refine.notes.md'] || ''
   const canSave = editingTab === 'artifact' ? draft.trim().length > 0 && draft.trim() !== currentValue.trim() : draft.trim() !== currentValue.trim()
 
@@ -59,17 +59,18 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
   return (
     <>
       <SectionCard title="阶段详情">
-        <div className="rounded-[18px] border border-[#ece6da] bg-[#fffdf9] px-4 py-4 dark:border-[#383632] dark:bg-[#151412]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.2em] text-[#87867f] dark:text-[#b0aea5]">Refine Progress</div>
-              <div className="mt-2 text-sm text-[#5e5d59] dark:text-[#b0aea5]">{activeLabel}</div>
+        <div className="rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] px-4 py-4 dark:border-[#30302e] dark:bg-[#1d1c1a]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className={`h-2 w-2 rounded-full ${isRunning ? 'bg-[#c96442]' : task.status === 'refined' ? 'bg-[#4fa06d]' : 'bg-[#b0aea5]'}`} />
+              <div>
+                <div className="text-sm font-medium text-[#141413] dark:text-[#faf9f5]">{activeLabel}</div>
+                <div className="mt-1 text-xs text-[#87867f] dark:text-[#b0aea5]">Refine 进度 {progressPercent}%</div>
+              </div>
             </div>
-            <div className="rounded-full border border-[#e8e6dc] bg-[#f5f4ed] px-3 py-1 text-xs text-[#5e5d59] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
-              {progressPercent}%
-            </div>
+            {isRunning ? <span className="rounded-full bg-[#fff1ed] px-3 py-1 text-xs font-medium text-[#c96442] dark:bg-[#351b17] dark:text-[#f0c0b0]">Streaming</span> : null}
           </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#efeae0] dark:bg-[#232220]">
+          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-[#f5f4ed] dark:bg-[#30302e]">
             <div
               className={`h-full rounded-full transition-all duration-300 ${progressTone}`}
               style={{ width: `${progressPercent}%` }}
@@ -78,12 +79,12 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
           <div className="mt-4 grid gap-2 md:grid-cols-5">
             {steps.map((step) => (
               <div
-                className={`rounded-[14px] border px-3 py-2 text-xs ${
+                className={`rounded-[10px] border px-3 py-2 text-xs ${
                   step.done
-                    ? 'border-[#b8dfcf] bg-[#e3f6ee] text-[#1f6d53] dark:border-[#395d51] dark:bg-[#183229] dark:text-[#8cdabf]'
+                    ? 'border-[#b8dfcf] bg-[#e3f6ee] text-[#2c8c58] dark:border-[#395d51] dark:bg-[#052e16] dark:text-[#8cdabf]'
                     : step.current
-                      ? 'border-[#f0c38b] bg-[#fff1dd] text-[#9a5f16] dark:border-[#6f5330] dark:bg-[#3a2a18] dark:text-[#f1c98c]'
-                      : 'border-[#e8e6dc] bg-[#f5f4ed] text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#8f8a82]'
+                      ? 'border-[#f0c0b0] bg-[#fff1ed] text-[#c96442] dark:border-[#8f3c2e] dark:bg-[#351b17] dark:text-[#f0c0b0]'
+                      : 'border-[#e8e6dc] bg-[#faf9f5] text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]'
                 }`}
                 key={step.label}
               >
@@ -93,29 +94,30 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex rounded-[16px] border border-[#e8e6dc] bg-[#f5f4ed] p-1 dark:border-[#30302e] dark:bg-[#232220]">
-            <TabButton active={tab === 'artifact'} onClick={() => setTab('artifact')}>
-              产物与查看
-            </TabButton>
-            <TabButton active={tab === 'notes'} onClick={() => setTab('notes')}>
-              补充说明
-            </TabButton>
-            <TabButton active={tab === 'log'} onClick={() => setTab('log')}>
-              日志
-            </TabButton>
-          </div>
-          {tab !== 'log' ? (
-            <ActionButton onClick={() => openEditor(tab === 'artifact' ? 'artifact' : 'notes')} tone="secondary">
-              {tab === 'artifact' ? '编辑原文' : '编辑补充'}
-            </ActionButton>
-          ) : null}
+        <div className="mt-4 grid overflow-hidden rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] dark:border-[#30302e] dark:bg-[#1d1c1a] lg:grid-cols-[minmax(0,7fr)_minmax(220px,3fr)]">
+          <RefineArtifactPreview
+            canEdit={!isRunning}
+            content={task.artifacts['prd-refined.md'] || ''}
+            isRunning={isRunning}
+            onEdit={() => openEditor('artifact')}
+          />
+          <RefineLogTimeline content={logContent} isRunning={isRunning} />
         </div>
 
-        <div className="mt-4">
-          {tab === 'artifact' ? <ArtifactPanel content={task.artifacts['prd-refined.md'] || ''} title="prd-refined.md" /> : null}
-          {tab === 'notes' ? <NotePanel content={notesContent} /> : null}
-          {tab === 'log' ? <ArtifactPanel content={logContent} renderAs="plain" title="refine.log" /> : null}
+        <div className="mt-4 rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] dark:border-[#30302e] dark:bg-[#1d1c1a]">
+          <div className="flex items-center justify-between gap-3 border-b border-[#e8e6dc] px-4 py-3 dark:border-[#30302e]">
+            <button
+              className="text-sm font-medium text-[#141413] dark:text-[#faf9f5]"
+              onClick={() => setShowNotes((current) => !current)}
+              type="button"
+            >
+              补充说明
+            </button>
+            <ActionButton onClick={() => openEditor('notes')} tone="secondary">
+              编辑补充
+            </ActionButton>
+          </div>
+          {showNotes ? <div className="p-4"><NotePanel content={notesContent} /></div> : null}
         </div>
       </SectionCard>
 
@@ -135,6 +137,141 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
         value={draft}
       />
     </>
+  )
+}
+
+function RefineArtifactPreview({
+  content,
+  isRunning,
+  canEdit,
+  onEdit,
+}: {
+  content: string
+  isRunning: boolean
+  canEdit: boolean
+  onEdit: () => void
+}) {
+  const fallback = isRunning ? '# 正在生成 Refine 产物\n\n等待模型输出 `prd-refined.md` 内容...' : '当前还没有产物。'
+  return (
+    <section className="min-w-0 border-b border-[#e8e6dc] dark:border-[#30302e] lg:border-r lg:border-b-0">
+      <div className="flex min-h-[56px] items-center justify-between gap-3 border-b border-[#e8e6dc] px-4 py-3 dark:border-[#30302e]">
+        <div className="flex min-w-0 items-center gap-3">
+          <DocumentIcon />
+          <div className="truncate text-sm font-semibold text-[#141413] dark:text-[#faf9f5]">prd-refined.md</div>
+        </div>
+        <div className="flex items-center gap-3">
+          {isRunning ? <span className="rounded-full bg-[#fff1ed] px-3 py-1 text-xs font-medium text-[#c96442] dark:bg-[#351b17] dark:text-[#f0c0b0]">只读预览</span> : null}
+          {canEdit ? (
+            <ActionButton onClick={onEdit} tone="secondary">
+              编辑原文
+            </ActionButton>
+          ) : null}
+        </div>
+      </div>
+      <div className="min-h-[520px] overflow-auto px-6 py-5">
+        <MarkdownBody compact content={content || fallback} />
+        {isRunning ? <span className="ml-1 inline-block h-4 w-px animate-pulse bg-[#c96442] align-text-bottom" /> : null}
+      </div>
+    </section>
+  )
+}
+
+function RefineLogTimeline({ content, isRunning }: { content: string; isRunning: boolean }) {
+  const events = parseRefineLogEvents(content, isRunning)
+  return (
+    <aside className="min-w-0 bg-[#faf9f5] dark:bg-[#1d1c1a]">
+      <div className="flex min-h-[56px] items-center justify-between gap-3 border-b border-[#e8e6dc] px-4 py-3 dark:border-[#30302e]">
+        <div className="text-sm font-semibold text-[#141413] dark:text-[#faf9f5]">执行日志</div>
+        <div className="text-xs text-[#87867f] dark:text-[#b0aea5]">refine.log</div>
+      </div>
+      <div className="space-y-0 px-5 py-5">
+        {events.map((event, index) => (
+          <div className="relative grid grid-cols-[24px_minmax(0,1fr)] gap-3 pb-8 last:pb-0" key={`${event.title}-${index}`}>
+            {index < events.length - 1 ? <div className="absolute left-[11px] top-7 h-[calc(100%-1.75rem)] w-px bg-[#e8e6dc] dark:bg-[#30302e]" /> : null}
+            <span className={`relative z-10 mt-1 h-3 w-3 rounded-full border-2 ${eventDotTone(event.state)}`} />
+            <div className="min-w-0">
+              <div className="flex items-center justify-between gap-3">
+                <div className="truncate text-sm font-medium text-[#141413] dark:text-[#faf9f5]">{event.title}</div>
+                <span className={`shrink-0 text-xs ${eventTextTone(event.state)}`}>{event.status}</span>
+              </div>
+              <div className="mt-1 text-xs leading-5 text-[#87867f] dark:text-[#b0aea5]">{event.detail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
+  )
+}
+
+type RefineLogEvent = {
+  title: string
+  detail: string
+  status: string
+  state: 'done' | 'running' | 'pending' | 'failed'
+}
+
+function parseRefineLogEvents(content: string, isRunning: boolean): RefineLogEvent[] {
+  const log = content || ''
+  const hasStart = log.includes('=== REFINE START ===') || isRunning
+  const hasInput = log.includes('scope_count:') || log.includes('manual_change_points_count:') || hasStart
+  const hasWriter = log.includes('generation_path:') || log.includes('agent_prompt_start:') || log.includes('native') || log.includes('local')
+  const hasVerify = log.includes('refine_check:') || log.includes('verify_ok') || log.includes('=== REFINE END ===')
+  const failed = log.toLowerCase().includes('error') || log.toLowerCase().includes('failed')
+
+  return [
+    {
+      title: 'agent session started',
+      detail: hasStart ? '智能体会话已启动' : '等待启动 Refine',
+      status: hasStart ? '完成' : '排队中',
+      state: hasStart ? 'done' : 'pending',
+    },
+    {
+      title: 'writer streaming',
+      detail: hasWriter || isRunning ? '正在生成 prd-refined.md' : '等待 writer 生成正文',
+      status: hasVerify ? '完成' : hasWriter || isRunning ? '进行中' : '排队中',
+      state: hasVerify ? 'done' : hasWriter || isRunning ? 'running' : 'pending',
+    },
+    {
+      title: failed ? 'verify failed' : 'verify pending',
+      detail: hasVerify ? '内容生成完成，已进入校验或修复' : hasInput ? '等待内容生成完成后进行校验' : '等待输入解析',
+      status: failed ? '失败' : hasVerify ? '完成' : '排队中',
+      state: failed ? 'failed' : hasVerify ? 'done' : 'pending',
+    },
+  ]
+}
+
+function eventDotTone(state: RefineLogEvent['state']) {
+  switch (state) {
+    case 'done':
+      return 'border-[#4fa06d] bg-[#4fa06d]'
+    case 'running':
+      return 'border-[#c96442] bg-[#c96442]'
+    case 'failed':
+      return 'border-[#b53333] bg-[#b53333]'
+    default:
+      return 'border-[#b0aea5] bg-[#faf9f5] dark:bg-[#1d1c1a]'
+  }
+}
+
+function eventTextTone(state: RefineLogEvent['state']) {
+  switch (state) {
+    case 'done':
+      return 'text-[#2c8c58] dark:text-[#8cdabf]'
+    case 'running':
+      return 'text-[#c96442] dark:text-[#f0c0b0]'
+    case 'failed':
+      return 'text-[#b53333] dark:text-[#ffb3b3]'
+    default:
+      return 'text-[#87867f] dark:text-[#b0aea5]'
+  }
+}
+
+function DocumentIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5 shrink-0 text-[#4d4c48] dark:text-[#b0aea5]" fill="none" viewBox="0 0 24 24">
+      <path d="M7 3.5h6l4 4V20a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 7 20V3.5Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" />
+      <path d="M13 3.5V8h4" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" />
+    </svg>
   )
 }
 

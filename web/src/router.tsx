@@ -1,4 +1,5 @@
 import {
+  Link,
   Navigate,
   Outlet,
   RouterProvider,
@@ -7,9 +8,8 @@ import {
   createRouter,
   useLocation,
 } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { AppDataProvider, useAppData } from './hooks/use-app-data'
-import { TopNavItem } from './components/ui-primitives'
 import { SkillsPage } from './routes/skills'
 import { TasksIndexPage, TasksLayout, TaskDetailPage } from './routes/tasks'
 import { WorkspacePage } from './routes/workspace'
@@ -56,7 +56,9 @@ function readExecutionContext(): ExecutionContext {
         remoteHost: typeof parsed.remoteHost === 'string' ? parsed.remoteHost : '',
       }
     }
-  } catch {}
+  } catch {
+    return { mode: 'local', remoteName: '', remoteHost: '' }
+  }
   return { mode: 'local', remoteName: '', remoteHost: '' }
 }
 
@@ -71,6 +73,7 @@ function AppShell() {
     return isThemeMode(stored) ? stored : 'system'
   })
   const [executionContext, setExecutionContext] = useState<ExecutionContext>(() => readExecutionContext())
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -114,72 +117,107 @@ function AppShell() {
     setExecutionContext(nextContext)
   }, [location.pathname, location.search, location.href])
 
+  const skillsActive = location.pathname.startsWith('/skills') || location.pathname.startsWith('/knowledge')
+
   return (
     <div className="min-h-screen bg-[#f5f4ed] text-[#141413] transition-colors dark:bg-[#141413] dark:text-[#faf9f5]">
-      <div className="mx-auto flex min-h-screen max-w-[1280px] flex-col px-4 py-4 md:px-6 lg:px-8">
-        <header className="mb-3 rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5]/96 px-5 py-5 shadow-[0_0_0_1px_rgba(240,238,230,0.9),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#1d1c1a]/96 dark:shadow-[0_0_0_1px_rgba(48,48,46,0.94)]">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Workbench</div>
-                <h1 className="mt-2 text-[34px] leading-[1.12] font-medium text-[#141413] [font-family:Georgia,serif] md:text-[42px] dark:text-[#faf9f5]">
-                  需求交付工作台
-                </h1>
-                {error ? <p className="mt-3 text-sm text-[#b53333]">{error}</p> : null}
-              </div>
-
-              <div className="flex flex-col gap-2 lg:items-end">
-                <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">菜单</div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <ExecutionContextChip context={executionContext} />
-                  <div className="inline-flex rounded-[16px] bg-[#e8e6dc] p-1 shadow-[0_0_0_1px_rgba(209,207,197,0.9)] dark:bg-[#30302e] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]">
-                    {(['system', 'light', 'dark'] as ThemeMode[]).map((mode) => {
-                      const active = themeMode === mode
-                      return (
-                        <button
-                          className={`rounded-[12px] px-3 py-1.5 text-[12px] transition ${
-                            active
-                              ? 'bg-[#ffffff] text-[#141413] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:bg-[#141413] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]'
-                              : 'text-[#5e5d59] hover:text-[#141413] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
-                          }`}
-                          key={mode}
-                          onClick={() => setThemeMode(mode)}
-                          type="button"
-                        >
-                          {mode}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
+      <div className="flex min-h-screen flex-col lg:flex-row">
+        <aside
+          className={`flex border-b border-[#e8e6dc] bg-[#faf9f5] transition-[width] duration-200 dark:border-[#30302e] dark:bg-[#1d1c1a] lg:min-h-screen lg:flex-col lg:border-r lg:border-b-0 ${
+            sidebarCollapsed ? 'lg:w-[96px]' : 'lg:w-[240px]'
+          }`}
+        >
+          <div className={`relative flex min-w-[220px] items-center gap-3 px-5 py-5 lg:min-w-0 ${sidebarCollapsed ? 'lg:justify-between lg:px-3' : ''}`}>
+            <div className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-[#141413] text-xs font-semibold text-[#faf9f5]">cf</div>
+            <div className={`min-w-0 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+              <div className="truncate text-lg font-semibold tracking-[-0.02em] text-[#141413] dark:text-[#faf9f5]">coco-flow</div>
+              <div className="text-xs text-[#87867f] dark:text-[#b0aea5]">需求交付工作台</div>
             </div>
+            <button
+              className={`hidden h-8 w-8 items-center justify-center rounded-[8px] text-[#87867f] transition hover:bg-[#f5f4ed] hover:text-[#141413] dark:text-[#b0aea5] dark:hover:bg-[#30302e] dark:hover:text-[#faf9f5] lg:inline-flex ${
+                sidebarCollapsed ? 'lg:h-7 lg:w-7' : 'ml-auto'
+              }`}
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              title={sidebarCollapsed ? '展开导航' : '收起导航'}
+              type="button"
+            >
+              <CollapseLeftIcon />
+            </button>
+          </div>
 
-            <div className="border-t border-[#e8e6dc] pt-4 dark:border-[#30302e]">
-              <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">导航</div>
-              <div className="mt-3 flex flex-wrap gap-3">
-                <TopNavItem
-                  description="查看任务进度、下一步动作和关键产物。"
-                  isActive={location.pathname.startsWith('/tasks') || location.pathname === '/'}
-                  title="任务推进"
-                  to="/tasks"
-                />
-                <TopNavItem
-                  description="浏览和维护 skill package、SKILL.md 与 references 文件。"
-                  isActive={location.pathname.startsWith('/skills') || location.pathname.startsWith('/knowledge')}
-                  title="Skills 工作台"
-                  to="/skills"
-                />
-              </div>
+          <nav className={`flex flex-1 items-center gap-2 overflow-x-auto px-3 py-3 lg:flex-col lg:overflow-visible ${sidebarCollapsed ? 'lg:items-center lg:px-2' : 'lg:items-stretch lg:px-4'}`}>
+            <SidebarNavItem
+              collapsed={sidebarCollapsed}
+              icon={<TaskIcon />}
+              isActive={location.pathname.startsWith('/tasks') || location.pathname === '/'}
+              title="任务"
+              to="/tasks"
+            />
+            <SidebarNavItem collapsed={sidebarCollapsed} icon={<BookIcon />} isActive={skillsActive} title="知识库" to="/skills" />
+            <SidebarNavItem collapsed={sidebarCollapsed} icon={<SettingsIcon />} isActive={location.pathname.startsWith('/workspace')} title="设置" to="/workspace" />
+          </nav>
+
+          <div className={`hidden border-t border-[#e8e6dc] p-4 dark:border-[#30302e] lg:block ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+            <ExecutionContextChip context={executionContext} />
+            <div className="mt-3 grid grid-cols-3 rounded-[10px] border border-[#e8e6dc] bg-[#faf9f5] p-1 dark:border-[#30302e] dark:bg-[#232220]">
+              {(['system', 'light', 'dark'] as ThemeMode[]).map((mode) => {
+                const active = themeMode === mode
+                return (
+                  <button
+                    className={`rounded-[8px] px-2 py-1.5 text-[11px] transition ${
+                      active
+                        ? 'bg-[#ffffff] text-[#141413] shadow-[0_0_0_1px_rgba(240,238,230,0.95)] dark:bg-[#141413] dark:text-[#faf9f5] dark:shadow-[0_0_0_1px_rgba(48,48,46,1)]'
+                        : 'text-[#87867f] hover:text-[#141413] dark:text-[#b0aea5] dark:hover:text-[#faf9f5]'
+                    }`}
+                    key={mode}
+                    onClick={() => setThemeMode(mode)}
+                    type="button"
+                  >
+                    {mode}
+                  </button>
+                )
+              })}
             </div>
           </div>
-        </header>
+        </aside>
 
-        <main className="relative min-h-0 flex-1 overflow-y-auto rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5]/94 p-4 shadow-[0_0_0_1px_rgba(240,238,230,0.86),0_4px_24px_rgba(20,20,19,0.05)] dark:border-[#30302e] dark:bg-[#1a1918]/94 dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)] lg:p-5">
-          <Outlet />
+        <main className="min-w-0 flex-1 overflow-hidden">
+          {error ? <div className="border-b border-[#fecaca] bg-[#fef2f2] px-5 py-3 text-sm text-[#b91c1c]">{error}</div> : null}
+          <div className={location.pathname.startsWith('/tasks') || location.pathname === '/' ? 'min-h-full' : 'min-h-screen overflow-y-auto p-6'}>
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>
+  )
+}
+
+function SidebarNavItem({
+  collapsed,
+  icon,
+  isActive,
+  title,
+  to,
+}: {
+  collapsed: boolean
+  icon: ReactNode
+  title: string
+  to: '/tasks' | '/workspace' | '/skills'
+  isActive: boolean
+}) {
+  return (
+    <Link
+      className={`flex shrink-0 items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm transition ${collapsed ? 'lg:h-10 lg:w-10 lg:justify-center lg:px-0' : ''} ${
+        isActive
+          ? 'bg-[#f5f4ed] font-medium text-[#141413] dark:bg-[#30302e] dark:text-[#faf9f5]'
+          : 'text-[#4d4c48] hover:bg-[#faf9f5] hover:text-[#141413] dark:text-[#b0aea5] dark:hover:bg-[#232220] dark:hover:text-[#faf9f5]'
+      }`}
+      title={collapsed ? title : undefined}
+      to={to}
+    >
+      <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
+      <span className={collapsed ? 'lg:hidden' : ''}>{title}</span>
+    </Link>
   )
 }
 
@@ -192,10 +230,10 @@ function ExecutionContextChip({ context }: { context: ExecutionContext }) {
 
   return (
     <div
-      className={`inline-flex items-center gap-2 rounded-[14px] border px-3 py-2 text-[12px] leading-none ${
+      className={`inline-flex w-full items-center gap-2 rounded-[10px] border px-3 py-2 text-[12px] leading-none ${
         isRemote
-          ? 'border-[#e8e6dc] bg-[#faf9f5] text-[#5e5d59] shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.96)]'
-          : 'border-[#e8e6dc] bg-[#f5f4ed] text-[#87867f] shadow-[0_0_0_1px_rgba(240,238,230,0.88)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#8f8a82] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.94)]'
+          ? 'border-[#e8e6dc] bg-[#fff1ed] text-[#c96442] dark:border-[#8f3c2e] dark:bg-[#351b17] dark:text-[#f0c0b0]'
+          : 'border-[#e8e6dc] bg-[#faf9f5] text-[#4d4c48] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]'
       }`}
       title={title}
     >
@@ -206,6 +244,40 @@ function ExecutionContextChip({ context }: { context: ExecutionContext }) {
       />
       <span className="whitespace-nowrap">{label}</span>
     </div>
+  )
+}
+
+function TaskIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M8 6h10M8 12h10M8 18h10M5 6h.01M5 12h.01M5 18h.01" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
+function CollapseLeftIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+    </svg>
+  )
+}
+
+function BookIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v16H7.5A2.5 2.5 0 0 0 5 21.5v-16Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" />
+      <path d="M5 5.5A2.5 2.5 0 0 0 7.5 8H19" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+    </svg>
+  )
+}
+
+function SettingsIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M19 13.5v-3l-2.1-.4a5.7 5.7 0 0 0-.6-1.4l1.2-1.8-2.1-2.1-1.8 1.2a6 6 0 0 0-1.5-.6L11.7 3h-3l-.4 2.1a6 6 0 0 0-1.5.6L5 4.5 2.9 6.6l1.2 1.8a5.7 5.7 0 0 0-.6 1.4L1.5 10.2v3l2 .4c.2.5.4 1 .7 1.5L3 16.9 5.1 19l1.8-1.2c.5.3 1 .5 1.5.6l.4 2.1h3l.4-2.1c.5-.1 1-.3 1.5-.6l1.8 1.2 2.1-2.1-1.2-1.8c.3-.5.5-1 .6-1.5l2-.4Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.4" />
+    </svg>
   )
 }
 

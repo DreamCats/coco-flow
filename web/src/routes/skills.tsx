@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useState } from 'react'
+import { startTransition, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import YAML from 'yaml'
@@ -33,6 +33,8 @@ export function SkillsPage() {
   const [checkoutBranch, setCheckoutBranch] = useState('')
   const [checkoutError, setCheckoutError] = useState('')
   const [error, setError] = useState('')
+  const [sourcePaneCollapsed, setSourcePaneCollapsed] = useState(false)
+  const [treePaneCollapsed, setTreePaneCollapsed] = useState(false)
 
   const selectedSource = sources.find((source) => source.id === selectedSourceId) || null
   const fileContent = selectedFile?.content || ''
@@ -41,6 +43,7 @@ export function SkillsPage() {
   const parsedFile = useMemo(() => parseMarkdownSource(fileContent), [fileContent])
   const metadataEntries = useMemo(() => Object.entries(parsedFile.data), [parsedFile.data])
   const fileCount = useMemo(() => flattenFiles(nodes).length, [nodes])
+  const gridColumns = `${sourcePaneCollapsed ? '76px' : '240px'} ${treePaneCollapsed ? '76px' : '260px'} minmax(0,1fr)`
 
   useEffect(() => {
     void loadSources()
@@ -253,8 +256,49 @@ export function SkillsPage() {
 
   return (
     <>
-      <div className="grid min-h-[760px] gap-4 lg:grid-cols-[260px_300px_minmax(0,1fr)]">
-      <aside className="rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-2.5 shadow-[0_0_0_1px_rgba(240,238,230,0.9)] dark:border-[#30302e] dark:bg-[#1d1c1a]">
+      <div
+        className="grid min-h-[760px] gap-4 lg:[grid-template-columns:var(--skills-grid-columns)]"
+        style={{ '--skills-grid-columns': gridColumns } as CSSProperties}
+      >
+      <aside className={`rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] shadow-[0_0_0_1px_rgba(240,238,230,0.9)] transition-[width] dark:border-[#30302e] dark:bg-[#1d1c1a] ${sourcePaneCollapsed ? 'p-2' : 'p-2.5'}`}>
+        {sourcePaneCollapsed ? (
+          <div className="flex flex-col items-center gap-3">
+            <button
+              className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#e8e6dc] bg-[#ffffff] text-[#87867f] transition hover:bg-[#faf9f5] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:hover:bg-[#30302e] dark:hover:text-[#faf9f5]"
+              onClick={() => setSourcePaneCollapsed(false)}
+              title="展开 source 列"
+              type="button"
+            >
+              <CollapseRightIcon />
+            </button>
+            <button
+              className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#c96442] bg-[#c96442] text-[#faf9f5] transition hover:bg-[#d97757]"
+              onClick={() => setShowAddForm((current) => !current)}
+              title="添加 GitLab source"
+              type="button"
+            >
+              <PlusIcon />
+            </button>
+            <div className="flex w-full flex-col items-center gap-2">
+              {sources.map((source) => (
+                <button
+                  className={`flex h-10 w-10 items-center justify-center rounded-[10px] border transition ${
+                    source.id === selectedSourceId
+                      ? 'border-[#c96442] bg-[#fff1ed] text-[#141413] dark:border-[#d97757] dark:bg-[#351b17] dark:text-[#faf9f5]'
+                      : 'border-[#e8e6dc] bg-[#faf9f5] text-[#87867f] hover:bg-[#ffffff] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:hover:bg-[#30302e] dark:hover:text-[#faf9f5]'
+                  }`}
+                  key={source.id}
+                  onClick={() => setSelectedSourceId(source.id)}
+                  title={`${source.name}\n${source.status}`}
+                  type="button"
+                >
+                  <span className={`h-2.5 w-2.5 rounded-full ${sourceStatusDot(source)}`} />
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
         <div className="rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] p-3 dark:border-[#30302e] dark:bg-[#232220]">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -262,14 +306,24 @@ export function SkillsPage() {
               <h2 className="mt-2 text-[26px] leading-[1.15] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">Skills Sources</h2>
               <div className="mt-2 text-sm text-[#87867f] dark:text-[#b0aea5]">管理 GitLab 来源，只读加载知识库。</div>
             </div>
-            <button
-              className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] border border-[#c96442] bg-[#c96442] text-[#faf9f5] transition hover:bg-[#d97757]"
-              onClick={() => setShowAddForm((current) => !current)}
-              title="添加 GitLab source"
-              type="button"
-            >
-              <PlusIcon />
-            </button>
+            <div className="flex shrink-0 gap-2">
+              <button
+                className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] border border-[#e8e6dc] bg-[#ffffff] text-[#87867f] transition hover:bg-[#f5f4ed] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#b0aea5] dark:hover:bg-[#30302e] dark:hover:text-[#faf9f5]"
+                onClick={() => setSourcePaneCollapsed(true)}
+                title="收起 source 列"
+                type="button"
+              >
+                <CollapseLeftIcon />
+              </button>
+              <button
+                className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] border border-[#c96442] bg-[#c96442] text-[#faf9f5] transition hover:bg-[#d97757]"
+                onClick={() => setShowAddForm((current) => !current)}
+                title="添加 GitLab source"
+                type="button"
+              >
+                <PlusIcon />
+              </button>
+            </div>
           </div>
 
           {showAddForm ? (
@@ -325,11 +379,40 @@ export function SkillsPage() {
             ))
           )}
         </div>
+          </>
+        )}
       </aside>
 
-      <aside className="rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-3 dark:border-[#30302e] dark:bg-[#1d1c1a]">
+      <aside className={`rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] transition-[width] dark:border-[#30302e] dark:bg-[#1d1c1a] ${treePaneCollapsed ? 'p-2' : 'p-3'}`}>
+        {treePaneCollapsed ? (
+          <div className="flex flex-col items-center gap-3">
+            <button
+              className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#e8e6dc] bg-[#ffffff] text-[#87867f] transition hover:bg-[#faf9f5] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:hover:bg-[#30302e] dark:hover:text-[#faf9f5]"
+              onClick={() => setTreePaneCollapsed(false)}
+              title="展开 package tree"
+              type="button"
+            >
+              <CollapseRightIcon />
+            </button>
+            <div className="flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#e8e6dc] bg-[#faf9f5] text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]" title={selectedSource?.name || '未选择 source'}>
+              <TreeIcon />
+            </div>
+            <div className="font-mono text-[11px] text-[#87867f] dark:text-[#b0aea5]">{fileCount}</div>
+          </div>
+        ) : (
+          <>
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">Package Tree</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#87867f] dark:text-[#b0aea5]">Package Tree</div>
+            <button
+              className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-[#e8e6dc] bg-[#ffffff] text-[#87867f] transition hover:bg-[#faf9f5] hover:text-[#141413] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5] dark:hover:bg-[#30302e] dark:hover:text-[#faf9f5]"
+              onClick={() => setTreePaneCollapsed(true)}
+              title="收起 package tree"
+              type="button"
+            >
+              <CollapseLeftIcon />
+            </button>
+          </div>
           <h3 className="mt-2 truncate text-xl font-semibold text-[#141413] dark:text-[#faf9f5]">{selectedSource?.name || '未选择 source'}</h3>
           <div className="mt-2 break-all rounded-[14px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-3 font-mono text-xs text-[#87867f] dark:border-[#30302e] dark:bg-[#232220] dark:text-[#b0aea5]">
             {rootPath || '无本地目录'}
@@ -359,6 +442,8 @@ export function SkillsPage() {
             </div>
           )}
         </div>
+          </>
+        )}
       </aside>
 
       <main className="min-w-0">
@@ -490,7 +575,7 @@ function SourceCard({
   const canCheckout = source.isGitRepo && !source.dirty && source.status !== 'not_cloned' && source.status !== 'not_git'
   const actionLabel = source.status === 'not_cloned' ? '初始化' : '更新'
   return (
-    <div className={`rounded-[16px] border p-3 transition ${selected ? 'border-[#c96442] bg-[#fff7f2] dark:border-[#d97757] dark:bg-[#3a2620]' : 'border-[#e8e6dc] bg-[#faf9f5] dark:border-[#30302e] dark:bg-[#232220]'}`}>
+    <div className={`rounded-[16px] border p-3 transition ${selected ? 'border-[#c96442] bg-[#fff1ed] dark:border-[#d97757] dark:bg-[#351b17]' : 'border-[#e8e6dc] bg-[#faf9f5] dark:border-[#30302e] dark:bg-[#232220]'}`}>
       <button className="w-full text-left" onClick={() => onSelect(source.id)} type="button">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -518,7 +603,7 @@ function SourceCard({
           {busy ? '执行中...' : actionLabel}
         </button>
         <button
-          className="rounded-[12px] border border-[#d1cfc5] px-3 py-2 text-sm font-semibold text-[#4d4c48] transition hover:border-[#c96442] hover:bg-[#f5f4ed] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#30302e] dark:text-[#f1ede4] dark:hover:bg-[#1d1c1a]"
+          className="rounded-[12px] border border-[#d1cfc5] px-3 py-2 text-sm font-semibold text-[#4d4c48] transition hover:border-[#c96442] hover:bg-[#f5f4ed] disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#30302e] dark:text-[#faf9f5] dark:hover:bg-[#1d1c1a]"
           disabled={busy || !canCheckout}
           onClick={() => onCheckout(source)}
           title={source.dirty ? '存在本地改动，请先在终端处理' : undefined}
@@ -543,6 +628,16 @@ function StatusBadge({ source }: { source: SkillSourceStatus }) {
   const label = source.message || source.status
   const tone = source.status === 'clean' || source.status === 'ready' ? 'text-[#1f7a4d] bg-[#e8f5ee] border-[#b7dfc8]' : source.status === 'behind' ? 'text-[#8a5b00] bg-[#fff4d6] border-[#e5c86e]' : 'text-[#9d3328] bg-[#fbf1f0] border-[#e1c1bf]'
   return <span className={`shrink-0 rounded-full border px-2 py-1 text-[11px] ${tone}`}>{label}</span>
+}
+
+function sourceStatusDot(source: SkillSourceStatus) {
+  if (source.status === 'clean' || source.status === 'ready') {
+    return 'bg-[#4fa06d]'
+  }
+  if (source.status === 'behind') {
+    return 'bg-[#c69a38]'
+  }
+  return 'bg-[#b53333]'
 }
 
 function TextInput({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (value: string) => void }) {
@@ -584,7 +679,7 @@ function SkillTreeItem({
       <button
         className={`flex w-full items-center gap-2 rounded-[14px] px-3 py-2 text-left transition ${
           selectedPath === node.path
-            ? 'bg-[#fff7f2] text-[#141413] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:bg-[#3a2620] dark:text-[#faf9f5]'
+            ? 'bg-[#fff1ed] text-[#141413] shadow-[0_0_0_1px_rgba(201,100,66,0.18)] dark:bg-[#351b17] dark:text-[#faf9f5]'
             : 'text-[#5e5d59] hover:bg-[#faf9f5] hover:text-[#141413] dark:text-[#b0aea5] dark:hover:bg-[#232220] dark:hover:text-[#faf9f5]'
         }`}
         onClick={() => {
@@ -597,7 +692,7 @@ function SkillTreeItem({
         style={{ paddingLeft }}
         type="button"
       >
-        <span className="w-4 text-center text-xs text-[#87867f] dark:text-[#8f8a82]">{isDirectory ? (isExpanded ? '▾' : '▸') : '·'}</span>
+        <span className="w-4 text-center text-xs text-[#87867f] dark:text-[#b0aea5]">{isDirectory ? (isExpanded ? '▾' : '▸') : '·'}</span>
         <span className={`truncate ${isDirectory ? 'text-sm font-semibold' : 'font-mono text-xs'}`}>{node.name}</span>
       </button>
       {isDirectory && isExpanded ? (
@@ -635,13 +730,13 @@ function MetadataCard({
   return (
     <section className="mt-4 rounded-[18px] border border-[#e8e6dc] bg-[#f5f4ed] dark:border-[#30302e] dark:bg-[#232220]">
       <div className="px-4 py-4">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 dark:text-stone-400">Frontmatter</div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#87867f] dark:text-[#b0aea5]">Frontmatter</div>
         <div className="mt-1 text-sm text-[#5e5d59] dark:text-[#b0aea5]">{summary}</div>
       </div>
       {hasFrontmatter ? (
         <div className="border-t border-[#e8e6dc] px-4 py-4 dark:border-[#30302e]">
           {entries.length > 0 ? (
-            <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="mb-4 grid gap-3 2xl:grid-cols-2">
               {entries.map(([key, value]) => (
                 <div className="rounded-[14px] border border-[#e8e6dc] bg-[#faf9f5] px-3 py-3 dark:border-[#30302e] dark:bg-[#1d1c1a]" key={key}>
                   <div className="text-[10px] uppercase tracking-[0.18em] text-[#87867f] dark:text-[#b0aea5]">{key}</div>
@@ -694,7 +789,7 @@ function renderFileContent({
     )
   }
   return (
-    <div className="overflow-auto rounded-[18px] border border-[#e8e6dc] bg-[#fdfcf9] px-5 py-5 dark:border-[#30302e] dark:bg-[#171615]">
+    <div className="overflow-auto rounded-[18px] border border-[#e8e6dc] bg-[#faf9f5] px-5 py-5 dark:border-[#30302e] dark:bg-[#1d1c1a]">
       <MarkdownPreview content={parsedContent || '暂无内容'} />
     </div>
   )
@@ -846,6 +941,33 @@ function PlusIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
       <path d="M8 3.333v9.334M3.333 8h9.334" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+  )
+}
+
+function CollapseLeftIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
+      <path d="M10 4 6 8l4 4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+      <path d="M3 3.5v9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+  )
+}
+
+function CollapseRightIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
+      <path d="m6 4 4 4-4 4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+      <path d="M13 3.5v9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+  )
+}
+
+function TreeIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
+      <path d="M5 3.5h6M5 8h6M5 12.5h6" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+      <path d="M3 3.5h.01M3 8h.01M3 12.5h.01" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
     </svg>
   )
 }

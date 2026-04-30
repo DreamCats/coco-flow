@@ -56,12 +56,12 @@ export function TaskStageDetailPanel({
   const actions = buildStageActions(task, stage, stages, busyAction, effectiveHandlers)
 
   return (
-    <div className="rounded-[24px] border border-[#e8e6dc] bg-[#faf9f5] p-5 shadow-[0_0_0_1px_rgba(240,238,230,0.92)] dark:border-[#30302e] dark:bg-[#1d1c1a] dark:shadow-[0_0_0_1px_rgba(48,48,46,0.98)]">
+    <div className="px-6 pb-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.5px] text-[#87867f] dark:text-[#b0aea5]">Stage Detail</div>
-          <h4 className="mt-2 text-[28px] leading-[1.08] font-medium text-[#141413] [font-family:Georgia,serif] dark:text-[#faf9f5]">{stage.label}</h4>
-          <p className="mt-2 text-sm leading-6 text-[#5e5d59] dark:text-[#b0aea5]">{stage.summary}</p>
+          <div className="text-xs text-[#87867f] dark:text-[#b0aea5]">阶段详情</div>
+          <h4 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-[#141413] dark:text-[#faf9f5]">{stage.label}</h4>
+          <p className="mt-1 text-sm leading-6 text-[#4d4c48] dark:text-[#b0aea5]">{stage.summary}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {actions.map((action) => (
@@ -75,7 +75,7 @@ export function TaskStageDetailPanel({
 
       {actionError ? <div className="mt-4 text-sm text-[#b53333]">{actionError}</div> : null}
 
-      <div className="mt-5">
+      <div className="mt-4">
         {stage.id === 'input' ? <InputStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'refine' ? <RefineStage onTaskUpdated={onTaskUpdated} task={task} /> : null}
         {stage.id === 'design' ? <DesignStage onTaskUpdated={onTaskUpdated} openRepoBindingToken={openRepoBindingToken} task={task} /> : null}

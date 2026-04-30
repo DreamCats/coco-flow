@@ -19,8 +19,8 @@ export function StageStatusBadge({ status }: { status: TaskStageStatus }) {
 
 export function SectionCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-[20px] border border-[#e8e6dc] bg-[#f5f4ed] p-4 dark:border-[#30302e] dark:bg-[#232220]">
-      <div className="text-[10px] uppercase tracking-[0.45em] text-[#87867f] dark:text-[#b0aea5]">{title}</div>
+    <section className="rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] p-4 dark:border-[#30302e] dark:bg-[#141413]">
+      <div className="text-[10px] uppercase tracking-[0.35em] text-[#87867f] dark:text-[#b0aea5]">{title}</div>
       <div className="mt-4">{children}</div>
     </section>
   )
@@ -49,7 +49,7 @@ export function NotePanel({ content, renderAs = 'markdown' }: { content: string;
   )
 }
 
-function MarkdownBody({ content, compact = false }: { content: string; compact?: boolean }) {
+export function MarkdownBody({ content, compact = false }: { content: string; compact?: boolean }) {
   return (
     <div className={`mt-3 text-[#141413] dark:text-[#faf9f5]`}>
       <ReactMarkdown
@@ -153,8 +153,8 @@ export function ActionButton({
     <button
       className={
         tone === 'primary'
-          ? 'rounded-[12px] border border-[#c96442] bg-[#c96442] px-3 py-1.5 text-xs text-[#faf9f5] shadow-[0_0_0_1px_rgba(201,100,66,1)] transition hover:bg-[#d97757] disabled:cursor-not-allowed disabled:opacity-55'
-          : 'rounded-[12px] border border-[#d1cfc5] bg-[#faf9f5] px-3 py-1.5 text-xs text-[#4d4c48] transition hover:bg-[#efeae0] disabled:cursor-not-allowed disabled:opacity-55 dark:border-[#3a3937] dark:bg-[#191816] dark:text-[#f1ede4] dark:hover:bg-[#24221f]'
+          ? 'whitespace-nowrap rounded-[10px] border border-[#c96442] bg-[#c96442] px-3 py-1.5 text-xs text-[#faf9f5] transition hover:bg-[#d97757] disabled:cursor-not-allowed disabled:opacity-55'
+          : 'whitespace-nowrap rounded-[10px] border border-[#e8e6dc] bg-[#ffffff] px-3 py-1.5 text-xs text-[#5e5d59] transition hover:bg-[#f5f4ed] disabled:cursor-not-allowed disabled:opacity-55 dark:border-[#30302e] dark:bg-[#1d1c1a] dark:text-[#e8e6dc] dark:hover:bg-[#232220]'
       }
       disabled={disabled}
       onClick={onClick}
