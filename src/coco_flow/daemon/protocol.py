@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 
 class PromptRequest(TypedDict):
@@ -11,6 +11,11 @@ class PromptRequest(TypedDict):
     query_timeout: str
     prompt: str
     acp_idle_timeout_seconds: float
+    fresh_session: NotRequired[bool]
+
+
+class PromptStreamRequest(PromptRequest):
+    pass
 
 
 class SessionNewRequest(TypedDict):
@@ -29,6 +34,10 @@ class SessionPromptRequest(TypedDict):
     prompt: str
 
 
+class SessionPromptStreamRequest(SessionPromptRequest):
+    pass
+
+
 class SessionCloseRequest(TypedDict):
     type: str
     handle_id: str
@@ -40,3 +49,18 @@ class PingRequest(TypedDict):
 
 class ShutdownRequest(TypedDict):
     type: str
+
+
+class StreamChunkEvent(TypedDict):
+    type: str
+    content: str
+
+
+class StreamDoneEvent(TypedDict):
+    type: str
+    content: str
+
+
+class StreamErrorEvent(TypedDict):
+    type: str
+    error: str

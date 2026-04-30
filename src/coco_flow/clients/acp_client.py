@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from json import JSONDecodeError, JSONDecoder
 import json
@@ -16,7 +17,9 @@ from coco_flow.config import Settings, load_settings
 from coco_flow.daemon.client import (
     close_session_via_daemon,
     new_session_via_daemon,
+    prompt_session_stream_via_daemon,
     prompt_session_via_daemon,
+    run_prompt_stream_via_daemon,
     run_prompt_via_daemon,
 )
 
@@ -136,6 +139,36 @@ class CocoACPClient(CocoClient):
             prompt=prompt,
         )
 
+    def run_agent_stream(
+        self,
+        prompt: str,
+        query_timeout: str,
+        cwd: str,
+        *,
+        fresh_session: bool = False,
+    ) -> Iterator[dict[str, object]]:
+        return run_prompt_stream_via_daemon(
+            settings=self.settings,
+            coco_bin=self.coco_bin,
+            cwd=os.path.realpath(cwd),
+            mode=AGENT_MODE.name,
+            query_timeout=query_timeout,
+            prompt=prompt,
+            acp_idle_timeout_seconds=self.idle_timeout_seconds,
+            fresh_session=fresh_session,
+        )
+
+    def prompt_agent_session_stream(
+        self,
+        handle: AgentSessionHandle,
+        prompt: str,
+    ) -> Iterator[dict[str, object]]:
+        return prompt_session_stream_via_daemon(
+            settings=self.settings,
+            handle_id=handle.handle_id,
+            prompt=prompt,
+        )
+
     def close_agent_session(self, handle: AgentSessionHandle) -> None:
         close_session_via_daemon(
             settings=self.settings,
@@ -165,6 +198,22 @@ class _ACPSessionPool:
         with self._lock:
             session = self._get_or_create_session_locked(key, coco_bin, idle_timeout_seconds)
         return session.prompt(prompt, fresh_session=fresh_session)
+
+    def run_prompt_stream(
+        self,
+        coco_bin: str,
+        cwd: str,
+        mode: _ACPMode,
+        query_timeout: str,
+        prompt: str,
+        idle_timeout_seconds: float,
+        fresh_session: bool = False,
+    ) -> Iterator[str]:
+        self._ensure_reaper_started()
+        key = _SessionKey(coco_bin=coco_bin, cwd=cwd, mode=mode, query_timeout=query_timeout)
+        with self._lock:
+            session = self._get_or_create_session_locked(key, coco_bin, idle_timeout_seconds)
+        yield from session.prompt_stream(prompt, fresh_session=fresh_session)
 
     def new_session(
         self,
@@ -206,6 +255,16 @@ class _ACPSessionPool:
             if session is None:
                 raise ValueError(f"acp session handle is no longer active: {handle_id}")
         return session.prompt_explicit_session(explicit_session.session_id, prompt)
+
+    def prompt_session_stream(self, handle_id: str, prompt: str) -> Iterator[str]:
+        with self._lock:
+            explicit_session = self._explicit_sessions.get(handle_id)
+            if explicit_session is None:
+                raise ValueError(f"unknown acp session handle: {handle_id}")
+            session = self._sessions.get(explicit_session.key)
+            if session is None:
+                raise ValueError(f"acp session handle is no longer active: {handle_id}")
+        yield from session.prompt_explicit_session_stream(explicit_session.session_id, prompt)
 
     def close_session(self, handle_id: str) -> None:
         with self._lock:
@@ -289,6 +348,29 @@ class _PooledSession:
                 self._busy = False
             return result
 
+    def prompt_stream(self, prompt: str, *, fresh_session: bool = False) -> Iterator[str]:
+        with self._lock:
+            self._busy = True
+            self._ensure_running()
+            assert self._process is not None
+            session_id = self._new_session_id() if fresh_session else self._session_id
+            emitted = False
+            try:
+                try:
+                    for chunk in self._process.prompt_stream(session_id, prompt):
+                        emitted = True
+                        yield chunk
+                except ValueError:
+                    if emitted:
+                        raise
+                    self._restart()
+                    assert self._process is not None
+                    session_id = self._new_session_id() if fresh_session else self._session_id
+                    yield from self._process.prompt_stream(session_id, prompt)
+            finally:
+                self._last_used = time.monotonic()
+                self._busy = False
+
     def new_explicit_session(self) -> str:
         with self._lock:
             self._ensure_running()
@@ -307,6 +389,18 @@ class _PooledSession:
                 self._last_used = time.monotonic()
                 self._busy = False
             return result
+
+    def prompt_explicit_session_stream(self, session_id: str, prompt: str) -> Iterator[str]:
+        with self._lock:
+            self._busy = True
+            if self._process is None or not self._process.is_running():
+                self._busy = False
+                raise ValueError("explicit acp session is no longer running")
+            try:
+                yield from self._process.prompt_stream(session_id, prompt)
+            finally:
+                self._last_used = time.monotonic()
+                self._busy = False
 
     def should_close(self, now: float) -> bool:
         return not self._busy and now - self._last_used >= self.idle_timeout_seconds
@@ -407,6 +501,15 @@ class _ACPProcess:
         return session_id
 
     def prompt(self, session_id: str, prompt: str) -> str:
+        chunks: list[str] = []
+        for chunk in self.prompt_stream(session_id, prompt):
+            chunks.append(chunk)
+        content = "".join(chunks).strip()
+        if not content:
+            raise ValueError("acp prompt returned empty content")
+        return content
+
+    def prompt_stream(self, session_id: str, prompt: str) -> Iterator[str]:
         request_id = self._send(
             "session/prompt",
             {
@@ -426,15 +529,18 @@ class _ACPProcess:
 
             if response.id == request_id:
                 self._raise_rpc_error(response, "session/prompt")
-                self._drain_prompt_updates(session_id, chunks)
+                drained_chunks: list[str] = []
+                self._drain_prompt_updates(session_id, chunks, on_chunk=drained_chunks.append)
+                yield from drained_chunks
                 break
 
-            self._consume_prompt_update(response, session_id, chunks)
+            text = self._consume_prompt_update(response, session_id, chunks)
+            if text:
+                yield text
 
         content = "".join(chunks).strip()
         if not content:
             raise ValueError("acp prompt returned empty content")
-        return content
 
     def close(self) -> None:
         if self.process is None:
@@ -492,7 +598,13 @@ class _ACPProcess:
                 raise ValueError(self._build_timeout_error("process_exit"))
             return None
 
-    def _drain_prompt_updates(self, session_id: str, chunks: list[str]) -> None:
+    def _drain_prompt_updates(
+        self,
+        session_id: str,
+        chunks: list[str],
+        *,
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> None:
         deadline = time.monotonic() + _PROMPT_DRAIN_SECONDS
         while True:
             remaining = deadline - time.monotonic()
@@ -502,32 +614,36 @@ class _ACPProcess:
             if response is None:
                 return
             if response.method == "session/update":
-                self._consume_prompt_update(response, session_id, chunks)
+                text = self._consume_prompt_update(response, session_id, chunks)
+                if text and on_chunk is not None:
+                    on_chunk(text)
                 continue
             self._pending_messages.append(response)
             return
 
-    def _consume_prompt_update(self, response: _ACPResponse, session_id: str, chunks: list[str]) -> None:
+    def _consume_prompt_update(self, response: _ACPResponse, session_id: str, chunks: list[str]) -> str:
         if response.method != "session/update":
-            return
+            return ""
         if not _response_matches_session(response, session_id):
-            return
+            return ""
 
         params = response.payload.get("params")
         if not isinstance(params, dict):
-            return
+            return ""
         update = params.get("update")
         if not isinstance(update, dict):
-            return
+            return ""
         session_update = update.get("sessionUpdate")
         if session_update != "agent_message_chunk":
-            return
+            return ""
         content = update.get("content")
         if not isinstance(content, dict):
-            return
+            return ""
         text = content.get("text")
         if isinstance(text, str) and text:
             chunks.append(text)
+            return text
+        return ""
 
     def _read_stdout(self) -> None:
         if self.process is None or self.process.stdout is None:
@@ -636,6 +752,28 @@ def run_prompt_with_pool(
     )
 
 
+def run_prompt_stream_with_pool(
+    *,
+    coco_bin: str,
+    cwd: str,
+    mode: str,
+    query_timeout: str,
+    prompt: str,
+    idle_timeout_seconds: float,
+    fresh_session: bool = False,
+) -> Iterator[str]:
+    resolved_mode = _resolve_mode(mode)
+    yield from _SESSION_POOL.run_prompt_stream(
+        coco_bin=coco_bin,
+        cwd=os.path.realpath(cwd),
+        mode=resolved_mode,
+        query_timeout=query_timeout,
+        prompt=prompt,
+        idle_timeout_seconds=idle_timeout_seconds,
+        fresh_session=fresh_session,
+    )
+
+
 def new_session_with_pool(
     *,
     coco_bin: str,
@@ -658,6 +796,10 @@ def new_session_with_pool(
 
 def prompt_session_with_pool(*, handle_id: str, prompt: str) -> str:
     return _SESSION_POOL.prompt_session(handle_id, prompt)
+
+
+def prompt_session_stream_with_pool(*, handle_id: str, prompt: str) -> Iterator[str]:
+    yield from _SESSION_POOL.prompt_session_stream(handle_id, prompt)
 
 
 def close_session_with_pool(*, handle_id: str) -> None:

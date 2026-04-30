@@ -10,7 +10,9 @@ import time
 from coco_flow.clients.acp_client import (
     close_session_with_pool,
     new_session_with_pool,
+    prompt_session_stream_with_pool,
     prompt_session_with_pool,
+    run_prompt_stream_with_pool,
     run_prompt_with_pool,
 )
 from coco_flow.config import Settings, load_settings
@@ -90,11 +92,17 @@ class DaemonServer:
             if request_type == "prompt":
                 self._handle_prompt(conn, raw)
                 return
+            if request_type == "prompt_stream":
+                self._handle_prompt_stream(conn, raw)
+                return
             if request_type == "session_new":
                 self._handle_session_new(conn, raw)
                 return
             if request_type == "session_prompt":
                 self._handle_session_prompt(conn, raw)
+                return
+            if request_type == "session_prompt_stream":
+                self._handle_session_prompt_stream(conn, raw)
                 return
             if request_type == "session_close":
                 self._handle_session_close(conn, raw)
@@ -119,6 +127,25 @@ class DaemonServer:
         except Exception as error:
             self._log(f"prompt_error: {error}")
             self._write_json(conn, {"ok": False, "error": str(error)})
+
+    def _handle_prompt_stream(self, conn: socket.socket, raw: dict[str, object]) -> None:
+        chunks: list[str] = []
+        try:
+            for chunk in run_prompt_stream_with_pool(
+                coco_bin=str(raw.get("coco_bin") or self.settings.coco_bin),
+                cwd=str(raw.get("cwd") or os.getcwd()),
+                mode=str(raw.get("mode") or "agent"),
+                query_timeout=str(raw.get("query_timeout") or self.settings.native_query_timeout),
+                prompt=str(raw.get("prompt") or ""),
+                idle_timeout_seconds=float(raw.get("acp_idle_timeout_seconds") or self.settings.acp_idle_timeout_seconds),
+                fresh_session=bool(raw.get("fresh_session")),
+            ):
+                chunks.append(chunk)
+                self._write_json(conn, {"type": "chunk", "content": chunk})
+            self._write_json(conn, {"type": "done", "content": "".join(chunks).strip()})
+        except Exception as error:
+            self._log(f"prompt_stream_error: {error}")
+            self._write_json(conn, {"type": "error", "error": str(error)})
 
     def _handle_session_new(self, conn: socket.socket, raw: dict[str, object]) -> None:
         try:
@@ -157,6 +184,20 @@ class DaemonServer:
         except Exception as error:
             self._log(f"session_prompt_error: {error}")
             self._write_json(conn, {"ok": False, "error": str(error)})
+
+    def _handle_session_prompt_stream(self, conn: socket.socket, raw: dict[str, object]) -> None:
+        chunks: list[str] = []
+        try:
+            for chunk in prompt_session_stream_with_pool(
+                handle_id=str(raw.get("handle_id") or ""),
+                prompt=str(raw.get("prompt") or ""),
+            ):
+                chunks.append(chunk)
+                self._write_json(conn, {"type": "chunk", "content": chunk})
+            self._write_json(conn, {"type": "done", "content": "".join(chunks).strip()})
+        except Exception as error:
+            self._log(f"session_prompt_stream_error: {error}")
+            self._write_json(conn, {"type": "error", "error": str(error)})
 
     def _handle_session_close(self, conn: socket.socket, raw: dict[str, object]) -> None:
         try:

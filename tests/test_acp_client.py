@@ -34,6 +34,10 @@ class _FakeACPProcess:
         self.prompt_calls.append((session_id, prompt))
         return f"reply:{session_id}"
 
+    def prompt_stream(self, session_id: str, prompt: str):
+        self.prompt_calls.append((session_id, prompt))
+        yield f"reply:{session_id}"
+
     def is_running(self) -> bool:
         return self.running
 
@@ -119,6 +123,25 @@ class ACPSessionPoolTest(unittest.TestCase):
             [("session-1", "pooled"), ("session-2", "fresh")],
         )
 
+    def test_run_prompt_stream_uses_existing_session(self) -> None:
+        pool = _ACPSessionPool()
+        with patch("coco_flow.clients.acp_client._ACPProcess", _FakeACPProcess):
+            chunks = list(
+                pool.run_prompt_stream(
+                    coco_bin="coco",
+                    cwd="/tmp/demo",
+                    mode=AGENT_MODE,
+                    query_timeout="90s",
+                    prompt="stream",
+                    idle_timeout_seconds=600.0,
+                )
+            )
+
+        self.assertEqual(chunks, ["reply:session-1"])
+        self.assertEqual(len(_FakeACPProcess.instances), 1)
+        process = _FakeACPProcess.instances[0]
+        self.assertEqual(process.prompt_calls, [("session-1", "stream")])
+
     def test_explicit_session_handle_supports_multiple_prompts(self) -> None:
         pool = _ACPSessionPool()
         with patch("coco_flow.clients.acp_client._ACPProcess", _FakeACPProcess):
@@ -182,6 +205,18 @@ class ACPSessionPoolTest(unittest.TestCase):
                 )
             ],
         )
+
+    def test_prompt_stream_yields_matching_chunks(self) -> None:
+        process = _ScriptedACPProcess()
+        process._messages.put(_session_update("other-session", "wrong"))
+        process._messages.put(_session_update("session-1", "hello"))
+        process._messages.put(_ACPResponse(payload={"id": 7, "result": {}}))
+        process._messages.put(_session_update("session-1", " tail"))
+
+        with patch("coco_flow.clients.acp_client._PROMPT_DRAIN_SECONDS", 0.01):
+            chunks = list(process.prompt_stream("session-1", "prompt"))
+
+        self.assertEqual(chunks, ["hello", " tail"])
 
 
 def _session_update(session_id: str, text: str) -> _ACPResponse:
