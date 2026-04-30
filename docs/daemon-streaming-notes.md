@@ -23,15 +23,17 @@
 
 ## 阶段 1：Daemon Socket 对外流式
 
+状态：已实施底层能力。
+
 目标：在不破坏现有同步接口的前提下，新增 daemon socket streaming 能力。
 
 建议范围：
 
-- 在 ACP 层新增 streaming 入口，例如 `prompt_stream()` 或给 `prompt()` 增加 `on_chunk` callback。
-- 在 session pool 层新增 `run_prompt_stream()` / `prompt_session_stream()`。
-- 在 daemon server 新增请求类型，例如 `prompt_stream` / `session_prompt_stream`。
-- socket 响应用 NDJSON，多行事件直到 `done` 或 `error`。
-- daemon client 新增 iterator 版本，例如 `stream_request()`，保留当前 `send_request()` 不变。
+- ACP 层已新增 `prompt_stream()`，同步 `prompt()` 继续返回完整字符串。
+- session pool 层已新增 `run_prompt_stream()` / `prompt_session_stream()`。
+- daemon server 已新增 `prompt_stream` / `session_prompt_stream` 请求类型。
+- socket 响应使用 NDJSON，多行事件直到 `done` 或 `error`。
+- daemon client 已新增 `stream_request()`，保留当前 `send_request()` 不变。
 
 建议事件格式：
 
@@ -43,7 +45,7 @@
 
 注意点：
 
-- `done.content` 是否返回完整内容需要确认。返回完整内容能兼容审计和最终落盘，但会重复传输。
+- `done.content` 当前返回完整内容，方便调用方不自行拼接也能拿到最终结果。
 - streaming 期间 session pool 锁会保持占用，这与当前单 session 串行语义一致。
 - 超时、ACP 进程退出、空响应都要有明确 `error` 事件。
 

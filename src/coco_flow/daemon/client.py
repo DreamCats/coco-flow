@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 import json
 import os
@@ -43,6 +44,33 @@ def run_prompt_via_daemon(
     if not isinstance(content, str) or not content.strip():
         raise ValueError("daemon prompt returned empty content")
     return content
+
+
+def run_prompt_stream_via_daemon(
+    *,
+    settings: Settings,
+    coco_bin: str,
+    cwd: str,
+    mode: str,
+    query_timeout: str,
+    prompt: str,
+    acp_idle_timeout_seconds: float,
+    fresh_session: bool = False,
+) -> Iterator[dict[str, object]]:
+    ensure_daemon_running(settings)
+    yield from stream_request(
+        settings,
+        {
+            "type": "prompt_stream",
+            "coco_bin": coco_bin,
+            "cwd": cwd,
+            "mode": mode,
+            "query_timeout": query_timeout,
+            "prompt": prompt,
+            "acp_idle_timeout_seconds": acp_idle_timeout_seconds,
+            "fresh_session": fresh_session,
+        },
+    )
 
 
 def new_session_via_daemon(
@@ -97,6 +125,23 @@ def prompt_session_via_daemon(
     if not isinstance(content, str) or not content.strip():
         raise ValueError("daemon session_prompt returned empty content")
     return content
+
+
+def prompt_session_stream_via_daemon(
+    *,
+    settings: Settings,
+    handle_id: str,
+    prompt: str,
+) -> Iterator[dict[str, object]]:
+    ensure_daemon_running(settings)
+    yield from stream_request(
+        settings,
+        {
+            "type": "session_prompt_stream",
+            "handle_id": handle_id,
+            "prompt": prompt,
+        },
+    )
 
 
 def close_session_via_daemon(
@@ -213,6 +258,22 @@ def send_request(settings: Settings, payload: dict[str, object]) -> dict[str, ob
     return json.loads(data.decode("utf-8"))
 
 
+def stream_request(settings: Settings, payload: dict[str, object]) -> Iterator[dict[str, object]]:
+    sock_path = daemon_socket_path(settings.config_root)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.connect(str(sock_path))
+        client.sendall((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
+        seen_event = False
+        for line in _recv_lines(client):
+            seen_event = True
+            event = json.loads(line.decode("utf-8"))
+            if not isinstance(event, dict):
+                raise ValueError("daemon stream returned non-object event")
+            yield event
+        if not seen_event:
+            raise OSError("daemon closed connection without stream response")
+
+
 def _recv_line(client: socket.socket) -> bytes:
     buffer = bytearray()
     while True:
@@ -225,3 +286,19 @@ def _recv_line(client: socket.socket) -> bytes:
     if not buffer:
         raise OSError("daemon closed connection without response")
     return bytes(buffer).split(b"\n", 1)[0]
+
+
+def _recv_lines(client: socket.socket) -> Iterator[bytes]:
+    buffer = bytearray()
+    while True:
+        chunk = client.recv(4096)
+        if not chunk:
+            break
+        buffer.extend(chunk)
+        while b"\n" in buffer:
+            line, _, rest = bytes(buffer).partition(b"\n")
+            buffer = bytearray(rest)
+            if line:
+                yield line
+    if buffer:
+        yield bytes(buffer)
