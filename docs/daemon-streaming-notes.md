@@ -68,6 +68,8 @@
 
 ## 阶段 3：Web UI 展示
 
+Refine streaming preview 的 UI 方向单独记录在 `docs/refine-streaming-preview-ui.md`。当前 daemon streaming 分支不实现 Web UI 改造。
+
 目标：在任务详情中实时展示 agent 输出或阶段输出。
 
 当前只确认方向，不定稿 UI：
@@ -76,11 +78,12 @@
 - 展示内容需要区分两类信息：
   - agent 文本 chunk：模型正在生成的正文。
   - workflow 进度事件：阶段开始、验证、失败、完成等。
-- 初版可以只展示 agent 文本流，最终仍以 `prd-refined.md` / `design.md` / `plan.md` artifact 为准。
+- 初版建议先做 Refine 的当前阶段 streaming preview，最终仍以 `prd-refined.md` artifact 为准。
+- 当前 Web UI 已有 Refine 的 `产物与查看` / `补充说明` / `日志` 三 tab；preview 应适配现有布局，不按概念图重做整页结构。
 
 待讨论：
 
-- 是否要在 Stage Detail Panel 内直接显示实时正文。
+- Refine streaming endpoint 使用 NDJSON 还是 SSE。
 - 是否要把实时输出落到现有 `*.log`。
 - 用户离开页面后再回来，是否需要恢复 streaming 状态或只读 artifact/log。
 
