@@ -33,6 +33,7 @@ from coco_flow.engines.plan.compiler import build_structured_plan_artifacts, ren
 from coco_flow.engines.plan.knowledge import build_plan_skills_bundle
 from coco_flow.engines.plan.knowledge.selection import build_plan_skills_context
 from coco_flow.engines.plan.types import PlanPreparedInput
+from coco_flow.engines.shared.contracts import build_design_contracts_payload
 from coco_flow.engines.shared.models import RefinedSections, RepoScope
 from coco_flow.services.tasks.design import design_task
 from coco_flow.services.tasks.plan import start_planning_task
@@ -1426,6 +1427,39 @@ class DesignPipelineTest(unittest.TestCase):
         self.assertIn("## 输出契约", repo_markdowns["live_common"])
         self.assertIn("## 输入契约", repo_markdowns["live_pack"])
         self.assertEqual(result_payload["blockers"], ["待确认项 1：实验字段枚举值"])
+
+    def test_design_contracts_extract_generic_experiment_key_dependency(self) -> None:
+        design_markdown = (
+            "# Design\n\n"
+            "## 分仓库职责\n\n"
+            "### live_pack\n"
+            "- **职责判断**：必改\n"
+            "- **改造方案**：\n"
+            "  - 在 regular auction 标题组装函数中增加实验判断和前缀添加逻辑\n"
+            "  - 复用已有 AuctionCardConfig.RegularDataInfo.AuctionTitlePrefix 本地化配置\n\n"
+            "### live_common\n"
+            "- **职责判断**：条件改\n"
+            "- **改造方案**：\n"
+            "  - 仅当缺少所需 AB 实验开关时才需要改动\n"
+            "  - 新增独立实验 key\n"
+            "  - 如需新增字段，默认值保持线上逻辑不变（false/不启用）\n"
+        )
+
+        payload = build_design_contracts_payload(
+            design_markdown,
+            [
+                RepoScope(repo_id="live_pack", repo_path="/repo/live_pack"),
+                RepoScope(repo_id="live_common", repo_path="/repo/live_common"),
+            ],
+        )
+
+        self.assertEqual(payload["contract_count"], 1)
+        contract = payload["contracts"][0]
+        self.assertEqual(contract["type"], "ab_experiment_field")
+        self.assertEqual(contract["producer_repo"], "live_common")
+        self.assertEqual(contract["consumer_repo"], "live_pack")
+        self.assertEqual(contract["experiment_key"], "新增独立实验 key")
+        self.assertEqual(contract["default_value"], "false")
 
     def test_plan_compiler_filters_evidence_sentences_from_tasks(self) -> None:
         prepared = PlanPreparedInput(
