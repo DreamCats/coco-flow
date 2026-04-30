@@ -452,7 +452,7 @@ def _apply_dependency_upgrade_tasks(work_items: list[dict[str, object]], prepare
             continue
         _append_unique_string(consumer_item, "change_scope", "go.mod")
         _append_unique_string(consumer_item, "change_scope", "go.sum")
-        field_name = str(contract.get("field_name") or "跨仓契约字段")
+        field_name = str(contract.get("field_name") or contract.get("experiment_key") or "跨仓契约字段")
         _append_unique_string(consumer_item, "specific_steps", f"升级 {module_path} 依赖到包含 {field_name} 的版本")
 
 
@@ -825,6 +825,7 @@ def _render_contract_fields(contract: dict[str, object]) -> list[str]:
     lines: list[str] = []
     fields = [
         ("field_name", "field"),
+        ("experiment_key", "experiment_key"),
         ("json_tag", "json_tag"),
         ("default_value", "default"),
         ("consumer_access", "consumer_access"),

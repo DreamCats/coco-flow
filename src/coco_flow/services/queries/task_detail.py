@@ -37,6 +37,10 @@ TRACKED_ARTIFACTS = [
     *PLAN_V2_INTERMEDIATE_ARTIFACTS,
     "design.md",
     "design-skills.json",
+    "design-research-summary.json",
+    "design-agent-transcript.jsonl",
+    "design-quality.json",
+    "design-supervisor-review.json",
     "design-contracts.json",
     "design-sync.json",
     "plan-skills.json",
@@ -145,8 +149,132 @@ def build_latest_diagnosis(task_dir: Path) -> DiagnosisSummary | None:
             next_action=str(payload.get("next_action") or ""),
             reason=str(payload.get("reason") or ""),
             issue_count=len(issues) if isinstance(issues, list) else 0,
+            issues=_issue_summaries(issues),
         )
-    return None
+    return _build_design_sidecar_diagnosis(task_dir)
+
+
+def _build_design_sidecar_diagnosis(task_dir: Path) -> DiagnosisSummary | None:
+    unresolved_items = _unresolved_design_items(task_dir)
+    if not unresolved_items:
+        return None
+    quality_payload = read_json_file(task_dir / "design-quality.json")
+    research_payload = read_json_file(task_dir / "design-research-summary.json")
+    supervisor_payload = read_json_file(task_dir / "design-supervisor-review.json")
+    if quality_payload:
+        research_gate = quality_payload.get("research_gate")
+        if isinstance(research_gate, dict) and research_gate.get("passed") is False:
+            review = research_payload.get("research_review") if isinstance(research_payload, dict) else {}
+            review_issues = review.get("blocking_issues") if isinstance(review, dict) else []
+            review_instructions = review.get("research_instructions") if isinstance(review, dict) else []
+            return DiagnosisSummary(
+                stage="design",
+                ok=False,
+                severity="degraded",
+                failure_type="research_gate_not_passed",
+                next_action="直接编辑 design.md，把下方待确认项补成明确结论，然后同步 Design 并进入 Plan。",
+                reason=str(research_gate.get("reason") or "Design Research Gate 未通过。"),
+                issue_count=len(review_issues) if isinstance(review_issues, list) else 1,
+                issues=_issue_summaries(review_issues) or unresolved_items,
+                instructions=_string_list(review_instructions),
+            )
+        if str(quality_payload.get("quality_status") or "") == "degraded":
+            return DiagnosisSummary(
+                stage="design",
+                ok=False,
+                severity="degraded",
+                failure_type="design_degraded",
+                next_action="直接编辑 design.md，把待确认项补成明确结论，然后同步 Design 并进入 Plan。",
+                reason="Design 产物处于 degraded 状态。",
+                issue_count=1,
+                issues=unresolved_items,
+            )
+    decision = str(supervisor_payload.get("decision") or "")
+    if decision in {"degrade_design", "needs_human", "fail", "redo_research"}:
+        issues = supervisor_payload.get("blocking_issues")
+        return DiagnosisSummary(
+            stage="design",
+            ok=False,
+            severity="degraded" if decision == "degrade_design" else "needs_human",
+            failure_type=f"design_supervisor_{decision}",
+            next_action="直接编辑 design.md，把下方阻断项补成明确结论，然后同步 Design 并进入 Plan。",
+            reason=str(supervisor_payload.get("reason") or f"Design Supervisor 决策为 {decision}。"),
+            issue_count=len(issues) if isinstance(issues, list) else 1,
+            issues=_issue_summaries(issues) or unresolved_items,
+        )
+    return DiagnosisSummary(
+        stage="design",
+        ok=False,
+        severity="needs_human",
+        failure_type="design_pending_confirmation",
+        next_action="直接编辑 design.md，把待确认项补成明确结论，然后同步 Design 并进入 Plan。",
+        reason="design.md 仍包含待确认内容。",
+        issue_count=len(unresolved_items),
+        issues=unresolved_items,
+    )
+
+
+def _issue_summaries(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        if isinstance(item, dict):
+            summary = str(item.get("summary") or "").strip()
+            if summary:
+                result.append(summary)
+        elif str(item).strip():
+            result.append(str(item).strip())
+    return result
+
+
+def _unresolved_design_items(task_dir: Path) -> list[str]:
+    try:
+        markdown = (task_dir / "design.md").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return _unresolved_markdown_items(markdown)
+
+
+def _unresolved_markdown_items(markdown: str) -> list[str]:
+    hard_markers = (
+        "当前不能进入 Plan",
+        "不能进入 Plan",
+        "代码证据不足",
+        "证据不足",
+        "无法支撑完整",
+        "Research 未通过",
+        "Research Gate 未通过",
+        "当前代码证据不足",
+        "补充 repo research",
+        "补充代码证据",
+        "下一步补证",
+    )
+    soft_markers = ("待确认", "需要确认", "需确认", "未确认", "缺少")
+    resolved_markers = ("已确认", "决策", "结论", "最终方案", "无需", "不需要", "不涉及", "不改", "确认不")
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip().lstrip("-*0123456789.、 ").strip()
+        if not line or line.startswith("#"):
+            continue
+        if any(marker in line for marker in resolved_markers):
+            continue
+        if _is_resolved_conditional_design_line(line):
+            continue
+        if any(marker in line for marker in hard_markers) or any(marker in line for marker in soft_markers):
+            if line in seen:
+                continue
+            seen.add(line)
+            result.append(line)
+    return result[:10]
+
+
+def _is_resolved_conditional_design_line(line: str) -> bool:
+    """把“仅当缺少 X 才改动”视为已确认条件，不当作待确认项。"""
+    conditional_markers = ("仅当", "只有当", "只有在", "如缺少", "如果缺少")
+    action_markers = ("才需要改动", "才改动", "才需要修改", "才修改", "才需要新增", "才新增")
+    return any(marker in line for marker in conditional_markers) and any(marker in line for marker in action_markers)
 
 
 def parse_repos(
@@ -480,6 +608,8 @@ def build_next_action(
             return f"请先补齐 {task_dir / 'prd.source.md'} 中的人工提炼范围，然后重新执行 coco-flow tasks refine {task_id}"
         if diagnosis.failure_type == "repo_responsibility_uncertain":
             return f"请先确认 {task_dir / 'design-repo-binding.json'} 中的仓库执行职责，然后重新执行 coco-flow tasks design {task_id}"
+        if diagnosis.failure_type in {"research_gate_not_passed", "design_degraded", "design_pending_confirmation"} or diagnosis.failure_type.startswith("design_supervisor_"):
+            return f"请直接编辑 design.md 补齐 Design 页面列出的待确认项，然后同步 Design 并执行 coco-flow tasks plan {task_id}"
         if diagnosis.stage == "design":
             return f"请先查看 {task_dir / 'design-diagnosis.json'} 和 {task_dir / 'design-decision.json'}，确认后重新执行 coco-flow tasks design {task_id}"
         return "当前阶段需要人工确认，请先查看 diagnosis artifact。"

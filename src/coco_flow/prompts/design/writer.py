@@ -33,12 +33,16 @@ def build_doc_only_design_prompt(
         "必须保留或补齐这些章节：结论、核心改造点、方案设计、分仓库职责、验收与验证、风险与待确认、明确不做。\n"
         "方案设计要写业务层设计结论：用户可见变化、服务端策略、实验与回退、影响范围隔离；不要写成搜索摘要。\n"
         "每个涉及仓库只写人需要判断的信息：职责、是否改造、改造层级、边界和回退策略。\n"
+        "design.md 中的文件路径必须使用 repo 相对路径，不要输出本机绝对路径或用户目录路径。\n"
         "仓库职责优先使用这些语义：必改、条件改、仅作为参考、不改、职责待确认。公共仓/配置仓/协议仓只有在缺少公共字段或共享能力时才写成条件改，不要默认写成必改。\n"
+        "如果 refined PRD 提到实验命中但没有明确实验 key，公共实验/配置仓不能写成确定不改；应写成条件改或待确认，并说明需确认复用已有实验字段还是新增字段。\n"
         "候选文件、函数名、搜索命中原因、confidence/kind/core_evidence 等机器证据只能作为内部判断依据，不要展开到 design.md。\n"
         "Repo research summary 中的排除文件代表命中 PRD 非目标，不能写成主改造落点。\n"
         "模板或输入中已有的待确认项必须保留；如果发现 PRD 口径冲突，要补到“风险与待确认”。\n"
         "改造方案必须覆盖 refined PRD 的关键验收约束，例如实验命中条件、本地化取值、空值回退、分隔符、未命中实验保持不变等；如果某项不适用，写明原因。\n"
         "如果 repo research 只有相关性证据而不能证明必须修改，应写成待确认或仅需验证，不要把搜索命中包装成确定改造点。\n\n"
+        "如果 Research Supervisor 未通过或指出证据不足，必须输出降级设计或待确认项，不要继续写成确定方案。\n"
+        "候选文件必须来自 Research Agent 的 candidate_files 或 supported claims；rejected_candidates 只能作为边界，不能写成主改造落点。\n\n"
         f"## 任务标题\n{title}\n\n"
         f"## prd-refined.md\n{refined_markdown.strip()}\n\n"
         f"## 绑定仓库\n{repo_scope_markdown.strip() or '- 未绑定仓库'}\n\n"
@@ -46,6 +50,32 @@ def build_doc_only_design_prompt(
         f"## Skills/SOP 索引\n{skills_index}\n\n"
         f"## Skills local fallback 摘要\n{skills_fallback}\n\n"
         "写入 design.md 时只保留对研发有用的自然语言信息；不要复制 Python dict、JSON payload、候选文件清单、搜索命中原因或内部字段。\n"
+        "完成后只需简短回复已完成。"
+    )
+
+
+def build_doc_only_design_repair_prompt(
+    *,
+    title: str,
+    refined_markdown: str,
+    research_summary_markdown: str,
+    current_design_markdown: str,
+    repair_instructions: list[str],
+    template_path: str,
+) -> str:
+    instructions = "\n".join(f"- {item}" for item in repair_instructions if item.strip()) or "- 保持原设计事实源，补齐缺失结构。"
+    return (
+        "你在做 coco-flow Design 阶段的有界修复。请只编辑指定 Markdown 文件，不要创建其他文件。\n\n"
+        f"需要编辑的模板文件：{template_path}\n"
+        "目标：根据 Supervisor / quality critique 修复 design.md，使其可给研发评审和后续 Plan 使用。\n"
+        "不得新增 refined PRD、repo research 或 Skills/SOP 中不存在的需求、仓库、文件和确定性结论。\n"
+        "design.md 中的文件路径必须使用 repo 相对路径，不要输出本机绝对路径或用户目录路径。\n"
+        "如果证据不足，必须写成待确认或职责待确认，不要包装成确定落点。\n\n"
+        f"## 任务标题\n{title}\n\n"
+        f"## Refined PRD\n{refined_markdown.strip()}\n\n"
+        f"## Repo research summary\n{research_summary_markdown.strip() or '- 暂无代码调研摘要。'}\n\n"
+        f"## Repair instructions\n{instructions}\n\n"
+        f"## Current design.md\n{current_design_markdown.strip()}\n\n"
         "完成后只需简短回复已完成。"
     )
 

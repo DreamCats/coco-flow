@@ -59,6 +59,9 @@ def build_search_hints(
                     template_path=template_path,
                 ),
                 ".design-search-hints-",
+                role="design_search_hints",
+                stage="search_hints",
+                on_log=on_log,
             )
             normalized = normalize_search_hints(payload, source="native")
             if _has_usable_hints(normalized):

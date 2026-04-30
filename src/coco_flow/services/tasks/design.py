@@ -50,6 +50,11 @@ def design_task(task_id: str, settings: Settings | None = None, on_log: LogHandl
         (task_dir / "design.md").write_text(result.design_markdown, encoding="utf-8")
         _write_json(task_dir / "design-skills.json", result.design_skills_payload)
         _write_json(task_dir / "design-contracts.json", result.design_contracts_payload)
+        _write_json(task_dir / "design-research-summary.json", result.design_research_summary_payload)
+        _write_json(task_dir / "design-quality.json", result.design_quality_payload)
+        _write_json(task_dir / "design-supervisor-review.json", result.design_supervisor_review_payload)
+        if result.rejected_design_markdown.strip():
+            (task_dir / "design-writer-rejected.md").write_text(result.rejected_design_markdown.rstrip() + "\n", encoding="utf-8")
         _write_json(task_dir / "design-sync.json", build_design_sync_payload(result.design_markdown, status="synced"))
         task_meta["status"] = result.status
         task_meta["updated_at"] = datetime.now().astimezone().isoformat()
@@ -107,6 +112,9 @@ def _reset_design_outputs(task_dir: Path) -> None:
         "design-input.md",
         "design-research-plan.json",
         "design-research-summary.json",
+        "design-supervisor-review.json",
+        "design-quality.json",
+        "design-writer-rejected.md",
         "design-adjudication.json",
         "design-review.json",
         "design-debate.json",
@@ -147,6 +155,8 @@ def _reset_design_outputs(task_dir: Path) -> None:
         ".design-skeptic-*.json",
         ".design-search-hints-*.json",
         ".design-writer-*.md",
+        ".design-writer-repair-*.md",
+        ".design-supervisor-review-*.json",
         ".design-gate-*.json",
     ):
         for path in task_dir.glob(pattern):

@@ -7,6 +7,10 @@ from coco_flow.prompts.design import __all__ as design_prompt_exports
 from coco_flow.prompts.design import (
     build_architect_prompt,
     build_design_bootstrap_prompt,
+    build_design_research_prompt,
+    build_design_research_review_prompt,
+    build_design_research_review_template_json,
+    build_design_research_template_json,
     build_doc_only_design_prompt,
     build_revision_prompt,
     build_search_hints_prompt,
@@ -67,6 +71,84 @@ class PromptSystemTest(unittest.TestCase):
         self.assertIn("build_doc_only_design_prompt", design_prompt_exports)
         self.assertIn("build_search_hints_prompt", design_prompt_exports)
         self.assertIn("build_search_hints_template_json", design_prompt_exports)
+        self.assertIn("build_design_research_prompt", design_prompt_exports)
+        self.assertIn("build_design_research_review_prompt", design_prompt_exports)
+
+    def test_design_research_prompt_targets_single_repo_and_skills_files(self) -> None:
+        rendered = build_design_research_prompt(
+            title="竞拍讲解卡标题增加 Auction 标识",
+            refined_markdown="# PRD\n- 命中实验时标题加 Auction",
+            repo_context_payload={"repo_id": "live_pack", "repo_path": "/repo/live_pack"},
+            skills_index_markdown="- /skills/auction/SKILL.md",
+            skills_fallback_markdown="- fallback summary",
+            template_path="/tmp/research.json",
+        )
+
+        self.assertIn("本次只调研“当前 repo”", rendered)
+        self.assertIn("必须先读取相关完整 skill 文件", rendered)
+        self.assertIn("skill_usage.read_files", rendered)
+        self.assertIn("/skills/auction/SKILL.md", rendered)
+        self.assertIn("/tmp/research.json", rendered)
+        self.assertIn("reference_only / not_needed", rendered)
+        self.assertIn("空数组", rendered)
+        self.assertIn("Research Context Engine", rendered)
+        self.assertIn("复用已有实验字段还是新增字段", rendered)
+        self.assertIn("合法 JSON 示例", rendered)
+        self.assertIn('"candidate_files": [', rendered)
+        self.assertIn('"line_end": 128', rendered)
+        self.assertIn("不要把多行代码原样粘进 JSON", rendered)
+
+    def test_design_research_template_uses_empty_optional_arrays(self) -> None:
+        template = build_design_research_template_json()
+
+        self.assertIn('"claims": []', template)
+        self.assertIn('"candidate_files": []', template)
+        self.assertIn('"rejected_candidates": []', template)
+        self.assertIn('"repo_id": ""', template)
+        self.assertIn('"summary": ""', template)
+        self.assertNotIn("__FILL__", template)
+
+    def test_design_research_review_template_uses_empty_optional_arrays(self) -> None:
+        template = build_design_research_review_template_json()
+
+        self.assertIn('"blocking_issues": []', template)
+        self.assertIn('"research_instructions": []', template)
+        self.assertIn('"reason": ""', template)
+        self.assertNotIn("__FILL__", template)
+
+    def test_design_research_review_prompt_requires_skill_usage_evidence(self) -> None:
+        rendered = build_design_research_review_prompt(
+            title="竞拍讲解卡标题增加 Auction 标识",
+            refined_markdown="# PRD\n- 命中实验时标题加 Auction",
+            research_payload={"repos": [{"repo_id": "live_pack", "skill_usage": {"read_files": []}}]},
+            template_path="/tmp/research-review.json",
+            skills_index_markdown="- /skills/auction/SKILL.md",
+        )
+
+        self.assertIn("skill_usage.read_files", rendered)
+        self.assertIn("/skills/auction/SKILL.md", rendered)
+        self.assertIn("redo_research", rendered)
+        self.assertIn("具体 AB 参数 key", rendered)
+        self.assertIn("实验 key", rendered)
+        self.assertIn("repo_id", rendered)
+        self.assertIn("research_status=failed", rendered)
+        self.assertIn("/tmp/research-review.json", rendered)
+        self.assertIn("合法 JSON 示例", rendered)
+        self.assertIn('"blocking_issues": [', rendered)
+        self.assertIn('"type": "missing_candidate_evidence"', rendered)
+
+    def test_doc_only_design_prompt_requires_relative_paths(self) -> None:
+        rendered = build_doc_only_design_prompt(
+            title="竞拍购物袋标题",
+            refined_markdown="# PRD",
+            repo_scope_markdown="- live_pack",
+            research_summary_markdown="- `entities/converters/title.go`",
+            skills_fallback_markdown="- fallback",
+            template_path="/tmp/design.md",
+        )
+
+        self.assertIn("repo 相对路径", rendered)
+        self.assertIn("不要输出本机绝对路径", rendered)
 
     def test_plan_prompt_package_exports_bootstrap_builder(self) -> None:
         self.assertIn("build_plan_bootstrap_prompt", plan_prompt_exports)

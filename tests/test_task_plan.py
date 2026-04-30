@@ -166,6 +166,109 @@ class PlanTaskBuilderTest(unittest.TestCase):
             self.assertNotIn("验收映射", repo_plan)
             self.assertNotIn("## 验证", repo_plan)
 
+    def test_plan_task_blocks_when_design_research_gate_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            self._write_json(task_dir / "task.json", {"task_id": "task-plan", "title": "直播列表国家筛选", "status": "designed"})
+            (task_dir / "design.md").write_text("# Design\n\n## 风险与待确认\n- 待确认：缺少关键代码证据。\n", encoding="utf-8")
+            self._write_json(
+                task_dir / "design-quality.json",
+                {
+                    "quality_status": "degraded",
+                    "research_gate": {
+                        "passed": False,
+                        "review_decision": "redo_research",
+                        "reason": "缺少关键代码证据。",
+                    },
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "design.md 仍有未确认内容"):
+                plan_task("task-plan", settings=settings, on_log=lambda _line: None)
+
+    def test_plan_task_blocks_when_design_markdown_has_pending_items_without_sidecar_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            self._write_json(task_dir / "task.json", {"task_id": "task-plan", "title": "直播列表国家筛选", "status": "designed"})
+            (task_dir / "design.md").write_text("# Design\n\n## 风险与待确认\n- 待确认：具体 AB 参数 key。\n", encoding="utf-8")
+            self._write_json(task_dir / "design-quality.json", {"quality_status": "passed"})
+            self._write_json(task_dir / "design-supervisor-review.json", {"passed": True, "decision": "pass"})
+
+            with self.assertRaisesRegex(ValueError, "Design 文档仍包含待确认项"):
+                plan_task("task-plan", settings=settings, on_log=lambda _line: None)
+
+    def test_plan_task_allows_resolved_design_even_when_old_research_gate_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            self._write_json(task_dir / "task.json", {"task_id": "task-plan", "title": "直播列表国家筛选", "status": "designed"})
+            (task_dir / "design.md").write_text(
+                "# Design\n\n"
+                "## 设计决策\n"
+                "- 已确认：实验开关使用 `UseCountryFilter`，默认 false。\n"
+                "- 已确认：国家筛选参数落在 live-api 查询层。\n",
+                encoding="utf-8",
+            )
+            self._write_json(
+                task_dir / "design-quality.json",
+                {
+                    "quality_status": "degraded",
+                    "research_gate": {
+                        "passed": False,
+                        "review_decision": "redo_research",
+                        "reason": "曾缺少关键代码证据。",
+                    },
+                },
+            )
+
+            status = plan_task("task-plan", settings=settings, on_log=lambda _line: None)
+
+            self.assertEqual(status, "planned")
+
+    def test_plan_task_allows_resolved_conditional_missing_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            self._write_json(task_dir / "task.json", {"task_id": "task-plan", "title": "直播列表国家筛选", "status": "designed"})
+            (task_dir / "design.md").write_text(
+                "# Design\n\n"
+                "## 风险与待确认\n"
+                "- 已确认：新增独立实验 key。\n"
+                "- 仅当缺少所需 AB 实验开关时才需要改动。\n",
+                encoding="utf-8",
+            )
+            self._write_json(task_dir / "design-quality.json", {"quality_status": "passed"})
+            self._write_json(task_dir / "design-supervisor-review.json", {"passed": True, "decision": "pass"})
+
+            status = plan_task("task-plan", settings=settings, on_log=lambda _line: None)
+
+            self.assertEqual(status, "planned")
+
+    def test_plan_task_blocks_when_design_supervisor_degraded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            task_dir = self._create_plan_ready_task(settings.task_root, root / "repo")
+            self._write_json(task_dir / "task.json", {"task_id": "task-plan", "title": "直播列表国家筛选", "status": "designed"})
+            (task_dir / "design.md").write_text("# Design\n\n## 风险与待确认\n- 待确认：Research evidence is insufficient.\n", encoding="utf-8")
+            self._write_json(
+                task_dir / "design-supervisor-review.json",
+                {
+                    "passed": False,
+                    "decision": "degrade_design",
+                    "reason": "Research evidence is insufficient.",
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "Design Supervisor 曾决策为 degrade_design"):
+                plan_task("task-plan", settings=settings, on_log=lambda _line: None)
+
     def test_repo_plan_markdown_can_be_edited_after_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

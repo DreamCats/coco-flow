@@ -6,12 +6,18 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 
 from coco_flow.config import Settings
-from coco_flow.prompts.design import build_doc_only_design_prompt
+from coco_flow.prompts.design import build_doc_only_design_prompt, build_doc_only_design_repair_prompt
 
-from coco_flow.engines.design.quality import ensure_inferred_open_questions, infer_design_open_questions, merge_open_questions
+from coco_flow.engines.design.quality import (
+    design_markdown_is_actionable,
+    infer_design_open_questions,
+    merge_open_questions,
+    repair_low_risk_design_quality,
+)
 from coco_flow.engines.design.runtime import run_agent_markdown_with_new_session
 from coco_flow.engines.design.support import as_str_list, dict_list, first_non_empty
 from coco_flow.engines.design.types import DesignInputBundle
@@ -25,6 +31,14 @@ _FIELD_DEFINITION_PATH_MARKERS = (
 )
 
 
+@dataclass
+class DesignWriterDraft:
+    markdown: str
+    local_draft_markdown: str
+    native_markdown: str = ""
+    source: str = "local"
+
+
 def write_doc_only_design_markdown(
     prepared: DesignInputBundle,
     research_summary_payload: dict[str, object],
@@ -33,6 +47,21 @@ def write_doc_only_design_markdown(
     native_ok: bool,
     on_log,
 ) -> str:
+    result = write_doc_only_design_draft(prepared, research_summary_payload, settings, native_ok=native_ok, on_log=on_log)
+    if result.source == "native" and not design_markdown_is_actionable(result.markdown):
+        on_log("design_writer_fallback: shallow_design_markdown")
+        return _ensure_design_quality(prepared, result.local_draft_markdown, on_log)
+    return result.markdown
+
+
+def write_doc_only_design_draft(
+    prepared: DesignInputBundle,
+    research_summary_payload: dict[str, object],
+    settings: Settings,
+    *,
+    native_ok: bool,
+    on_log,
+) -> DesignWriterDraft:
     research_summary_markdown = render_research_summary_markdown(research_summary_payload)
     draft = build_local_doc_only_design_markdown(prepared, research_summary_payload)
     if native_ok:
@@ -55,12 +84,58 @@ def write_doc_only_design_markdown(
                 stage="writer_doc_only",
                 on_log=on_log,
             )
-            if _design_markdown_is_actionable(generated):
-                return _ensure_design_quality(prepared, generated, on_log)
-            on_log("design_writer_fallback: shallow_design_markdown")
+            generated = sanitize_design_markdown_paths(prepared, generated)
+            return DesignWriterDraft(
+                markdown=_ensure_design_quality(prepared, generated, on_log),
+                local_draft_markdown=draft,
+                native_markdown=generated,
+                source="native",
+            )
         except Exception as error:
             on_log(f"design_writer_fallback: {error}")
-    return _ensure_design_quality(prepared, draft, on_log)
+    return DesignWriterDraft(
+        markdown=_ensure_design_quality(prepared, draft, on_log),
+        local_draft_markdown=draft,
+        source="local",
+    )
+
+
+def repair_doc_only_design_markdown(
+    prepared: DesignInputBundle,
+    research_summary_payload: dict[str, object],
+    current_markdown: str,
+    repair_instructions: list[str],
+    settings: Settings,
+    *,
+    native_ok: bool,
+    on_log,
+) -> str:
+    if not native_ok or not repair_instructions:
+        return current_markdown
+    try:
+        research_summary_markdown = render_research_summary_markdown(research_summary_payload)
+        repaired = run_agent_markdown_with_new_session(
+            prepared,
+            settings,
+            current_markdown,
+            lambda template_path: build_doc_only_design_repair_prompt(
+                title=prepared.title,
+                refined_markdown=prepared.refined_markdown,
+                research_summary_markdown=research_summary_markdown,
+                current_design_markdown=current_markdown,
+                repair_instructions=repair_instructions,
+                template_path=template_path,
+            ),
+            ".design-writer-repair-",
+            role="design_writer",
+            stage="writer_repair",
+            on_log=on_log,
+        )
+        on_log("design_writer_repair_ok: true")
+        return _ensure_design_quality(prepared, sanitize_design_markdown_paths(prepared, repaired), on_log)
+    except Exception as error:
+        on_log(f"design_writer_repair_failed: {error}")
+        return current_markdown
 
 
 def build_local_doc_only_design_markdown(prepared: DesignInputBundle, research_summary_payload: dict[str, object]) -> str:
@@ -86,7 +161,7 @@ def build_local_doc_only_design_markdown(prepared: DesignInputBundle, research_s
     lines.extend(["", "## 分仓库职责"])
     for scope in prepared.repo_scopes:
         repo_payload = repos_by_id.get(scope.repo_id, {})
-        lines.extend(["", f"### {scope.repo_id}", f"- 仓库路径：{scope.repo_path}"])
+        lines.extend(["", f"### {scope.repo_id}", f"- 仓库：{scope.repo_id}"])
         work_hypothesis = str(repo_payload.get("work_hypothesis") or "").strip()
         if work_hypothesis:
             lines.append(f"- 职责判断：{_work_hypothesis_label(work_hypothesis)}")
@@ -122,28 +197,84 @@ def build_local_doc_only_design_markdown(prepared: DesignInputBundle, research_s
 
 
 def _ensure_design_quality(prepared: DesignInputBundle, markdown: str, on_log) -> str:
-    repaired, added_count = ensure_inferred_open_questions(markdown, prepared.sections)
-    if added_count:
-        on_log(f"design_quality_repair: inferred_open_questions_added={added_count}")
-    return repaired
+    return sanitize_design_markdown_paths(prepared, repair_low_risk_design_quality(markdown, prepared.sections, on_log))
+
+
+def sanitize_design_markdown_paths(prepared: DesignInputBundle, markdown: str) -> str:
+    """Design 文档面向用户，不暴露本机绝对 repo 路径。
+
+    research sidecar 仍可以保存绝对路径供系统追踪；design.md 只展示 repo 相对路径。
+    """
+
+    result = markdown
+    for scope in sorted(prepared.repo_scopes, key=lambda item: len(item.repo_path), reverse=True):
+        repo_root = scope.repo_path.rstrip("/")
+        if not repo_root:
+            continue
+        result = result.replace(f"仓库路径：{repo_root}", f"仓库：{scope.repo_id}")
+        result = result.replace(f"仓库路径: {repo_root}", f"仓库：{scope.repo_id}")
+        result = result.replace(f"{repo_root}/", "")
+        result = result.replace(repo_root, scope.repo_id)
+    return result
 
 
 def render_research_summary_markdown(payload: dict[str, object]) -> str:
     lines: list[str] = []
+    review = payload.get("research_review")
+    if isinstance(review, dict):
+        lines.extend(
+            [
+                "## Research Supervisor",
+                f"- 决策：{review.get('decision') or 'unknown'}",
+                f"- 是否通过：{str(bool(review.get('passed'))).lower()}",
+            ]
+        )
+        reason = str(review.get("reason") or "").strip()
+        if reason:
+            lines.append(f"- 原因：{reason}")
+        issues = dict_list(review.get("blocking_issues"))
+        if issues:
+            lines.append("- 阻断问题：")
+            for item in issues[:6]:
+                summary = str(item.get("summary") or "").strip()
+                if summary:
+                    lines.append(f"  - {summary}")
+        lines.append("")
     for repo in dict_list(payload.get("repos")):
         repo_id = str(repo.get("repo_id") or "").strip() or "unknown"
         work_hypothesis = str(repo.get("work_hypothesis") or "").strip()
         summary = str(repo.get("summary") or "").strip()
         candidates = _candidate_file_items(repo)
         excluded = _excluded_file_items(repo)
+        rejected = _rejected_candidate_items(repo)
+        claims = _claim_items(repo)
         unknowns = as_str_list(repo.get("unknowns"))
         boundaries = as_str_list(repo.get("boundaries"))
 
         lines.append(f"### {repo_id}")
         if work_hypothesis:
             lines.append(f"- 调研判断：{_work_hypothesis_label(work_hypothesis)}")
+        research_status = str(repo.get("research_status") or "").strip()
+        if research_status and research_status != "ok":
+            lines.append(f"- 调研状态：{research_status}")
+        skill_usage = repo.get("skill_usage")
+        if isinstance(skill_usage, dict):
+            read_files = as_str_list(skill_usage.get("read_files"))
+            applied_rules = as_str_list(skill_usage.get("applied_rules"))
+            derived_search_hints = as_str_list(skill_usage.get("derived_search_hints"))
+            if read_files or applied_rules or derived_search_hints:
+                lines.append("- Skill/SOP 使用：")
+                if read_files:
+                    lines.extend(f"  - 已读取：`{item}`" for item in read_files[:6])
+                if applied_rules:
+                    lines.extend(f"  - 规则：{item}" for item in applied_rules[:6])
+                if derived_search_hints:
+                    lines.append("  - 搜索入口：" + "、".join(derived_search_hints[:8]))
         if summary:
             lines.append(f"- 摘要：{summary}")
+        if claims:
+            lines.append("- 证据 claim：")
+            lines.extend(f"  - {item}" for item in claims[:8])
         if candidates:
             lines.append("- 候选文件：")
             lines.extend(f"  - `{item['path']}`：{item['reason']}" for item in candidates[:8])
@@ -152,6 +283,9 @@ def render_research_summary_markdown(payload: dict[str, object]) -> str:
         if excluded:
             lines.append("- 排除文件：")
             lines.extend(f"  - `{item['path']}`：{item['reason']}" for item in excluded[:8])
+        if rejected:
+            lines.append("- 已拒绝候选：")
+            lines.extend(f"  - `{item['path']}`：{item['reason']}" for item in rejected[:8])
         if boundaries:
             lines.append("- 边界：")
             lines.extend(f"  - {item}" for item in boundaries[:5])
@@ -160,16 +294,6 @@ def render_research_summary_markdown(payload: dict[str, object]) -> str:
             lines.extend(f"  - {item}" for item in unknowns[:5])
         lines.append("")
     return "\n".join(lines).rstrip()
-
-
-def _design_markdown_is_actionable(markdown: str) -> bool:
-    normalized = markdown.strip()
-    if not normalized:
-        return False
-    has_solution = any(keyword in normalized for keyword in ("改造方案", "技术方案", "方案落点", "实现方案"))
-    has_validation = any(keyword in normalized for keyword in ("验收与验证", "验证方案", "验证关注", "验收标准"))
-    has_repo_section = any(section in normalized for section in ("## 分仓库职责", "## 分仓库方案", "## 仓库方案"))
-    return has_solution and has_validation and has_repo_section
 
 
 def _research_repos_by_id(payload: dict[str, object]) -> dict[str, dict[str, object]]:
@@ -201,25 +325,60 @@ def _candidate_file_items(repo: dict[str, object]) -> list[dict[str, str]]:
     raw = repo.get("candidate_files")
     dict_items = dict_list(raw)
     for item in dict_items:
-        path = str(item.get("path") or "").strip()
+        path = _display_repo_relative_path(str(item.get("path") or "").strip(), repo)
         if not path:
             continue
         reason = _candidate_reason(item)
         result.append({"path": path, "reason": reason})
     if not dict_items:
         for path in as_str_list(raw):
-            result.append({"path": path, "reason": "代码调研命中该文件。"})
+            result.append({"path": _display_repo_relative_path(path, repo), "reason": "代码调研命中该文件。"})
     return result
 
 
 def _excluded_file_items(repo: dict[str, object]) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     for item in dict_list(repo.get("excluded_files")):
-        path = str(item.get("path") or "").strip()
+        path = _display_repo_relative_path(str(item.get("path") or "").strip(), repo)
         if not path:
             continue
         reason = str(item.get("exclude_reason") or "").strip() or "命中 PRD 明确不做范围。"
         result.append({"path": path, "reason": reason})
+    return result
+
+
+def _rejected_candidate_items(repo: dict[str, object]) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for item in dict_list(repo.get("rejected_candidates")):
+        path = _display_repo_relative_path(str(item.get("path") or "").strip(), repo)
+        if not path:
+            continue
+        reason = str(item.get("reason") or "").strip() or "Research Agent 判断该文件不足以支撑本次设计落点。"
+        result.append({"path": path, "reason": reason})
+    return result
+
+
+def _claim_items(repo: dict[str, object]) -> list[str]:
+    result: list[str] = []
+    for item in dict_list(repo.get("claims")):
+        claim = str(item.get("claim") or "").strip()
+        if not claim:
+            continue
+        status = str(item.get("status") or "").strip()
+        files = []
+        for file_item in dict_list(item.get("files")):
+            path = _display_repo_relative_path(str(file_item.get("path") or "").strip(), repo)
+            line = str(file_item.get("line") or "").strip()
+            symbol = str(file_item.get("symbol") or "").strip()
+            if path:
+                suffix = f":{line}" if line and line != "0" else ""
+                label = f"`{path}{suffix}`"
+                if symbol:
+                    label += f" `{symbol}`"
+                files.append(label)
+        file_text = "；证据：" + "、".join(files[:4]) if files else ""
+        status_text = f"（{status}）" if status else ""
+        result.append(f"{claim}{status_text}{file_text}")
     return result
 
 
@@ -242,7 +401,7 @@ def _repo_focus_files(repo_payload: dict[str, object], prepared: DesignInputBund
         matched_terms = _matched_focus_terms(path, item, prepared)
         if not matched_terms and not _is_field_definition_candidate(path, repo_payload, prepared):
             continue
-        result.append({"path": path, "purpose": _focus_file_purpose(path, item, matched_terms)})
+        result.append({"path": _display_repo_relative_path(path, repo_payload), "purpose": _focus_file_purpose(path, item, matched_terms)})
     return result
 
 
@@ -405,5 +564,15 @@ def _normalize_work_hypothesis(value: str) -> str:
 def _repo_scope_text(prepared: DesignInputBundle) -> str:
     lines = []
     for scope in prepared.repo_scopes:
-        lines.append(f"- {scope.repo_id}: {scope.repo_path}")
+        lines.append(f"- {scope.repo_id}")
     return "\n".join(lines) or "- 未绑定仓库"
+
+
+def _display_repo_relative_path(path: str, repo: dict[str, object]) -> str:
+    value = path.strip()
+    repo_path = str(repo.get("repo_path") or "").rstrip("/")
+    if repo_path and value == repo_path:
+        return "."
+    if repo_path and value.startswith(f"{repo_path}/"):
+        return value[len(repo_path) + 1 :]
+    return value

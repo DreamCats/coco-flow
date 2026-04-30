@@ -4,9 +4,10 @@ Design 阶段按架构层拆分：
 
 - ``input/``：读取 task 输入，生成 ``DesignInputBundle``。
 - ``knowledge/``：选择 Skills/SOP，生成完整文件路径索引和 local fallback excerpt。
-- ``discovery/``：生成 repo research 的搜索线索。
-- ``evidence/``：在本地仓库收集代码证据、候选文件和 git evidence。
+- ``discovery/``：local executor 的程序化搜索线索。
+- ``evidence/``：native Research Agent，或 local executor 的程序化代码证据。
 - ``writer/``：生成最终 ``design.md``。
+- ``quality/`` / ``supervisor/``：程序质量 gate 和 Supervisor 审阅。
 - ``shared/contracts.py``：从最终 ``design.md`` 提取跨仓契约，供 Plan 消费。
 - ``runtime/``：ACP session 与 ``design.log`` 适配。
 

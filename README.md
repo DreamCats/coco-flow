@@ -176,7 +176,11 @@ Notes:
 ### Design And Plan
 
 - `design` is a standalone stage exposed in both CLI and API.
-- Design now follows a doc-only MVP flow: refined PRD, repo research, and Skills/SOP are collapsed directly into `design.md`.
+- Design now follows a doc-first flow: in native mode a local Research Context Engine first builds or reuses a lightweight repo index, then the Research Agent gathers repo evidence and a Research Supervisor reviews sufficiency before the writer produces a `design.md` draft; deterministic quality checks and a final Supervisor review decide whether to pass, repair, or degrade it.
+- The Design repo index is pure local search: files, symbols, and recent git summaries under `~/.config/coco-flow/repo-index/`. It does not use embeddings, extra API keys, or `.livecoding/context`.
+- Design persists lightweight review sidecars: `design-research-summary.json`, `design-agent-transcript.jsonl`, `design-quality.json`, `design-supervisor-review.json`, and, when a native writer draft is rejected, `design-writer-rejected.md`.
+- When Design is degraded, the UI surfaces confirmed evidence, missing evidence, and next research steps directly; the degraded `design.md` also includes these sections, so users do not need to inspect JSON sidecars manually.
+- Plan is blocked only while `design.md` still contains unresolved confirmation items from those sidecars. Users can edit `design.md`, turn the pending items into explicit decisions, sync Design, and continue to Plan without rerunning Design.
 - Design no longer persists adjudication, review, debate, decision, repo-binding, sections, verify, diagnosis, or result JSON.
 - `plan` supports `native` and `local`.
 - Plan writes a human-readable `plan.md` plus Code-consumable sidecars: `plan-work-items.json`, `plan-execution-graph.json`, `plan-validation.json`, `plan-sync.json`, and `plan-result.json`.

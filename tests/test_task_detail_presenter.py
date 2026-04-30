@@ -23,7 +23,7 @@ class TaskDetailPresenterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             task_dir = Path(tmp)
             (task_dir / "prd-refined.md").write_text("# PRD Refined\n", encoding="utf-8")
-            (task_dir / "design.md").write_text("# Design\n", encoding="utf-8")
+            (task_dir / "design.md").write_text("# Design\n\n## 风险与待确认\n- 待确认：缺少 Starling key 证据。\n", encoding="utf-8")
 
             cases = [
                 (
@@ -209,6 +209,115 @@ class TaskDetailPresenterTest(unittest.TestCase):
         self.assertIn("请先确认", action)
         self.assertIn("design-repo-binding.json", action)
         self.assertNotIn("tasks plan", action)
+
+    def test_build_latest_diagnosis_reads_design_research_gate_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp)
+            (task_dir / "prd-refined.md").write_text("# PRD Refined\n", encoding="utf-8")
+            (task_dir / "design.md").write_text(
+                "# Design\n\n"
+                "## 风险与待确认\n"
+                "- 待确认：缺少 Starling key 证据。\n",
+                encoding="utf-8",
+            )
+            (task_dir / "design-quality.json").write_text(
+                json.dumps(
+                    {
+                        "quality_status": "degraded",
+                        "research_gate": {
+                            "passed": False,
+                            "review_decision": "redo_research",
+                            "reason": "缺少 Starling key 证据。",
+                        },
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            diagnosis = build_latest_diagnosis(task_dir)
+            assert diagnosis is not None
+
+            action = build_next_action("task-1", "designed", task_dir, [], diagnosis)
+
+        self.assertEqual(diagnosis.stage, "design")
+        self.assertEqual(diagnosis.failure_type, "research_gate_not_passed")
+        self.assertEqual(diagnosis.severity, "degraded")
+        self.assertIn("Starling key", diagnosis.reason)
+        self.assertIn("直接编辑 design.md", action)
+        self.assertIn("tasks plan task-1", action)
+        self.assertNotIn("tasks design task-1", action)
+
+    def test_build_latest_diagnosis_ignores_resolved_design_research_gate_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp)
+            (task_dir / "prd-refined.md").write_text("# PRD Refined\n", encoding="utf-8")
+            (task_dir / "design.md").write_text(
+                "# Design\n\n"
+                "## 设计决策\n"
+                "- 已确认：Starling key 使用 `auction_title_prefix`。\n"
+                "- 已确认：标题分隔符使用空格。\n",
+                encoding="utf-8",
+            )
+            (task_dir / "design-quality.json").write_text(
+                json.dumps(
+                    {
+                        "quality_status": "degraded",
+                        "research_gate": {
+                            "passed": False,
+                            "review_decision": "redo_research",
+                            "reason": "曾缺少 Starling key 证据。",
+                        },
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            diagnosis = build_latest_diagnosis(task_dir)
+
+        self.assertIsNone(diagnosis)
+
+    def test_build_latest_diagnosis_ignores_resolved_conditional_missing_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp)
+            (task_dir / "prd-refined.md").write_text("# PRD Refined\n", encoding="utf-8")
+            (task_dir / "design.md").write_text(
+                "# Design\n\n"
+                "## 风险与待确认\n"
+                "- 已确认：新增独立实验 key。\n"
+                "- 仅当缺少所需 AB 实验开关时才需要改动。\n",
+                encoding="utf-8",
+            )
+            (task_dir / "design-quality.json").write_text(
+                json.dumps({"quality_status": "passed"}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+            diagnosis = build_latest_diagnosis(task_dir)
+
+        self.assertIsNone(diagnosis)
+
+    def test_build_latest_diagnosis_reads_design_pending_confirmation_without_sidecar_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp)
+            (task_dir / "prd-refined.md").write_text("# PRD Refined\n", encoding="utf-8")
+            (task_dir / "design.md").write_text(
+                "# Design\n\n## 风险与待确认\n- 待确认：具体 AB 参数 key。\n",
+                encoding="utf-8",
+            )
+            (task_dir / "design-quality.json").write_text(json.dumps({"quality_status": "passed"}, ensure_ascii=False) + "\n", encoding="utf-8")
+            diagnosis = build_latest_diagnosis(task_dir)
+            assert diagnosis is not None
+
+            action = build_next_action("task-1", "designed", task_dir, [], diagnosis)
+
+        self.assertEqual(diagnosis.failure_type, "design_pending_confirmation")
+        self.assertIn("具体 AB 参数 key", diagnosis.issues[0])
+        self.assertIn("tasks plan task-1", action)
 
     def test_build_next_action_points_to_manual_scope_for_refine_needs_human(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

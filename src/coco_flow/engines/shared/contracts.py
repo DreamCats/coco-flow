@@ -91,6 +91,7 @@ def extract_dependency_contract(
 ) -> dict[str, object]:
     text = "\n".join([producer_text, consumer_text, design_markdown])
     field_name = extract_contract_field_name(text)
+    experiment_key = extract_experiment_key(text)
     json_tag = extract_json_tag(text, field_name)
     consumer_access = extract_consumer_access(text, field_name)
     if field_name and not consumer_access:
@@ -98,13 +99,14 @@ def extract_dependency_contract(
     default_value = extract_contract_default_value(text)
     value_semantics = extract_contract_value_semantics(text)
     contract_type = "ab_experiment_field" if any(token in text for token in ("实验", "AB", "abtest")) else "cross_repo_contract"
-    if not any([field_name, json_tag, consumer_access, default_value, value_semantics]):
+    if not any([field_name, experiment_key, json_tag, consumer_access, default_value, value_semantics]):
         return {}
     return {
         "type": contract_type,
         "producer_repo": producer_repo,
         "consumer_repo": consumer_repo,
         **({"field_name": field_name} if field_name else {}),
+        **({"experiment_key": experiment_key} if experiment_key else {}),
         **({"json_tag": json_tag} if json_tag else {}),
         **({"default_value": default_value} if default_value else {}),
         **({"value_semantics": value_semantics} if value_semantics else {}),
@@ -128,8 +130,8 @@ def is_producer_section(repo_id: str, text: str, design_text: str = "") -> bool:
 def is_consumer_section(text: str, design_text: str = "") -> bool:
     if any(role in design_text for role in ("Consumer 仓库", "consumer")) and any(token in text for token in ("消费", "接入", "读取")):
         return True
-    return any(token in text for token in ("读取", "消费", "依赖", "接入", "使用")) and any(
-        token in text for token in ("字段", "接口", "模型", "配置", "key", "契约", "AB")
+    return any(token in text for token in ("读取", "消费", "依赖", "接入", "使用", "复用")) and any(
+        token in text for token in ("字段", "接口", "模型", "配置", "key", "契约", "AB", "实验")
     )
 
 
@@ -169,6 +171,22 @@ def extract_contract_field_name(text: str) -> str:
     return ""
 
 
+def extract_experiment_key(text: str) -> str:
+    patterns = [
+        r"(?:实验\s*key|AB\s*key|ab\s*key|experiment_key)\s*(?:为|=|[:：])\s*`?([A-Za-z][A-Za-z0-9_.:-]{2,})`?",
+        r"`([A-Za-z][A-Za-z0-9_.:-]*(?:Exp|Experiment|AB|Ab|Auction|Switch|Enable|Enabled)[A-Za-z0-9_.:-]*)`?\s*(?:实验\s*key|AB\s*key)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            value = match.group(1).strip().strip("`")
+            if not re.search(r"[\u4e00-\u9fff]", value) and value.lower() not in {"design", "plan", "todo", "tbd", "unknown"}:
+                return value
+    if any(token in text for token in ("新增独立实验 key", "新增独立 AB key", "新增独立开关实验", "新增独立实验")):
+        return "新增独立实验 key"
+    return ""
+
+
 def extract_json_tag(text: str, field_name: str) -> str:
     patterns = [
         r"(?:json tag|json_tag|JSON tag)\s*(?:为|=|[:：])\s*`?([a-z][a-z0-9_]+)`?",
@@ -204,6 +222,8 @@ def extract_contract_default_value(text: str) -> str:
             return match.group(1).strip().strip('"')
     if "默认" in text and "0" in text:
         return "0"
+    if "默认" in text and any(token in text for token in ("false", "False", "不启用", "关闭")):
+        return "false"
     return ""
 
 

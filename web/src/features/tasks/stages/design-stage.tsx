@@ -12,6 +12,13 @@ type DesignProgressStep = {
   done: boolean
   current: boolean
 }
+type DesignBlocker = {
+  title: string
+  body: string
+  action: string
+  issues: string[]
+  instructions: string[]
+}
 
 const DESIGN_PROGRESS_LABELS = ['准备输入', '选择 Skills', '仓库调研', '生成设计', '完成设计'] as const
 type DesignProgressLabel = (typeof DESIGN_PROGRESS_LABELS)[number]
@@ -100,7 +107,27 @@ export function DesignStage({
           <div className="mb-4 rounded-[14px] border border-[#e7bf7a] bg-[#fff6e6] px-4 py-3 text-sm leading-6 text-[#75510d] dark:border-[#6b5428] dark:bg-[#2d2416] dark:text-[#f0d59b]">
             <div className="font-medium text-[#5f430d] dark:text-[#f5dfad]">{blocker.title}</div>
             <div className="mt-1">{blocker.body}</div>
-            {blocker.action ? <div className="mt-2 text-xs text-[#8a6826] dark:text-[#d5bb83]">{blocker.action}</div> : null}
+            {blocker.issues.length > 0 ? (
+              <div className="mt-3">
+                <div className="text-xs font-medium text-[#5f430d] dark:text-[#f5dfad]">还缺什么</div>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5">
+                  {blocker.issues.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {blocker.instructions.length > 0 ? (
+              <div className="mt-3">
+                <div className="text-xs font-medium text-[#5f430d] dark:text-[#f5dfad]">下一步补证</div>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5">
+                  {blocker.instructions.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {blocker.action ? <div className="mt-3 text-xs text-[#8a6826] dark:text-[#d5bb83]">{blocker.action}</div> : null}
           </div>
         ) : null}
         <div className="rounded-[18px] border border-[#ece6da] bg-[#fffdf9] px-4 py-4 dark:border-[#383632] dark:bg-[#151412]">
@@ -273,7 +300,7 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-function buildDesignBlocker(task: TaskRecord): { title: string; body: string; action: string } | null {
+function buildDesignBlocker(task: TaskRecord): DesignBlocker | null {
   const diagnosis = task.diagnosis
   if (!diagnosis || diagnosis.stage !== 'design' || diagnosis.ok) {
     return null
@@ -285,11 +312,47 @@ function buildDesignBlocker(task: TaskRecord): { title: string; body: string; ac
   }
   const reason = diagnosis.reason || 'Design 阶段需要人工确认后才能继续。'
   const issueText = diagnosis.issueCount > 0 ? `共发现 ${diagnosis.issueCount} 个问题。` : ''
+  const research = parseJSON(task.artifacts['design-research-summary.json'])
+  const researchReview = asRecord(research.research_review)
+  const reviewIssues = asSummaryList(researchReview.blocking_issues)
+  const reviewInstructions = asStringList(researchReview.research_instructions)
   return {
     title: severity === 'degraded' ? 'Design 产物需要人工确认' : 'Design 已被阻断',
     body: [issueText, reason].filter(Boolean).join(' '),
-    action: task.nextAction || '请查看 design-diagnosis.json 和 design-decision.json，确认后重新执行 Design。',
+    action: task.nextAction || diagnosis.nextAction || '编辑 design.md 补齐待确认项，随后同步 Design 并进入 Plan。',
+    issues: uniqueStrings([...(diagnosis.issues || []), ...reviewIssues]).slice(0, 6),
+    instructions: uniqueStrings([...(diagnosis.instructions || []), ...reviewInstructions]).slice(0, 6),
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(asRecord).filter((item) => Object.keys(item).length > 0) : []
+}
+
+function asStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(asString).filter(Boolean) : []
+}
+
+function asSummaryList(value: unknown): string[] {
+  return asRecordArray(value).map((item) => asString(item.summary)).filter(Boolean)
+}
+
+function uniqueStrings(items: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const item of items) {
+    const value = item.trim()
+    if (!value || seen.has(value)) {
+      continue
+    }
+    seen.add(value)
+    result.push(value)
+  }
+  return result
 }
 
 function buildDesignProgress(task: TaskRecord): DesignProgressStep[] {
