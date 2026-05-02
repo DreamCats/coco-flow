@@ -1,5 +1,5 @@
 import type { TaskRecord } from '../../../api'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { updateTaskArtifact } from '../../../api'
 import { hasArtifact } from '../model'
 import { TaskStageEditorModal } from '../task-stage-editor-modal'
@@ -17,6 +17,7 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [streamedLog, setStreamedLog] = useState<string | null>(null)
 
   const steps = useMemo(() => buildRefineProgress(task), [task])
   const progressPercent = useMemo(() => buildRefineProgressPercent(task, steps), [task, steps])
@@ -28,10 +29,51 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
         ? 'bg-[#2c8c58]'
         : 'bg-[#cdbda6] dark:bg-[#4a4640]'
   const notesContent = task.artifacts['refine.notes.md'] || '当前没有额外补充说明。'
-  const logContent = task.artifacts['refine.log'] || '当前没有 refine 日志。'
   const isRunning = task.status === 'refining'
+  const logContent = streamedLog ?? task.artifacts['refine.log'] ?? ''
+  const visibleLogContent = logContent || '当前没有 refine 日志。'
   const currentValue = editingTab === 'artifact' ? task.artifacts['prd-refined.md'] || '' : task.artifacts['refine.notes.md'] || ''
   const canSave = editingTab === 'artifact' ? draft.trim().length > 0 && draft.trim() !== currentValue.trim() : draft.trim() !== currentValue.trim()
+
+  useEffect(() => {
+    if (!isRunning) {
+      setStreamedLog(null)
+      return
+    }
+
+    const source = new EventSource(`/api/tasks/${encodeURIComponent(task.id)}/logs/refine/stream`)
+    const parseContent = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as { content?: unknown }
+        return typeof payload.content === 'string' ? payload.content : ''
+      } catch {
+        return ''
+      }
+    }
+    const handleSnapshot = (event: MessageEvent) => {
+      setStreamedLog(parseContent(event))
+    }
+    const handleAppend = (event: MessageEvent) => {
+      const chunk = parseContent(event)
+      if (chunk) {
+        setStreamedLog((current) => `${current ?? ''}${chunk}`)
+      }
+    }
+    const handleDone = () => {
+      source.close()
+    }
+
+    source.addEventListener('snapshot', handleSnapshot)
+    source.addEventListener('append', handleAppend)
+    source.addEventListener('done', handleDone)
+    source.onerror = () => {
+      source.close()
+    }
+
+    return () => {
+      source.close()
+    }
+  }, [isRunning, task.id])
 
   function openEditor(nextTab: 'artifact' | 'notes') {
     setEditingTab(nextTab)
@@ -101,7 +143,7 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
             isRunning={isRunning}
             onEdit={() => openEditor('artifact')}
           />
-          <RefineLogTimeline content={logContent} isRunning={isRunning} />
+          <RefineLogTimeline content={visibleLogContent} isRunning={isRunning} />
         </div>
 
         <div className="mt-4 rounded-[12px] border border-[#e8e6dc] bg-[#faf9f5] dark:border-[#30302e] dark:bg-[#1d1c1a]">

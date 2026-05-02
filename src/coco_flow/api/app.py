@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
 import os
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -46,6 +48,22 @@ from coco_flow.services.tasks.refine import start_refining_task
 from coco_flow.api.presenters import task_detail_item, task_list_item
 from coco_flow.services.queries.skills import SkillStore
 from coco_flow.services.queries.workspace import workspace_summary
+
+STAGE_LOG_FILES = {
+    "input": "input.log",
+    "refine": "refine.log",
+    "design": "design.log",
+    "plan": "plan.log",
+    "code": "code.log",
+}
+
+STAGE_RUNNING_STATUSES = {
+    "input": {"input_processing"},
+    "refine": {"refining"},
+    "design": {"designing"},
+    "plan": {"planning"},
+    "code": {"coding"},
+}
 
 
 def create_app(task_store: TaskStore | None = None, static_dir: str | None = None) -> FastAPI:
@@ -362,6 +380,55 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
             raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
         return ArtifactContentResponse(task_id=task_id, repo_id=repo or None, name=name, content=content)
 
+    @app.get("/api/tasks/{task_id}/logs/{stage}/stream")
+    async def stream_task_stage_log(task_id: str, stage: str, request: Request):
+        file_name = STAGE_LOG_FILES.get(stage)
+        if file_name is None:
+            raise HTTPException(status_code=404, detail=f"stage log not found: {stage}")
+        task_dir = store.settings.task_root / task_id
+        if not task_dir.is_dir():
+            raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
+        log_path = task_dir / file_name
+
+        async def events():
+            position = 0
+            initial = _read_log_text(log_path)
+            position = len(initial.encode("utf-8"))
+            yield _sse_event("snapshot", {"content": initial})
+            if not _stage_is_running(store, task_id, stage):
+                yield _sse_event("done", {})
+                return
+
+            idle_ticks = 0
+            while True:
+                if await request.is_disconnected():
+                    return
+                chunk, position = _read_log_bytes_from(log_path, position)
+                if chunk:
+                    idle_ticks = 0
+                    yield _sse_event("append", {"content": chunk})
+                else:
+                    idle_ticks += 1
+                    if idle_ticks % 10 == 0:
+                        yield ": ping\n\n"
+
+                if not _stage_is_running(store, task_id, stage):
+                    final_chunk, position = _read_log_bytes_from(log_path, position)
+                    if final_chunk:
+                        yield _sse_event("append", {"content": final_chunk})
+                    yield _sse_event("done", {})
+                    return
+                await asyncio.sleep(0.5)
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     @app.put("/api/tasks/{task_id}/artifact", response_model=UpdateArtifactResponse)
     def update_task_artifact(
         task_id: str, name: str, payload: UpdateArtifactRequest, repo: str = ""
@@ -398,3 +465,36 @@ def create_app(task_store: TaskStore | None = None, static_dir: str | None = Non
             raise HTTPException(status_code=404, detail=f"path not found: {path_name}")
 
     return app
+
+
+def _sse_event(event_name: str, payload: dict[str, object]) -> str:
+    return f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _read_log_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+
+
+def _read_log_bytes_from(path: Path, position: int) -> tuple[str, int]:
+    try:
+        if path.stat().st_size < position:
+            position = 0
+        with path.open("rb") as file:
+            file.seek(position)
+            data = file.read()
+            next_position = file.tell()
+    except FileNotFoundError:
+        return "", position
+    if not data:
+        return "", next_position
+    return data.decode("utf-8", errors="replace"), next_position
+
+
+def _stage_is_running(store: TaskStore, task_id: str, stage: str) -> bool:
+    task = store.get_task(task_id)
+    if task is None:
+        return False
+    return task.status in STAGE_RUNNING_STATUSES.get(stage, set())
