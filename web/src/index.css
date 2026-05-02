@@ -50,3 +50,68 @@ pre,
 code {
   font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
 }
+
+.flow-progress-fill {
+  position: relative;
+  overflow: hidden;
+}
+
+.flow-progress-fill-active::before,
+.flow-progress-fill-active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.flow-progress-fill-active::before {
+  background:
+    linear-gradient(
+      110deg,
+      transparent 0%,
+      rgba(250, 249, 245, 0.05) 18%,
+      rgba(250, 249, 245, 0.48) 34%,
+      rgba(250, 249, 245, 0.1) 52%,
+      transparent 70%
+    );
+  background-size: 220% 100%;
+  animation: flow-progress-shimmer 1.45s linear infinite;
+}
+
+.flow-progress-fill-active::after {
+  background:
+    radial-gradient(ellipse at 18% 50%, rgba(250, 249, 245, 0.28) 0%, transparent 34%),
+    radial-gradient(ellipse at 58% 50%, rgba(250, 249, 245, 0.18) 0%, transparent 30%),
+    radial-gradient(ellipse at 86% 50%, rgba(250, 249, 245, 0.22) 0%, transparent 28%);
+  background-size: 160px 100%;
+  animation: flow-progress-wave 2.2s ease-in-out infinite;
+  opacity: 0.75;
+}
+
+@keyframes flow-progress-shimmer {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -80% 0;
+  }
+}
+
+@keyframes flow-progress-wave {
+  0% {
+    transform: translateX(-90px) scaleY(0.82);
+  }
+  50% {
+    transform: translateX(12px) scaleY(1.16);
+  }
+  100% {
+    transform: translateX(120px) scaleY(0.82);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-progress-fill-active::before,
+  .flow-progress-fill-active::after {
+    animation: none;
+  }
+}

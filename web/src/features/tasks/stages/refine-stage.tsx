@@ -112,9 +112,9 @@ export function RefineStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskU
             </div>
             {isRunning ? <span className="rounded-full bg-[#fff1ed] px-3 py-1 text-xs font-medium text-[#c96442] dark:bg-[#351b17] dark:text-[#f0c0b0]">Streaming</span> : null}
           </div>
-          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-[#f5f4ed] dark:bg-[#30302e]">
+          <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[#f5f4ed] dark:bg-[#30302e]">
             <div
-              className={`h-full rounded-full transition-all duration-300 ${progressTone}`}
+              className={`flow-progress-fill h-full rounded-full transition-all duration-300 ${progressTone} ${isRunning ? 'flow-progress-fill-active' : ''}`}
               style={{ width: `${progressPercent}%` }}
             />
           </div>

@@ -196,7 +196,7 @@ export function PlanStage({ task, onTaskUpdated }: { task: TaskRecord; onTaskUpd
   return (
     <>
       <SectionCard title="阶段详情">
-        <PlanProgressCard activeLabel={activeLabel} progressPercent={progressPercent} progressTone={progressTone} steps={steps} />
+        <PlanProgressCard activeLabel={activeLabel} isRunning={task.status === 'planning'} progressPercent={progressPercent} progressTone={progressTone} steps={steps} />
         <PlanReadinessCard
           busy={readinessBusy}
           canEvaluate={canEvaluate}
@@ -497,11 +497,13 @@ function PlanReadinessDetails({
 
 function PlanProgressCard({
   activeLabel,
+  isRunning,
   progressPercent,
   progressTone,
   steps,
 }: {
   activeLabel: string
+  isRunning: boolean
   progressPercent: number
   progressTone: string
   steps: PlanProgressStep[]
@@ -517,8 +519,8 @@ function PlanProgressCard({
           {progressPercent}%
         </div>
       </div>
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#efeae0] dark:bg-[#232220]">
-        <div className={`h-full rounded-full transition-all duration-300 ${progressTone}`} style={{ width: `${progressPercent}%` }} />
+      <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[#efeae0] dark:bg-[#232220]">
+        <div className={`flow-progress-fill h-full rounded-full transition-all duration-300 ${progressTone} ${isRunning ? 'flow-progress-fill-active' : ''}`} style={{ width: `${progressPercent}%` }} />
       </div>
       <div className="mt-4 grid gap-2 md:grid-cols-6">
         {steps.map((step) => (

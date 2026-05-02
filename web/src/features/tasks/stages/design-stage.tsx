@@ -140,9 +140,9 @@ export function DesignStage({
               {progressPercent}%
             </div>
           </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#efeae0] dark:bg-[#232220]">
+          <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[#efeae0] dark:bg-[#232220]">
             <div
-              className={`h-full rounded-full transition-all duration-300 ${progressTone}`}
+              className={`flow-progress-fill h-full rounded-full transition-all duration-300 ${progressTone} ${task.status === 'designing' ? 'flow-progress-fill-active' : ''}`}
               style={{ width: `${progressPercent}%` }}
             />
           </div>
